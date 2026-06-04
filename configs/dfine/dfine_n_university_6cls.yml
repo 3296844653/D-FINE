@@ -1,0 +1,40 @@
+# 配置文件路径: configs/dfine/dfine_n_university_6cls.yml
+
+# ==========================================================
+#  引用 N 模型基础配置
+# ==========================================================
+__include__:
+  - include/dfine_hgnetv2.yml
+  - include/dataloader.yml
+  - include/optimizer.yml
+  - dfine_hgnetv2_n_coco.yml
+
+# ==========================================================
+#  核心参数覆盖
+# ==========================================================
+output_dir: ./output/dfine_n_university_6cls
+epochs: 160                  # N 模型建议 160 轮
+num_classes: 6               # 匹配您的 6 个行为类别
+remap_mscoco_category: False
+
+# ==========================================================
+#  数据加载与增强配置 (针对 4090 24G 显存)
+# ==========================================================
+train_dataloader:
+  total_batch_size: 32       # N 模型非常小，建议设为 32。若显存充足，可设为 64 或 128
+  num_workers: 4
+  dataset:
+    img_folder: dataset/0.671k_university_yolo_Dataset/images/train
+    ann_file: dataset/0.671k_university_yolo_Dataset/annotations/instances_train.json
+    transforms:
+      policy:
+        epoch: 148           # 在第 148 轮（最后 12 轮）停止数据强增强
+
+  collate_fn:
+    stop_epoch: 148          # 在第 148 轮停止多尺度训练
+
+val_dataloader:
+  total_batch_size: 32       # 验证 batch size
+  dataset:
+    img_folder: dataset/0.671k_university_yolo_Dataset/images/val
+    ann_file: dataset/0.671k_university_yolo_Dataset/annotations/instances_val.json
