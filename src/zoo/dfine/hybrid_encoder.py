@@ -547,13 +547,9 @@ class HybridEncoder(nn.Module):
                 torch.concat([downsample_feat, feat_height], dim=1)
             )
 
-            # 残差门控：控制 P2 继续向 P3/P4/P5 传播
-            # idx == 0 表示从 P2 向 P3 传播
-            if self.use_hf_gate and idx == self.hf_gate_level:
-                gate = torch.sigmoid(self.hf_gate).to(dtype=fused_out.dtype)
-                out = feat_height + gate * (fused_out - feat_height)
-            else:
-                out = fused_out
+            # 去掉 bottom-up 阶段的残差门控
+            # 只保留正常 PAN 融合，避免 P2 噪声被二次放大传播
+            out = fused_out
 
             outs.append(out)
 
