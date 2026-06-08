@@ -331,17 +331,40 @@ class HybridEncoder(nn.Module):
         depth_mult=1.0,
         act="silu",
         eval_spatial_size=None,
+
+        # 新增
+        use_hf_gate=False,
+        hf_gate_init=-2.0,
+        hf_gate_level=0,
+        hf_return_indices=None,
     ):
         super().__init__()
         self.in_channels = in_channels
         self.feat_strides = feat_strides
         self.hidden_dim = hidden_dim
         self.use_encoder_idx = use_encoder_idx
+
+        # HF Hybrid Encoder gate
+        self.use_hf_gate = use_hf_gate
+        self.hf_gate_level = hf_gate_level
+        self.hf_return_indices = hf_return_indices
+
+        if self.use_hf_gate:
+            self.hf_gate = nn.Parameter(torch.tensor(float(hf_gate_init)))
+        else:
+            self.hf_gate = None
+
         self.num_encoder_layers = num_encoder_layers
         self.pe_temperature = pe_temperature
         self.eval_spatial_size = eval_spatial_size
-        self.out_channels = [hidden_dim for _ in range(len(in_channels))]
-        self.out_strides = feat_strides
+        # self.out_channels = [hidden_dim for _ in range(len(in_channels))]
+        # self.out_strides = feat_strides
+        if self.hf_return_indices is not None:
+            self.out_channels = [hidden_dim for _ in self.hf_return_indices]
+            self.out_strides = [feat_strides[i] for i in self.hf_return_indices]
+        else:
+            self.out_channels = [hidden_dim for _ in range(len(in_channels))]
+            self.out_strides = feat_strides
 
         # channel projection
         self.input_proj = nn.ModuleList()
@@ -465,24 +488,77 @@ class HybridEncoder(nn.Module):
                 )
 
         # broadcasting and fusion
+        # inner_outs = [proj_feats[-1]]
+        # for idx in range(len(self.in_channels) - 1, 0, -1):
+        #     feat_heigh = inner_outs[0]
+        #     feat_low = proj_feats[idx - 1]
+        #     feat_heigh = self.lateral_convs[len(self.in_channels) - 1 - idx](feat_heigh)
+        #     inner_outs[0] = feat_heigh
+        #     upsample_feat = F.interpolate(feat_heigh, scale_factor=2.0, mode="nearest")
+        #     inner_out = self.fpn_blocks[len(self.in_channels) - 1 - idx](
+        #         torch.concat([upsample_feat, feat_low], dim=1)
+        #     )
+        #     inner_outs.insert(0, inner_out)
         inner_outs = [proj_feats[-1]]
+
         for idx in range(len(self.in_channels) - 1, 0, -1):
             feat_heigh = inner_outs[0]
             feat_low = proj_feats[idx - 1]
-            feat_heigh = self.lateral_convs[len(self.in_channels) - 1 - idx](feat_heigh)
+
+            fpn_idx = len(self.in_channels) - 1 - idx
+
+            feat_heigh = self.lateral_convs[fpn_idx](feat_heigh)
             inner_outs[0] = feat_heigh
+
             upsample_feat = F.interpolate(feat_heigh, scale_factor=2.0, mode="nearest")
-            inner_out = self.fpn_blocks[len(self.in_channels) - 1 - idx](
+
+            fused_feat = self.fpn_blocks[fpn_idx](
                 torch.concat([upsample_feat, feat_low], dim=1)
             )
+
+            # 残差门控：只控制 P2 注入
+            # 当输入为 [P2, P3, P4, P5] 时，idx - 1 == 0 表示当前融合的是 P2
+            if self.use_hf_gate and (idx - 1) == self.hf_gate_level:
+                gate = torch.sigmoid(self.hf_gate).to(dtype=fused_feat.dtype)
+                inner_out = upsample_feat + gate * (fused_feat - upsample_feat)
+            else:
+                inner_out = fused_feat
+
             inner_outs.insert(0, inner_out)
 
+        # outs = [inner_outs[0]]
+        # for idx in range(len(self.in_channels) - 1):
+        #     feat_low = outs[-1]
+        #     feat_height = inner_outs[idx + 1]
+        #     downsample_feat = self.downsample_convs[idx](feat_low)
+        #     out = self.pan_blocks[idx](torch.concat([downsample_feat, feat_height], dim=1))
+        #     outs.append(out)
+
+        # return outs
         outs = [inner_outs[0]]
+
         for idx in range(len(self.in_channels) - 1):
             feat_low = outs[-1]
             feat_height = inner_outs[idx + 1]
+
             downsample_feat = self.downsample_convs[idx](feat_low)
-            out = self.pan_blocks[idx](torch.concat([downsample_feat, feat_height], dim=1))
+
+            fused_out = self.pan_blocks[idx](
+                torch.concat([downsample_feat, feat_height], dim=1)
+            )
+
+            # 残差门控：控制 P2 继续向 P3/P4/P5 传播
+            # idx == 0 表示从 P2 向 P3 传播
+            if self.use_hf_gate and idx == self.hf_gate_level:
+                gate = torch.sigmoid(self.hf_gate).to(dtype=fused_out.dtype)
+                out = feat_height + gate * (fused_out - feat_height)
+            else:
+                out = fused_out
+
             outs.append(out)
+
+        # 内部使用 P2，但最终只返回 P3、P4、P5
+        if self.hf_return_indices is not None:
+            outs = [outs[i] for i in self.hf_return_indices]
 
         return outs
