@@ -4,3 +4,8 @@ weight/
 wandb/
 *.pth
 *.onnx
+
+# Hugging Face / Accelerate cache
+.accelerate/
+**/.accelerate/
+dataset/.accelerate/
