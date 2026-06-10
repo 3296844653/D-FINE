@@ -7,7 +7,7 @@ __include__:
   - include/dfine_hgnetv2.yml
   - include/dataloader.yml
   - include/optimizer.yml
-  - dfine_hgnetv2_l_coco.yml
+  - dfine_hgnetv2_l_coco_hp.yml
 
 # ==========================================================
 # 核心参数覆盖
@@ -15,6 +15,37 @@ __include__:
 epochs: 100                  # L 模型建议 80 轮
 num_classes: 6               # 匹配您的 6 个行为类别
 remap_mscoco_category: False
+
+# ==========================================================
+# 模型结构修改：D-FINE-L + P2 + 残差门控
+# ==========================================================
+HGNetv2:
+  name: 'B4'
+  return_idx: [0, 1, 2, 3]
+  freeze_stem_only: True
+  freeze_at: 0
+  freeze_norm: True
+
+HybridEncoder:
+  in_channels: [128, 512, 1024, 2048]
+  feat_strides: [4, 8, 16, 32]
+  hidden_dim: 256
+
+  use_encoder_idx: [3]
+  num_encoder_layers: 1
+  nhead: 8
+  dim_feedforward: 1024
+  dropout: 0.
+  enc_act: 'gelu'
+
+  expansion: 1.0
+  depth_mult: 1
+  act: 'silu'
+
+  use_hf_gate: True
+  hf_gate_init: -3.0
+  hf_gate_level: 0
+  hf_return_indices: [1, 2, 3]
 
 # ==========================================================
 # 显存与数据加载 (适配 4090 24G 显存)
