@@ -57,7 +57,7 @@ train_dataloader:
     ann_file: /media/a5/5号机移动盘2/wq_datasets/0.671k_university_yolo_Dataset/annotations/instances_train.json
 
   collate_fn:
-    stop_epoch: 102           # 最后 8 轮关闭强增强
+    stop_epoch: 108           # 最后 8 轮关闭强增强
 
 val_dataloader:
   total_batch_size: 16
