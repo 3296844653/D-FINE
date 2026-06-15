@@ -11,7 +11,7 @@ __include__:
 # ==========================================================
 # 核心参数覆盖
 # ==========================================================
-epochs: 120                  # L 模型建议 80 轮
+epochs: 100                  # L 模型建议 80 轮
 num_classes: 6               # 匹配您的 6 个行为类别
 remap_mscoco_category: False
 
@@ -57,7 +57,7 @@ train_dataloader:
     ann_file: dataset/0.671k_university_yolo_Dataset/annotations/instances_train.json
 
   collate_fn:
-    stop_epoch: 108
+    stop_epoch: 90
 
 val_dataloader:
   total_batch_size: 16
