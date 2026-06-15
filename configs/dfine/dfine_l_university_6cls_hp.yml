@@ -50,7 +50,7 @@ HybridEncoder:
 # 显存与数据加载 (适配 4090 24G 显存)
 # ==========================================================
 train_dataloader:
-  total_batch_size: 16
+  total_batch_size: 8
   num_workers: 4
   dataset:
     img_folder: /media/a5/5号机移动盘2/wq_datasets/0.671k_university_yolo_Dataset/images/train
@@ -60,7 +60,7 @@ train_dataloader:
     stop_epoch: 108           # 最后 8 轮关闭强增强
 
 val_dataloader:
-  total_batch_size: 16
+  total_batch_size: 8
   dataset:
     img_folder: /media/a5/5号机移动盘2/wq_datasets/0.671k_university_yolo_Dataset/images/val
     ann_file: /media/a5/5号机移动盘2/wq_datasets/0.671k_university_yolo_Dataset/annotations/instances_val.json
