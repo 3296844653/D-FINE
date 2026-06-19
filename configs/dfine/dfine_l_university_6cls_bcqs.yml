@@ -3,10 +3,11 @@
 __include__:
   - dfine_l_university_6cls.yml
 
-output_dir: ./output/dfine_l_university_6cls_bcqs
+output_dir: ./output/dfine_l_university_6cls_bcqs_w025
 
 DFINETransformer:
   # BCQS: enable behavior-context query scoring before encoder top-k query selection.
   use_bcqs: True
   bcqs_kernel_size: 3
-  bcqs_score_weight: 0.5
+  # BCQS: use a conservative score weight first, because query selection is sensitive.
+  bcqs_score_weight: 0.25

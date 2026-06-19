@@ -47,7 +47,7 @@ class MLP(nn.Module):
 
 
 class BehaviorContextQueryScorer(nn.Module):
-    """BCQS: adds local behavior-context cues before encoder top-k query selection."""
+    """BCQS: extracts local behavior-context cues for encoder top-k query selection."""
 
     def __init__(self, hidden_dim=256, num_levels=3, kernel_size=3):
         super().__init__()
@@ -648,8 +648,8 @@ class DFINETransformer(nn.Module):
         # BCQS: optional context branch for behavior-aware encoder query scoring.
         if self.use_bcqs:
             self.bcqs = BehaviorContextQueryScorer(hidden_dim, num_levels, bcqs_kernel_size)
-            bcqs_out_dim = 1 if query_select_method == "agnostic" else num_classes
-            self.bcqs_score_head = nn.Linear(hidden_dim, bcqs_out_dim)
+            # BCQS: use one objectness-like score for query selection only, avoiding class-logit noise.
+            self.bcqs_score_head = nn.Linear(hidden_dim, 1)
         else:
             self.bcqs = None
             self.bcqs_score_head = None
@@ -840,6 +840,8 @@ class DFINETransformer(nn.Module):
         enc_outputs_logits: torch.Tensor = self.enc_score_head(output_memory)
         if self.use_bcqs:
             # BCQS: re-score encoder candidates with local behavior context before top-k selection.
+            # The single-channel score is broadcast to all classes, so it affects only candidate
+            # quality ranking and keeps the original classification score structure unchanged.
             bcqs_memory = self.bcqs(output_memory, spatial_shapes)
             bcqs_logits = self.bcqs_score_head(bcqs_memory)
             enc_outputs_logits = enc_outputs_logits + self.bcqs_score_weight * bcqs_logits
