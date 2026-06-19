@@ -1,0 +1,12 @@
+# BCQS experiment config: keep the baseline config unchanged and only enable BCQS here.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_bcqs
+
+DFINETransformer:
+  # BCQS: enable behavior-context query scoring before encoder top-k query selection.
+  use_bcqs: True
+  bcqs_kernel_size: 3
+  bcqs_score_weight: 0.5
