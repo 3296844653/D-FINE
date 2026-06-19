@@ -9,3 +9,6 @@ wandb/
 .accelerate/
 **/.accelerate/
 dataset/.accelerate/
+
+# macOS
+.DS_Store
