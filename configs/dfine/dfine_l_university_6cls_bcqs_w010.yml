@@ -1,0 +1,13 @@
+# BCQS weight ablation: objectness-style query scoring with score weight 0.10.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_bcqs_w010
+
+DFINETransformer:
+  # BCQS: enable behavior-context query scoring before encoder top-k query selection.
+  use_bcqs: True
+  bcqs_kernel_size: 3
+  # BCQS: lower score weight for ablation against w=0.25 and w=0.50.
+  bcqs_score_weight: 0.10
