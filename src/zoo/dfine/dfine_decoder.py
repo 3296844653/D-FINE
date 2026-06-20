@@ -46,55 +46,6 @@ class MLP(nn.Module):
         return x
 
 
-class BehaviorContextQueryScorer(nn.Module):
-    """BCQS: extracts local behavior-context cues for encoder top-k query selection."""
-
-    def __init__(self, hidden_dim=256, num_levels=3, kernel_size=3):
-        super().__init__()
-        padding = kernel_size // 2
-        self.blocks = nn.ModuleList(
-            [
-                nn.Sequential(
-                    nn.Conv2d(
-                        hidden_dim,
-                        hidden_dim,
-                        kernel_size,
-                        padding=padding,
-                        groups=hidden_dim,
-                        bias=False,
-                    ),
-                    nn.BatchNorm2d(hidden_dim),
-                    nn.SiLU(),
-                    nn.Conv2d(hidden_dim, hidden_dim, 1, bias=False),
-                    nn.BatchNorm2d(hidden_dim),
-                    nn.SiLU(),
-                )
-                for _ in range(num_levels)
-            ]
-        )
-        self.gate = nn.Sequential(nn.Linear(hidden_dim * 2, hidden_dim), nn.Sigmoid())
-
-    def forward(self, memory, spatial_shapes):
-        batch_size, _, channels = memory.shape
-        context_features = []
-        start = 0
-
-        for level, (height, width) in enumerate(spatial_shapes):
-            length = height * width
-            level_memory = memory[:, start : start + length, :]
-            level_feature = level_memory.transpose(1, 2).reshape(
-                batch_size, channels, height, width
-            )
-
-            # BCQS: use lightweight local context to highlight behavior-discriminative regions.
-            local_context = self.blocks[level](level_feature).flatten(2).transpose(1, 2)
-            context_gate = self.gate(torch.cat([level_memory, local_context], dim=-1))
-            context_features.append(level_memory + context_gate * local_context)
-            start += length
-
-        return torch.cat(context_features, dim=1)
-
-
 class MSDeformableAttention(nn.Module):
     def __init__(
         self,
@@ -536,9 +487,6 @@ class DFINETransformer(nn.Module):
         reg_max=32,
         reg_scale=4.0,
         layer_scale=1,
-        use_bcqs=False,
-        bcqs_kernel_size=3,
-        bcqs_score_weight=0.5,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -564,8 +512,6 @@ class DFINETransformer(nn.Module):
         assert cross_attn_method in ("default", "discrete"), ""
         self.cross_attn_method = cross_attn_method
         self.query_select_method = query_select_method
-        self.use_bcqs = use_bcqs
-        self.bcqs_score_weight = bcqs_score_weight
 
         # backbone feature projection
         self._build_input_proj_layer(feat_channels)
@@ -645,15 +591,6 @@ class DFINETransformer(nn.Module):
         else:
             self.enc_score_head = nn.Linear(hidden_dim, num_classes)
 
-        # BCQS: optional context branch for behavior-aware encoder query scoring.
-        if self.use_bcqs:
-            self.bcqs = BehaviorContextQueryScorer(hidden_dim, num_levels, bcqs_kernel_size)
-            # BCQS: use one objectness-like score for query selection only, avoiding class-logit noise.
-            self.bcqs_score_head = nn.Linear(hidden_dim, 1)
-        else:
-            self.bcqs = None
-            self.bcqs_score_head = None
-
         self.enc_bbox_head = MLP(hidden_dim, hidden_dim, 4, 3)
 
         # decoder head
@@ -700,10 +637,6 @@ class DFINETransformer(nn.Module):
     def _reset_parameters(self, feat_channels):
         bias = bias_init_with_prob(0.01)
         init.constant_(self.enc_score_head.bias, bias)
-        if self.use_bcqs:
-            # BCQS: start as a no-op so the first epoch is comparable to the baseline query scorer.
-            init.constant_(self.bcqs_score_head.weight, 0)
-            init.constant_(self.bcqs_score_head.bias, 0)
         init.constant_(self.enc_bbox_head.layers[-1].weight, 0)
         init.constant_(self.enc_bbox_head.layers[-1].bias, 0)
 
@@ -838,13 +771,6 @@ class DFINETransformer(nn.Module):
 
         output_memory: torch.Tensor = self.enc_output(memory)
         enc_outputs_logits: torch.Tensor = self.enc_score_head(output_memory)
-        if self.use_bcqs:
-            # BCQS: re-score encoder candidates with local behavior context before top-k selection.
-            # The single-channel score is broadcast to all classes, so it affects only candidate
-            # quality ranking and keeps the original classification score structure unchanged.
-            bcqs_memory = self.bcqs(output_memory, spatial_shapes)
-            bcqs_logits = self.bcqs_score_head(bcqs_memory)
-            enc_outputs_logits = enc_outputs_logits + self.bcqs_score_weight * bcqs_logits
 
         enc_topk_bboxes_list, enc_topk_logits_list = [], []
         enc_topk_memory, enc_topk_logits, enc_topk_anchors = self._select_topk(
