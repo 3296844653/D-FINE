@@ -3,7 +3,6 @@
 __include__:
   - dfine_l_university_6cls.yml
 
-output_dir: ./output/dfine_l_university_6cls_bcqs_w025
 
 DFINETransformer:
   # BCQS: enable behavior-context query scoring before encoder top-k query selection.
