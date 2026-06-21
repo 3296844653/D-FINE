@@ -1,0 +1,11 @@
+# AFDR single-module experiment: keep the baseline config unchanged and only enable AFDR.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+
+DFINETransformer:
+  # AFDR: adaptively scales the four FDR edge offsets for each decoder query.
+  use_afdr: True
+  # Keep the first verification conservative: scale range is [0.75, 1.25].
+  afdr_range: 0.25

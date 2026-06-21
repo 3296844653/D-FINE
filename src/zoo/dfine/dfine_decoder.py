@@ -383,6 +383,8 @@ class TransformerDecoder(nn.Module):
         up,
         eval_idx=-1,
         layer_scale=2,
+        use_afdr=False,
+        afdr_range=0.25,
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -391,6 +393,8 @@ class TransformerDecoder(nn.Module):
         self.num_head = num_head
         self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
         self.up, self.reg_scale, self.reg_max = up, reg_scale, reg_max
+        self.use_afdr = use_afdr
+        self.afdr_range = afdr_range
         self.layers = nn.ModuleList(
             [copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)]
             + [copy.deepcopy(decoder_layer_wide) for _ in range(num_layers - self.eval_idx - 1)]
@@ -398,6 +402,20 @@ class TransformerDecoder(nn.Module):
         self.lqe_layers = nn.ModuleList(
             [copy.deepcopy(LQE(4, 64, 2, reg_max)) for _ in range(num_layers)]
         )
+        if self.use_afdr:
+            scaled_dim = round(layer_scale * hidden_dim)
+            self.afdr_heads = nn.ModuleList(
+                [MLP(hidden_dim, hidden_dim, 4, 2) for _ in range(self.eval_idx + 1)]
+                + [
+                    MLP(scaled_dim, scaled_dim, 4, 2)
+                    for _ in range(num_layers - self.eval_idx - 1)
+                ]
+            )
+            for head in self.afdr_heads:
+                init.constant_(head.layers[-1].weight, 0)
+                init.constant_(head.layers[-1].bias, 0)
+        else:
+            self.afdr_heads = None
 
     def value_op(self, memory, value_proj, value_scale, memory_mask, memory_spatial_shapes):
         """
@@ -475,9 +493,12 @@ class TransformerDecoder(nn.Module):
 
             # Refine bounding box corners using FDR, integrating previous layer's corrections
             pred_corners = bbox_head[i](output + output_detach) + pred_corners_undetach
-            inter_ref_bbox = distance2bbox(
-                ref_points_initial, integral(pred_corners, project), reg_scale
-            )
+            distance = integral(pred_corners, project)
+            if self.use_afdr:
+                # AFDR: adapt each query's four edge offsets while starting as exact FDR.
+                afdr_scale = 1.0 + self.afdr_range * torch.tanh(self.afdr_heads[i](output))
+                distance = distance * afdr_scale
+            inter_ref_bbox = distance2bbox(ref_points_initial, distance, reg_scale)
 
             if self.training or i == self.eval_idx:
                 scores = score_head[i](output)
@@ -539,6 +560,8 @@ class DFINETransformer(nn.Module):
         use_bcqs=False,
         bcqs_kernel_size=3,
         bcqs_score_weight=0.5,
+        use_afdr=False,
+        afdr_range=0.25,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -605,6 +628,8 @@ class DFINETransformer(nn.Module):
             self.up,
             eval_idx,
             layer_scale,
+            use_afdr,
+            afdr_range,
         )
         # denoising
         self.num_denoising = num_denoising
