@@ -169,6 +169,95 @@ class StudentBehaviorFeatureEnhancer(nn.Module):
         return enhanced_feats
 
 
+class BehaviorQueryFeatureEnhancer(nn.Module):
+    """BQFE: enhances encoder memory before query scoring and initialization."""
+
+    def __init__(
+        self,
+        hidden_dim=256,
+        num_levels=3,
+        kernel_size=3,
+        reduction=4,
+        init_scale=0.01,
+    ):
+        super().__init__()
+        padding = kernel_size // 2
+        reduced_dim = max(hidden_dim // reduction, 16)
+
+        self.local_blocks = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Conv2d(
+                        hidden_dim,
+                        hidden_dim,
+                        kernel_size,
+                        padding=padding,
+                        groups=hidden_dim,
+                        bias=False,
+                    ),
+                    nn.BatchNorm2d(hidden_dim),
+                    nn.SiLU(),
+                    nn.Conv2d(hidden_dim, hidden_dim, 1, bias=False),
+                    nn.BatchNorm2d(hidden_dim),
+                    nn.SiLU(),
+                )
+                for _ in range(num_levels)
+            ]
+        )
+        self.channel_gates = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Conv2d(hidden_dim, reduced_dim, 1),
+                    nn.SiLU(),
+                    nn.Conv2d(reduced_dim, hidden_dim, 1),
+                    nn.Sigmoid(),
+                )
+                for _ in range(num_levels)
+            ]
+        )
+        self.spatial_gates = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Conv2d(2, 1, kernel_size, padding=padding),
+                    nn.Sigmoid(),
+                )
+                for _ in range(num_levels)
+            ]
+        )
+        self.gamma = nn.Parameter(torch.full((num_levels,), float(init_scale)))
+
+    def forward(self, memory, spatial_shapes):
+        batch_size, _, channels = memory.shape
+        enhanced_memory = []
+        start = 0
+
+        for level, (height, width) in enumerate(spatial_shapes):
+            length = height * width
+            level_memory = memory[:, start : start + length, :]
+            level_feature = level_memory.transpose(1, 2).reshape(
+                batch_size, channels, height, width
+            )
+
+            local_feature = self.local_blocks[level](level_feature)
+            channel_gate = self.channel_gates[level](
+                F.adaptive_avg_pool2d(local_feature, 1)
+            )
+
+            spatial_avg = local_feature.mean(dim=1, keepdim=True)
+            spatial_max = local_feature.amax(dim=1, keepdim=True)
+            spatial_gate = self.spatial_gates[level](
+                torch.cat([spatial_avg, spatial_max], dim=1)
+            )
+
+            enhanced_feature = local_feature * channel_gate * spatial_gate
+            scale = self.gamma[level].to(dtype=level_feature.dtype)
+            level_feature = level_feature + scale * enhanced_feature
+            enhanced_memory.append(level_feature.flatten(2).transpose(1, 2))
+            start += length
+
+        return torch.cat(enhanced_memory, dim=1)
+
+
 class MSDeformableAttention(nn.Module):
     def __init__(
         self,
@@ -640,6 +729,10 @@ class DFINETransformer(nn.Module):
         sbfe_kernel_size=3,
         sbfe_reduction=4,
         sbfe_init=0.01,
+        use_bqfe=False,
+        bqfe_kernel_size=3,
+        bqfe_reduction=4,
+        bqfe_init=0.01,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -668,6 +761,7 @@ class DFINETransformer(nn.Module):
         self.use_bcqs = use_bcqs
         self.bcqs_score_weight = bcqs_score_weight
         self.use_sbfe = use_sbfe
+        self.use_bqfe = use_bqfe
 
         # backbone feature projection
         self._build_input_proj_layer(feat_channels)
@@ -683,6 +777,18 @@ class DFINETransformer(nn.Module):
             )
         else:
             self.sbfe = None
+
+        # BQFE: optional query-candidate feature enhancement after encoder projection.
+        if self.use_bqfe:
+            self.bqfe = BehaviorQueryFeatureEnhancer(
+                hidden_dim,
+                num_levels,
+                bqfe_kernel_size,
+                bqfe_reduction,
+                bqfe_init,
+            )
+        else:
+            self.bqfe = None
 
         # Transformer module
         self.up = nn.Parameter(torch.tensor([0.5]), requires_grad=False)
@@ -956,6 +1062,9 @@ class DFINETransformer(nn.Module):
         memory = valid_mask.to(memory.dtype) * memory
 
         output_memory: torch.Tensor = self.enc_output(memory)
+        if self.use_bqfe:
+            output_memory = self.bqfe(output_memory, spatial_shapes)
+
         enc_outputs_logits: torch.Tensor = self.enc_score_head(output_memory)
         if self.use_bcqs:
             # BCQS: re-score encoder candidates with local behavior context before top-k selection.
