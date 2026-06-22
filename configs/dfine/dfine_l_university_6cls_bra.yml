@@ -1,0 +1,13 @@
+# BRA single-module experiment.
+# Keeps the baseline config unchanged and only enables decoder-stage Behavior Region Enhancement.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+
+DFINETransformer:
+  # BRA: enhance decoder query features with reference-box-conditioned behavior region cues.
+  use_bra: True
+  bra_reduction: 4
+  # Starts near the original decoder path to reduce early-training disruption.
+  bra_init: 0.01

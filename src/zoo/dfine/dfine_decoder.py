@@ -258,6 +258,37 @@ class BehaviorQueryFeatureEnhancer(nn.Module):
         return torch.cat(enhanced_memory, dim=1)
 
 
+class BehaviorRegionEnhancer(nn.Module):
+    """BRA: decoder-stage enhancement conditioned on query features and reference boxes."""
+
+    def __init__(self, hidden_dim=256, reduction=4, init_scale=0.01):
+        super().__init__()
+        reduced_dim = max(hidden_dim // reduction, 16)
+        self.query_proj = nn.Sequential(
+            nn.Linear(hidden_dim, reduced_dim),
+            nn.SiLU(),
+            nn.Linear(reduced_dim, hidden_dim),
+        )
+        self.region_proj = nn.Sequential(
+            nn.Linear(4, reduced_dim),
+            nn.SiLU(),
+            nn.Linear(reduced_dim, hidden_dim),
+        )
+        self.gate = nn.Sequential(nn.Linear(hidden_dim * 2, hidden_dim), nn.Sigmoid())
+        self.out_proj = nn.Linear(hidden_dim, hidden_dim)
+        self.gamma = nn.Parameter(torch.tensor(float(init_scale)))
+
+        init.constant_(self.out_proj.weight, 0)
+        init.constant_(self.out_proj.bias, 0)
+
+    def forward(self, query, ref_boxes):
+        region_feat = self.region_proj(ref_boxes.detach())
+        query_feat = self.query_proj(query)
+        gate = self.gate(torch.cat([query, region_feat], dim=-1))
+        enhanced = self.out_proj(gate * query_feat + (1.0 - gate) * region_feat)
+        return query + self.gamma.to(dtype=query.dtype) * enhanced
+
+
 class MSDeformableAttention(nn.Module):
     def __init__(
         self,
@@ -548,6 +579,9 @@ class TransformerDecoder(nn.Module):
         layer_scale=2,
         use_afdr=False,
         afdr_range=0.25,
+        use_bra=False,
+        bra_reduction=4,
+        bra_init=0.01,
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -558,6 +592,7 @@ class TransformerDecoder(nn.Module):
         self.up, self.reg_scale, self.reg_max = up, reg_scale, reg_max
         self.use_afdr = use_afdr
         self.afdr_range = afdr_range
+        self.use_bra = use_bra
         self.layers = nn.ModuleList(
             [copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)]
             + [copy.deepcopy(decoder_layer_wide) for _ in range(num_layers - self.eval_idx - 1)]
@@ -579,6 +614,20 @@ class TransformerDecoder(nn.Module):
                 init.constant_(head.layers[-1].bias, 0)
         else:
             self.afdr_heads = None
+        if self.use_bra:
+            scaled_dim = round(layer_scale * hidden_dim)
+            self.bra_layers = nn.ModuleList(
+                [
+                    BehaviorRegionEnhancer(hidden_dim, bra_reduction, bra_init)
+                    for _ in range(self.eval_idx + 1)
+                ]
+                + [
+                    BehaviorRegionEnhancer(scaled_dim, bra_reduction, bra_init)
+                    for _ in range(num_layers - self.eval_idx - 1)
+                ]
+            )
+        else:
+            self.bra_layers = None
 
     def value_op(self, memory, value_proj, value_scale, memory_mask, memory_spatial_shapes):
         """
@@ -647,24 +696,29 @@ class TransformerDecoder(nn.Module):
             output = layer(
                 output, ref_points_input, value, spatial_shapes, attn_mask, query_pos_embed
             )
+            head_output = (
+                self.bra_layers[i](output, ref_points_detach) if self.use_bra else output
+            )
 
             if i == 0:
                 # Initial bounding box predictions with inverse sigmoid refinement
-                pre_bboxes = F.sigmoid(pre_bbox_head(output) + inverse_sigmoid(ref_points_detach))
-                pre_scores = score_head[0](output)
+                pre_bboxes = F.sigmoid(
+                    pre_bbox_head(head_output) + inverse_sigmoid(ref_points_detach)
+                )
+                pre_scores = score_head[0](head_output)
                 ref_points_initial = pre_bboxes.detach()
 
             # Refine bounding box corners using FDR, integrating previous layer's corrections
-            pred_corners = bbox_head[i](output + output_detach) + pred_corners_undetach
+            pred_corners = bbox_head[i](head_output + output_detach) + pred_corners_undetach
             distance = integral(pred_corners, project)
             if self.use_afdr:
                 # AFDR: adapt each query's four edge offsets while starting as exact FDR.
-                afdr_scale = 1.0 + self.afdr_range * torch.tanh(self.afdr_heads[i](output))
+                afdr_scale = 1.0 + self.afdr_range * torch.tanh(self.afdr_heads[i](head_output))
                 distance = distance * afdr_scale
             inter_ref_bbox = distance2bbox(ref_points_initial, distance, reg_scale)
 
             if self.training or i == self.eval_idx:
-                scores = score_head[i](output)
+                scores = score_head[i](head_output)
                 # Lqe does not affect the performance here.
                 scores = self.lqe_layers[i](scores, pred_corners)
                 dec_out_logits.append(scores)
@@ -733,6 +787,9 @@ class DFINETransformer(nn.Module):
         bqfe_kernel_size=3,
         bqfe_reduction=4,
         bqfe_init=0.01,
+        use_bra=False,
+        bra_reduction=4,
+        bra_init=0.01,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -827,6 +884,9 @@ class DFINETransformer(nn.Module):
             layer_scale,
             use_afdr,
             afdr_range,
+            use_bra,
+            bra_reduction,
+            bra_init,
         )
         # denoising
         self.num_denoising = num_denoising
