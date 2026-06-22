@@ -1,0 +1,20 @@
+# BCQS + BQFE combined experiment.
+# Keeps the baseline config unchanged and enables both behavior-context query scoring
+# and behavior query feature enhancement.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+
+DFINETransformer:
+  # BCQS: behavior-context query scoring before encoder top-k query selection.
+  use_bcqs: True
+  bcqs_kernel_size: 3
+  bcqs_score_weight: 0.25
+
+  # BQFE: enhance encoder memory before query scoring and bbox initialization.
+  use_bqfe: True
+  bqfe_kernel_size: 3
+  bqfe_reduction: 4
+  # Use the current best single-module setting.
+  bqfe_init: 0.03
