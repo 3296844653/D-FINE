@@ -1,0 +1,14 @@
+# SBFE single-module experiment.
+# Keeps the baseline config unchanged and only enables Student Behavior Feature Enhancement.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+
+DFINETransformer:
+  # SBFE: enhance multi-scale behavior features before encoder memory flattening.
+  use_sbfe: True
+  sbfe_kernel_size: 3
+  sbfe_reduction: 4
+  # Starts near the original feature path to reduce disruption in early training.
+  sbfe_init: 0.01

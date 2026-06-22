@@ -95,6 +95,80 @@ class BehaviorContextQueryScorer(nn.Module):
         return torch.cat(context_features, dim=1)
 
 
+class StudentBehaviorFeatureEnhancer(nn.Module):
+    """SBFE: lightweight residual enhancement for behavior-related multi-scale features."""
+
+    def __init__(
+        self,
+        hidden_dim=256,
+        num_levels=3,
+        kernel_size=3,
+        reduction=4,
+        init_scale=0.01,
+    ):
+        super().__init__()
+        padding = kernel_size // 2
+        reduced_dim = max(hidden_dim // reduction, 16)
+
+        self.local_blocks = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Conv2d(
+                        hidden_dim,
+                        hidden_dim,
+                        kernel_size,
+                        padding=padding,
+                        groups=hidden_dim,
+                        bias=False,
+                    ),
+                    nn.BatchNorm2d(hidden_dim),
+                    nn.SiLU(),
+                    nn.Conv2d(hidden_dim, hidden_dim, 1, bias=False),
+                    nn.BatchNorm2d(hidden_dim),
+                    nn.SiLU(),
+                )
+                for _ in range(num_levels)
+            ]
+        )
+        self.channel_gates = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Conv2d(hidden_dim, reduced_dim, 1),
+                    nn.SiLU(),
+                    nn.Conv2d(reduced_dim, hidden_dim, 1),
+                    nn.Sigmoid(),
+                )
+                for _ in range(num_levels)
+            ]
+        )
+        self.spatial_gates = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Conv2d(2, 1, kernel_size, padding=padding),
+                    nn.Sigmoid(),
+                )
+                for _ in range(num_levels)
+            ]
+        )
+        self.gamma = nn.Parameter(torch.full((num_levels,), float(init_scale)))
+
+    def forward(self, feats):
+        enhanced_feats = []
+        for level, feat in enumerate(feats):
+            local_feat = self.local_blocks[level](feat)
+            channel_gate = self.channel_gates[level](F.adaptive_avg_pool2d(local_feat, 1))
+
+            spatial_avg = local_feat.mean(dim=1, keepdim=True)
+            spatial_max = local_feat.amax(dim=1, keepdim=True)
+            spatial_gate = self.spatial_gates[level](torch.cat([spatial_avg, spatial_max], dim=1))
+
+            enhanced = local_feat * channel_gate * spatial_gate
+            scale = self.gamma[level].to(dtype=feat.dtype)
+            enhanced_feats.append(feat + scale * enhanced)
+
+        return enhanced_feats
+
+
 class MSDeformableAttention(nn.Module):
     def __init__(
         self,
@@ -562,6 +636,10 @@ class DFINETransformer(nn.Module):
         bcqs_score_weight=0.5,
         use_afdr=False,
         afdr_range=0.25,
+        use_sbfe=False,
+        sbfe_kernel_size=3,
+        sbfe_reduction=4,
+        sbfe_init=0.01,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -589,9 +667,22 @@ class DFINETransformer(nn.Module):
         self.query_select_method = query_select_method
         self.use_bcqs = use_bcqs
         self.bcqs_score_weight = bcqs_score_weight
+        self.use_sbfe = use_sbfe
 
         # backbone feature projection
         self._build_input_proj_layer(feat_channels)
+
+        # SBFE: optional feature enhancement before flattening multi-scale memory.
+        if self.use_sbfe:
+            self.sbfe = StudentBehaviorFeatureEnhancer(
+                hidden_dim,
+                num_levels,
+                sbfe_kernel_size,
+                sbfe_reduction,
+                sbfe_init,
+            )
+        else:
+            self.sbfe = None
 
         # Transformer module
         self.up = nn.Parameter(torch.tensor([0.5]), requires_grad=False)
@@ -805,6 +896,9 @@ class DFINETransformer(nn.Module):
                     proj_feats.append(self.input_proj[i](feats[-1]))
                 else:
                     proj_feats.append(self.input_proj[i](proj_feats[-1]))
+
+        if self.use_sbfe:
+            proj_feats = self.sbfe(proj_feats)
 
         # get encoder inputs
         feat_flatten = []
