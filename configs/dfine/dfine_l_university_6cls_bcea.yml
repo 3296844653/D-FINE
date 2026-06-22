@@ -1,0 +1,13 @@
+# BCEA single-module experiment.
+# Keeps the baseline config unchanged and only enables Behavior Context Enhancement Attention.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+
+DFINETransformer:
+  # BCEA: enhance encoder memory with local behavior-context residuals.
+  use_bcea: True
+  bcea_kernel_size: 3
+  # Starts near the original memory path to reduce early-training disruption.
+  bcea_init: 0.01

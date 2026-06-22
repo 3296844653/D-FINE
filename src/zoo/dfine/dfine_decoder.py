@@ -95,6 +95,56 @@ class BehaviorContextQueryScorer(nn.Module):
         return torch.cat(context_features, dim=1)
 
 
+class BehaviorContextEnhancementAttention(nn.Module):
+    """BCEA: enhances encoder memory with local behavior-context residuals."""
+
+    def __init__(self, hidden_dim=256, num_levels=3, kernel_size=3, init_scale=0.01):
+        super().__init__()
+        padding = kernel_size // 2
+        self.blocks = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Conv2d(
+                        hidden_dim,
+                        hidden_dim,
+                        kernel_size,
+                        padding=padding,
+                        groups=hidden_dim,
+                        bias=False,
+                    ),
+                    nn.BatchNorm2d(hidden_dim),
+                    nn.SiLU(),
+                    nn.Conv2d(hidden_dim, hidden_dim, 1, bias=False),
+                    nn.BatchNorm2d(hidden_dim),
+                    nn.SiLU(),
+                )
+                for _ in range(num_levels)
+            ]
+        )
+        self.gate = nn.Sequential(nn.Linear(hidden_dim * 2, hidden_dim), nn.Sigmoid())
+        self.gamma = nn.Parameter(torch.full((num_levels,), float(init_scale)))
+
+    def forward(self, memory, spatial_shapes):
+        batch_size, _, channels = memory.shape
+        enhanced_memory = []
+        start = 0
+
+        for level, (height, width) in enumerate(spatial_shapes):
+            length = height * width
+            level_memory = memory[:, start : start + length, :]
+            level_feature = level_memory.transpose(1, 2).reshape(
+                batch_size, channels, height, width
+            )
+
+            local_context = self.blocks[level](level_feature).flatten(2).transpose(1, 2)
+            context_gate = self.gate(torch.cat([level_memory, local_context], dim=-1))
+            scale = self.gamma[level].to(dtype=level_memory.dtype)
+            enhanced_memory.append(level_memory + scale * context_gate * local_context)
+            start += length
+
+        return torch.cat(enhanced_memory, dim=1)
+
+
 class StudentBehaviorFeatureEnhancer(nn.Module):
     """SBFE: lightweight residual enhancement for behavior-related multi-scale features."""
 
@@ -777,6 +827,9 @@ class DFINETransformer(nn.Module):
         use_bcqs=False,
         bcqs_kernel_size=3,
         bcqs_score_weight=0.5,
+        use_bcea=False,
+        bcea_kernel_size=3,
+        bcea_init=0.01,
         use_afdr=False,
         afdr_range=0.25,
         use_sbfe=False,
@@ -817,6 +870,7 @@ class DFINETransformer(nn.Module):
         self.query_select_method = query_select_method
         self.use_bcqs = use_bcqs
         self.bcqs_score_weight = bcqs_score_weight
+        self.use_bcea = use_bcea
         self.use_sbfe = use_sbfe
         self.use_bqfe = use_bqfe
 
@@ -846,6 +900,17 @@ class DFINETransformer(nn.Module):
             )
         else:
             self.bqfe = None
+
+        # BCEA: optional local behavior-context enhancement for encoder memory.
+        if self.use_bcea:
+            self.bcea = BehaviorContextEnhancementAttention(
+                hidden_dim,
+                num_levels,
+                bcea_kernel_size,
+                bcea_init,
+            )
+        else:
+            self.bcea = None
 
         # Transformer module
         self.up = nn.Parameter(torch.tensor([0.5]), requires_grad=False)
@@ -1124,6 +1189,8 @@ class DFINETransformer(nn.Module):
         output_memory: torch.Tensor = self.enc_output(memory)
         if self.use_bqfe:
             output_memory = self.bqfe(output_memory, spatial_shapes)
+        if self.use_bcea:
+            output_memory = self.bcea(output_memory, spatial_shapes)
 
         enc_outputs_logits: torch.Tensor = self.enc_score_head(output_memory)
         if self.use_bcqs:
