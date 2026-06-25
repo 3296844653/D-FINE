@@ -1,0 +1,13 @@
+# HF-P2 ablation config with stronger initial P2 injection.
+# hf_gate_init = -1.386, sigmoid(-1.386) ~= 0.20.
+
+__include__:
+  - dfine_l_university_6cls_hf_p2.yml
+
+
+output_dir: ./output/dfine_l_university_6cls_hf_p2_w020
+
+HybridEncoder:
+  # Initial P2 injection weight: sigmoid(-1.386) ~= 0.20.
+  hf_gate_init: -1.386
+
