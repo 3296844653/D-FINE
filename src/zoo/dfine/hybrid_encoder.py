@@ -331,17 +331,42 @@ class HybridEncoder(nn.Module):
         depth_mult=1.0,
         act="silu",
         eval_spatial_size=None,
+        use_hf_gate=False,
+        hf_gate_init=-3.0,
+        hf_gate_level=0,
+        hf_return_indices=None,
     ):
         super().__init__()
         self.in_channels = in_channels
         self.feat_strides = feat_strides
         self.hidden_dim = hidden_dim
         self.use_encoder_idx = use_encoder_idx
+
+        if self.use_encoder_idx:
+            assert max(self.use_encoder_idx) < len(in_channels), "use_encoder_idx exceeds feature levels"
+        if hf_return_indices is not None:
+            assert len(hf_return_indices) > 0, "hf_return_indices cannot be empty"
+            assert max(hf_return_indices) < len(in_channels), "hf_return_indices exceeds feature levels"
+        if use_hf_gate:
+            assert 0 <= hf_gate_level < len(in_channels) - 1, "hf_gate_level must target a fused lower level"
+
+        self.use_hf_gate = use_hf_gate
+        self.hf_gate_level = hf_gate_level
+        self.hf_return_indices = hf_return_indices
+        if self.use_hf_gate:
+            self.hf_gate = nn.Parameter(torch.tensor(float(hf_gate_init)))
+        else:
+            self.hf_gate = None
+
         self.num_encoder_layers = num_encoder_layers
         self.pe_temperature = pe_temperature
         self.eval_spatial_size = eval_spatial_size
-        self.out_channels = [hidden_dim for _ in range(len(in_channels))]
-        self.out_strides = feat_strides
+        if self.hf_return_indices is not None:
+            self.out_channels = [hidden_dim for _ in self.hf_return_indices]
+            self.out_strides = [feat_strides[i] for i in self.hf_return_indices]
+        else:
+            self.out_channels = [hidden_dim for _ in range(len(in_channels))]
+            self.out_strides = feat_strides
 
         # channel projection
         self.input_proj = nn.ModuleList()
@@ -472,9 +497,14 @@ class HybridEncoder(nn.Module):
             feat_heigh = self.lateral_convs[len(self.in_channels) - 1 - idx](feat_heigh)
             inner_outs[0] = feat_heigh
             upsample_feat = F.interpolate(feat_heigh, scale_factor=2.0, mode="nearest")
-            inner_out = self.fpn_blocks[len(self.in_channels) - 1 - idx](
+            fused_feat = self.fpn_blocks[len(self.in_channels) - 1 - idx](
                 torch.concat([upsample_feat, feat_low], dim=1)
             )
+            if self.use_hf_gate and (idx - 1) == self.hf_gate_level:
+                gate = torch.sigmoid(self.hf_gate).to(dtype=fused_feat.dtype)
+                inner_out = upsample_feat + gate * (fused_feat - upsample_feat)
+            else:
+                inner_out = fused_feat
             inner_outs.insert(0, inner_out)
 
         outs = [inner_outs[0]]
@@ -484,5 +514,8 @@ class HybridEncoder(nn.Module):
             downsample_feat = self.downsample_convs[idx](feat_low)
             out = self.pan_blocks[idx](torch.concat([downsample_feat, feat_height], dim=1))
             outs.append(out)
+
+        if self.hf_return_indices is not None:
+            outs = [outs[i] for i in self.hf_return_indices]
 
         return outs

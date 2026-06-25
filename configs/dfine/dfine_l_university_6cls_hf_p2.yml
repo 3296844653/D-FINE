@@ -1,0 +1,58 @@
+
+__include__:
+  - include/dfine_hgnetv2.yml
+  - include/dataloader.yml
+  - include/optimizer.yml
+  - dfine_hgnetv2_l_coco.yml
+
+
+output_dir: ./output/dfine_l_university_6cls_hf_p2
+epochs: 80                  
+num_classes: 6               
+remap_mscoco_category: False
+
+
+# HF-D-FINE style P2 high-resolution feature injection.
+# Keep P2/P3/P4/P5 from HGNetv2, inject P2 inside the encoder,
+# and still return P3/P4/P5 to the D-FINE decoder for stable cost.
+HGNetv2:
+  name: 'B4'
+  return_idx: [0, 1, 2, 3]
+  freeze_stem_only: True
+  freeze_at: 0
+  freeze_norm: True
+
+HybridEncoder:
+  in_channels: [128, 512, 1024, 2048]
+  feat_strides: [4, 8, 16, 32]
+  hidden_dim: 256
+
+  # Follow HF-D-FINE: keep self-attention on the deepest semantic level.
+  use_encoder_idx: [3]
+  num_encoder_layers: 1
+  nhead: 8
+  dim_feedforward: 1024
+  dropout: 0.
+  enc_act: 'gelu'
+
+  use_hf_gate: True
+  hf_gate_init: -3.0
+  hf_gate_level: 0
+  hf_return_indices: [1, 2, 3]
+
+
+train_dataloader:
+  total_batch_size: 8
+  num_workers: 4
+  dataset:
+    img_folder: dataset/0.671k_university_yolo_Dataset/images/train
+    ann_file: dataset/0.671k_university_yolo_Dataset/annotations/instances_train.json
+
+  collate_fn:
+    stop_epoch: 72           
+
+val_dataloader:
+  total_batch_size: 8
+  dataset:
+    img_folder: dataset/0.671k_university_yolo_Dataset/images/val
+    ann_file: dataset/0.671k_university_yolo_Dataset/annotations/instances_val.json
