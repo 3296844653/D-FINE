@@ -95,6 +95,102 @@ class BehaviorContextQueryScorer(nn.Module):
         return torch.cat(context_features, dim=1)
 
 
+class RelationAwareBehaviorContextQueryScorer(nn.Module):
+    """RA-BCQS: scores query candidates with local, global, and spatial relation cues."""
+
+    def __init__(self, hidden_dim=256, num_levels=3, kernel_size=3):
+        super().__init__()
+        padding = kernel_size // 2
+        self.local_blocks = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Conv2d(
+                        hidden_dim,
+                        hidden_dim,
+                        kernel_size,
+                        padding=padding,
+                        groups=hidden_dim,
+                        bias=False,
+                    ),
+                    nn.BatchNorm2d(hidden_dim),
+                    nn.SiLU(),
+                    nn.Conv2d(hidden_dim, hidden_dim, 1, bias=False),
+                    nn.BatchNorm2d(hidden_dim),
+                    nn.SiLU(),
+                )
+                for _ in range(num_levels)
+            ]
+        )
+        self.coord_proj = nn.Sequential(
+            nn.Linear(4, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        self.relation_proj = nn.Sequential(
+            nn.Linear(hidden_dim * 4, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        self.relation_gate = nn.Sequential(
+            nn.Linear(hidden_dim * 4, hidden_dim),
+            nn.Sigmoid(),
+        )
+
+    def _build_coord_context(self, height, width, batch_size, dtype, device):
+        y, x = torch.meshgrid(
+            torch.arange(height, device=device, dtype=dtype),
+            torch.arange(width, device=device, dtype=dtype),
+            indexing="ij",
+        )
+        coord = torch.stack(
+            [
+                (x + 0.5) / width,
+                (y + 0.5) / height,
+                torch.full_like(x, 1.0 / width),
+                torch.full_like(y, 1.0 / height),
+            ],
+            dim=-1,
+        ).reshape(1, height * width, 4)
+        return self.coord_proj(coord).expand(batch_size, -1, -1)
+
+    def forward(self, memory, spatial_shapes):
+        batch_size, _, channels = memory.shape
+        relation_features = []
+        start = 0
+
+        for level, (height, width) in enumerate(spatial_shapes):
+            height, width = int(height), int(width)
+            length = height * width
+            level_memory = memory[:, start : start + length, :]
+            level_feature = level_memory.transpose(1, 2).reshape(
+                batch_size, channels, height, width
+            )
+
+            local_context = (
+                self.local_blocks[level](level_feature).flatten(2).transpose(1, 2)
+            )
+            global_context = level_memory.mean(dim=1, keepdim=True).expand(
+                -1, length, -1
+            )
+            coord_context = self._build_coord_context(
+                height,
+                width,
+                batch_size,
+                level_memory.dtype,
+                level_memory.device,
+            )
+
+            relation_input = torch.cat(
+                [level_memory, local_context, global_context, coord_context], dim=-1
+            )
+            relation_delta = self.relation_proj(relation_input)
+            relation_gate = self.relation_gate(relation_input)
+            relation_features.append(level_memory + relation_gate * relation_delta)
+            start += length
+
+        return torch.cat(relation_features, dim=1)
+
+
 class BehaviorContextEnhancementAttention(nn.Module):
     """BCEA: enhances encoder memory with local behavior-context residuals."""
 
@@ -827,6 +923,9 @@ class DFINETransformer(nn.Module):
         use_bcqs=False,
         bcqs_kernel_size=3,
         bcqs_score_weight=0.5,
+        use_relation_bcqs=False,
+        relation_bcqs_kernel_size=3,
+        relation_bcqs_score_weight=0.25,
         use_bcea=False,
         bcea_kernel_size=3,
         bcea_init=0.01,
@@ -870,6 +969,8 @@ class DFINETransformer(nn.Module):
         self.query_select_method = query_select_method
         self.use_bcqs = use_bcqs
         self.bcqs_score_weight = bcqs_score_weight
+        self.use_relation_bcqs = use_relation_bcqs
+        self.relation_bcqs_score_weight = relation_bcqs_score_weight
         self.use_bcea = use_bcea
         self.use_sbfe = use_sbfe
         self.use_bqfe = use_bqfe
@@ -1001,6 +1102,16 @@ class DFINETransformer(nn.Module):
             self.bcqs = None
             self.bcqs_score_head = None
 
+        # RA-BCQS: relation-aware behavior-context branch for encoder query scoring.
+        if self.use_relation_bcqs:
+            self.relation_bcqs = RelationAwareBehaviorContextQueryScorer(
+                hidden_dim, num_levels, relation_bcqs_kernel_size
+            )
+            self.relation_bcqs_score_head = nn.Linear(hidden_dim, 1)
+        else:
+            self.relation_bcqs = None
+            self.relation_bcqs_score_head = None
+
         self.enc_bbox_head = MLP(hidden_dim, hidden_dim, 4, 3)
 
         # decoder head
@@ -1051,6 +1162,10 @@ class DFINETransformer(nn.Module):
             # BCQS: start as a no-op so the first epoch is comparable to the baseline query scorer.
             init.constant_(self.bcqs_score_head.weight, 0)
             init.constant_(self.bcqs_score_head.bias, 0)
+        if self.use_relation_bcqs:
+            # RA-BCQS: start as a no-op and learn relation-aware candidate re-scoring.
+            init.constant_(self.relation_bcqs_score_head.weight, 0)
+            init.constant_(self.relation_bcqs_score_head.bias, 0)
         init.constant_(self.enc_bbox_head.layers[-1].weight, 0)
         init.constant_(self.enc_bbox_head.layers[-1].bias, 0)
 
@@ -1200,6 +1315,14 @@ class DFINETransformer(nn.Module):
             bcqs_memory = self.bcqs(output_memory, spatial_shapes)
             bcqs_logits = self.bcqs_score_head(bcqs_memory)
             enc_outputs_logits = enc_outputs_logits + self.bcqs_score_weight * bcqs_logits
+        if self.use_relation_bcqs:
+            # RA-BCQS: add local-neighbor, scene-level, and spatial relation cues before top-k.
+            relation_bcqs_memory = self.relation_bcqs(output_memory, spatial_shapes)
+            relation_bcqs_logits = self.relation_bcqs_score_head(relation_bcqs_memory)
+            enc_outputs_logits = (
+                enc_outputs_logits
+                + self.relation_bcqs_score_weight * relation_bcqs_logits
+            )
 
         enc_topk_bboxes_list, enc_topk_logits_list = [], []
         enc_topk_memory, enc_topk_logits, enc_topk_anchors = self._select_topk(
