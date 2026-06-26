@@ -968,12 +968,18 @@ class DFINETransformer(nn.Module):
         self.cross_attn_method = cross_attn_method
         self.query_select_method = query_select_method
         self.use_bcqs = use_bcqs
-        self.bcqs_score_weight = bcqs_score_weight
         self.use_relation_bcqs = use_relation_bcqs
-        self.relation_bcqs_score_weight = relation_bcqs_score_weight
         self.use_bcea = use_bcea
         self.use_sbfe = use_sbfe
         self.use_bqfe = use_bqfe
+
+        if self.use_bcqs:
+            bcqs_score_weight = min(max(float(bcqs_score_weight), 1e-4), 1.0 - 1e-4)
+            self.bcqs_score_gate_init = math.log(bcqs_score_weight / (1.0 - bcqs_score_weight))
+        else:
+            self.bcqs_score_gate_init = None
+
+        self.relation_bcqs_score_weight = relation_bcqs_score_weight
 
         # backbone feature projection
         self._build_input_proj_layer(feat_channels)
@@ -1098,9 +1104,11 @@ class DFINETransformer(nn.Module):
             self.bcqs = BehaviorContextQueryScorer(hidden_dim, num_levels, bcqs_kernel_size)
             # BCQS: use one objectness-like score for query selection only, avoiding class-logit noise.
             self.bcqs_score_head = nn.Linear(hidden_dim, 1)
+            self.bcqs_score_gate = MLP(2 * hidden_dim, hidden_dim, 1, 2, act=activation)
         else:
             self.bcqs = None
             self.bcqs_score_head = None
+            self.bcqs_score_gate = None
 
         # RA-BCQS: relation-aware behavior-context branch for encoder query scoring.
         if self.use_relation_bcqs:
@@ -1162,6 +1170,8 @@ class DFINETransformer(nn.Module):
             # BCQS: start as a no-op so the first epoch is comparable to the baseline query scorer.
             init.constant_(self.bcqs_score_head.weight, 0)
             init.constant_(self.bcqs_score_head.bias, 0)
+            init.constant_(self.bcqs_score_gate.layers[-1].weight, 0)
+            init.constant_(self.bcqs_score_gate.layers[-1].bias, self.bcqs_score_gate_init)
         if self.use_relation_bcqs:
             # RA-BCQS: start as a no-op and learn relation-aware candidate re-scoring.
             init.constant_(self.relation_bcqs_score_head.weight, 0)
@@ -1314,7 +1324,10 @@ class DFINETransformer(nn.Module):
             # quality ranking and keeps the original classification score structure unchanged.
             bcqs_memory = self.bcqs(output_memory, spatial_shapes)
             bcqs_logits = self.bcqs_score_head(bcqs_memory)
-            enc_outputs_logits = enc_outputs_logits + self.bcqs_score_weight * bcqs_logits
+            bcqs_score_gate = torch.sigmoid(
+                self.bcqs_score_gate(torch.concat([output_memory, bcqs_memory], dim=-1))
+            ).to(bcqs_logits.dtype)
+            enc_outputs_logits = enc_outputs_logits + bcqs_score_gate * bcqs_logits
         if self.use_relation_bcqs:
             # RA-BCQS: add local-neighbor, scene-level, and spatial relation cues before top-k.
             relation_bcqs_memory = self.relation_bcqs(output_memory, spatial_shapes)
