@@ -1,0 +1,15 @@
+# Config path: configs/dfine/dfine_l_university_6cls_paq.yml
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_paq
+
+DFINETransformer:
+  # Isolated PaQ-style ablation: enable dynamic pattern queries only.
+  use_paq_query: True
+  paq_num_patterns: 100
+  paq_gate_init: -3.0
+
+  # Keep BCQS disabled so this run measures PaQ-style query guidance alone.
+  use_bcqs: False

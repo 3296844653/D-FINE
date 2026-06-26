@@ -46,6 +46,30 @@ class MLP(nn.Module):
         return x
 
 
+class PaQDynamicQuery(nn.Module):
+    """PaQ-style pattern-based dynamic query generator for isolated ablation."""
+
+    def __init__(self, hidden_dim=256, num_patterns=100, gate_init=-3.0, act="silu"):
+        super().__init__()
+        self.patterns = nn.Parameter(torch.empty(num_patterns, hidden_dim))
+        self.weight_generator = MLP(hidden_dim, hidden_dim, num_patterns, 2, act=act)
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.gate = nn.Parameter(torch.tensor(float(gate_init)))
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        init.xavier_uniform_(self.patterns)
+        init.constant_(self.weight_generator.layers[-1].weight, 0)
+        init.constant_(self.weight_generator.layers[-1].bias, 0)
+
+    def forward(self, content: torch.Tensor, guide: torch.Tensor) -> torch.Tensor:
+        weights = F.softmax(self.weight_generator(guide), dim=-1)
+        patterns = self.patterns.to(device=content.device, dtype=content.dtype)
+        dynamic_content = torch.matmul(weights, patterns)
+        gate = torch.sigmoid(self.gate).to(dtype=content.dtype)
+        return self.norm(content + gate * dynamic_content)
+
+
 class BehaviorContextQueryScorer(nn.Module):
     """BCQS: extracts local behavior-context cues for encoder top-k query selection."""
 
@@ -942,6 +966,9 @@ class DFINETransformer(nn.Module):
         use_bra=False,
         bra_reduction=4,
         bra_init=0.01,
+        use_paq_query=False,
+        paq_num_patterns=100,
+        paq_gate_init=-3.0,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -972,6 +999,7 @@ class DFINETransformer(nn.Module):
         self.use_bcea = use_bcea
         self.use_sbfe = use_sbfe
         self.use_bqfe = use_bqfe
+        self.use_paq_query = use_paq_query
 
         if self.use_bcqs:
             bcqs_score_weight = min(max(float(bcqs_score_weight), 1e-4), 1.0 - 1e-4)
@@ -1075,6 +1103,16 @@ class DFINETransformer(nn.Module):
         if learn_query_content:
             self.tgt_embed = nn.Embedding(num_queries, hidden_dim)
         self.query_pos_head = MLP(4, 2 * hidden_dim, hidden_dim, 2)
+
+        if self.use_paq_query:
+            self.paq_query = PaQDynamicQuery(
+                hidden_dim,
+                num_patterns=paq_num_patterns,
+                gate_init=paq_gate_init,
+                act=activation,
+            )
+        else:
+            self.paq_query = None
 
         # if num_select_queries != self.num_queries:
         #     layer = TransformerEncoderLayer(hidden_dim, nhead, dim_feedforward, activation='gelu')
@@ -1356,6 +1394,9 @@ class DFINETransformer(nn.Module):
             content = self.tgt_embed.weight.unsqueeze(0).tile([memory.shape[0], 1, 1])
         else:
             content = enc_topk_memory.detach()
+
+        if self.use_paq_query:
+            content = self.paq_query(content, enc_topk_memory.detach())
 
         enc_topk_bbox_unact = enc_topk_bbox_unact.detach()
 
