@@ -70,6 +70,63 @@ class PaQDynamicQuery(nn.Module):
         return self.norm(content + gate * dynamic_content)
 
 
+class BehaviorAgentQueryAttention(nn.Module):
+    """BAQA: agent-token attention for behavior-discriminative query classification."""
+
+    def __init__(
+        self,
+        hidden_dim=256,
+        num_agents=6,
+        num_heads=8,
+        dropout=0.0,
+        init_scale=0.01,
+    ):
+        super().__init__()
+        assert hidden_dim % num_heads == 0, "hidden_dim must be divisible by num_heads"
+        self.agents = nn.Parameter(torch.empty(num_agents, hidden_dim))
+        self.query_norm = nn.LayerNorm(hidden_dim)
+        self.agent_norm = nn.LayerNorm(hidden_dim)
+        self.agent_attn = nn.MultiheadAttention(
+            hidden_dim, num_heads, dropout=dropout, batch_first=True
+        )
+        self.query_attn = nn.MultiheadAttention(
+            hidden_dim, num_heads, dropout=dropout, batch_first=True
+        )
+        self.out_proj = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        self.gamma = nn.Parameter(torch.full((1,), float(init_scale)))
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        init.xavier_uniform_(self.agents)
+        for module in (self.agent_attn, self.query_attn):
+            init.xavier_uniform_(module.in_proj_weight)
+            init.constant_(module.in_proj_bias, 0)
+            init.xavier_uniform_(module.out_proj.weight)
+            init.constant_(module.out_proj.bias, 0)
+        init.constant_(self.out_proj[-1].weight, 0)
+        init.constant_(self.out_proj[-1].bias, 0)
+
+    def forward(self, query: torch.Tensor) -> torch.Tensor:
+        batch_size = query.shape[0]
+        agents = self.agents.to(device=query.device, dtype=query.dtype)
+        agents = agents.unsqueeze(0).expand(batch_size, -1, -1)
+
+        query_context = self.query_norm(query)
+        agent_context, _ = self.agent_attn(
+            self.agent_norm(agents), query_context, query, need_weights=False
+        )
+        agents = agents + agent_context
+        attended_query, _ = self.query_attn(
+            query_context, self.agent_norm(agents), agents, need_weights=False
+        )
+        delta = self.out_proj(torch.cat([query, attended_query], dim=-1))
+        return query + self.gamma.to(dtype=query.dtype) * delta
+
+
 class BehaviorContextQueryScorer(nn.Module):
     """BCQS: extracts local behavior-context cues for encoder top-k query selection."""
 
@@ -752,6 +809,11 @@ class TransformerDecoder(nn.Module):
         use_bra=False,
         bra_reduction=4,
         bra_init=0.01,
+        use_baqa=False,
+        baqa_num_agents=6,
+        baqa_num_heads=8,
+        baqa_dropout=0.0,
+        baqa_init=0.01,
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -763,6 +825,7 @@ class TransformerDecoder(nn.Module):
         self.use_afdr = use_afdr
         self.afdr_range = afdr_range
         self.use_bra = use_bra
+        self.use_baqa = use_baqa
         self.layers = nn.ModuleList(
             [copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)]
             + [copy.deepcopy(decoder_layer_wide) for _ in range(num_layers - self.eval_idx - 1)]
@@ -798,6 +861,32 @@ class TransformerDecoder(nn.Module):
             )
         else:
             self.bra_layers = None
+        if self.use_baqa:
+            scaled_dim = round(layer_scale * hidden_dim)
+            self.baqa_layers = nn.ModuleList(
+                [
+                    BehaviorAgentQueryAttention(
+                        hidden_dim,
+                        baqa_num_agents,
+                        baqa_num_heads,
+                        baqa_dropout,
+                        baqa_init,
+                    )
+                    for _ in range(self.eval_idx + 1)
+                ]
+                + [
+                    BehaviorAgentQueryAttention(
+                        scaled_dim,
+                        baqa_num_agents,
+                        baqa_num_heads,
+                        baqa_dropout,
+                        baqa_init,
+                    )
+                    for _ in range(num_layers - self.eval_idx - 1)
+                ]
+            )
+        else:
+            self.baqa_layers = None
 
     def value_op(self, memory, value_proj, value_scale, memory_mask, memory_spatial_shapes):
         """
@@ -817,6 +906,8 @@ class TransformerDecoder(nn.Module):
         self.lqe_layers = nn.ModuleList(
             [nn.Identity()] * (self.eval_idx) + [self.lqe_layers[self.eval_idx]]
         )
+        if self.use_baqa:
+            self.baqa_layers = self.baqa_layers[: self.eval_idx + 1]
 
     def forward(
         self,
@@ -875,7 +966,10 @@ class TransformerDecoder(nn.Module):
                 pre_bboxes = F.sigmoid(
                     pre_bbox_head(head_output) + inverse_sigmoid(ref_points_detach)
                 )
-                pre_scores = score_head[0](head_output)
+                cls_head_output = (
+                    self.baqa_layers[i](head_output) if self.use_baqa else head_output
+                )
+                pre_scores = score_head[0](cls_head_output)
                 ref_points_initial = pre_bboxes.detach()
 
             # Refine bounding box corners using FDR, integrating previous layer's corrections
@@ -888,7 +982,10 @@ class TransformerDecoder(nn.Module):
             inter_ref_bbox = distance2bbox(ref_points_initial, distance, reg_scale)
 
             if self.training or i == self.eval_idx:
-                scores = score_head[i](head_output)
+                cls_head_output = (
+                    self.baqa_layers[i](head_output) if self.use_baqa else head_output
+                )
+                scores = score_head[i](cls_head_output)
                 # Lqe does not affect the performance here.
                 scores = self.lqe_layers[i](scores, pred_corners)
                 dec_out_logits.append(scores)
@@ -969,6 +1066,11 @@ class DFINETransformer(nn.Module):
         use_paq_query=False,
         paq_num_patterns=100,
         paq_gate_init=-3.0,
+        use_baqa=False,
+        baqa_num_agents=6,
+        baqa_num_heads=8,
+        baqa_dropout=0.0,
+        baqa_init=0.01,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -1000,6 +1102,7 @@ class DFINETransformer(nn.Module):
         self.use_sbfe = use_sbfe
         self.use_bqfe = use_bqfe
         self.use_paq_query = use_paq_query
+        self.use_baqa = use_baqa
 
         if self.use_bcqs:
             bcqs_score_weight = min(max(float(bcqs_score_weight), 1e-4), 1.0 - 1e-4)
@@ -1087,6 +1190,11 @@ class DFINETransformer(nn.Module):
             use_bra,
             bra_reduction,
             bra_init,
+            use_baqa,
+            baqa_num_agents,
+            baqa_num_heads,
+            baqa_dropout,
+            baqa_init,
         )
         # denoising
         self.num_denoising = num_denoising

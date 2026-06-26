@@ -1,0 +1,19 @@
+# Config path: configs/dfine/dfine_l_university_6cls_paq_bcqs.yml
+# Combined ablation: PaQ-style dynamic query + BCQS query scoring.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_paq_bcqs
+
+DFINETransformer:
+  # PaQ: pattern-based dynamic query content enhancement.
+  use_paq_query: True
+  paq_num_patterns: 100
+  paq_gate_init: -3.0
+
+  # BCQS: behavior-context query scoring before encoder top-k query selection.
+  use_bcqs: True
+  bcqs_kernel_size: 3
+  # Keep the same conservative query-wise gate initialization as the BCQS-only run.
+  bcqs_score_weight: 0.25

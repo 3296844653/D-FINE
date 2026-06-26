@@ -1,0 +1,16 @@
+# BAQA experiment config.
+# Keeps the original baseline and BCQS configs unchanged.
+# BAQA only enhances decoder classification features; query selection and bbox regression stay unchanged.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+
+DFINETransformer:
+  # BAQA: behavior agent query attention before decoder classification heads.
+  use_baqa: True
+  # Use one behavior agent per class as the first conservative setting.
+  baqa_num_agents: 6
+  baqa_num_heads: 8
+  baqa_dropout: 0.0
+  baqa_init: 0.01
