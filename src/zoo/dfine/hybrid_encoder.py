@@ -240,6 +240,119 @@ class CSPLayer(nn.Module):
         return self.conv3(x_1 + x_2)
 
 
+class BMEFSDepthwiseBranch(nn.Module):
+    """Lightweight depthwise branch used by BMEFS for expanded local context."""
+
+    def __init__(self, hidden_dim, kernel_size=3, dilation=1, act="silu"):
+        super().__init__()
+        padding = dilation * (kernel_size - 1) // 2
+        self.block = nn.Sequential(
+            nn.Conv2d(
+                hidden_dim,
+                hidden_dim,
+                kernel_size,
+                padding=padding,
+                dilation=dilation,
+                groups=hidden_dim,
+                bias=False,
+            ),
+            nn.BatchNorm2d(hidden_dim),
+            get_activation(act),
+            nn.Conv2d(hidden_dim, hidden_dim, 1, bias=False),
+            nn.BatchNorm2d(hidden_dim),
+            get_activation(act),
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class BMEFSLevelExpansion(nn.Module):
+    """BMEFS level expansion with dynamic multi-receptive-field multiplexing."""
+
+    def __init__(self, hidden_dim, act="silu", reduction=4):
+        super().__init__()
+        mid_dim = max(hidden_dim // reduction, 16)
+        self.branches = nn.ModuleList(
+            [
+                nn.Identity(),
+                BMEFSDepthwiseBranch(hidden_dim, kernel_size=3, dilation=1, act=act),
+                BMEFSDepthwiseBranch(hidden_dim, kernel_size=3, dilation=2, act=act),
+            ]
+        )
+        self.gate = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(hidden_dim, mid_dim, 1),
+            get_activation(act),
+            nn.Conv2d(mid_dim, len(self.branches), 1),
+        )
+
+    def forward(self, x):
+        weights = F.softmax(self.gate(x), dim=1)
+        branch_feats = [branch(x) for branch in self.branches]
+        out = 0
+        for branch_idx, branch_feat in enumerate(branch_feats):
+            out = out + branch_feat * weights[:, branch_idx : branch_idx + 1]
+        return out
+
+
+class BehaviorMultiplexedExpandedFeatureSet(nn.Module):
+    """BMEFS: dynamic expanded multi-scale feature set for behavior detection."""
+
+    def __init__(
+        self,
+        hidden_dim=256,
+        num_levels=3,
+        act="silu",
+        reduction=4,
+        init_scale=0.01,
+        cross_scale=True,
+    ):
+        super().__init__()
+        self.cross_scale = cross_scale
+        self.expansions = nn.ModuleList(
+            [
+                BMEFSLevelExpansion(hidden_dim, act=act, reduction=reduction)
+                for _ in range(num_levels)
+            ]
+        )
+        self.cross_gates = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Conv2d(hidden_dim * 2, hidden_dim, 1),
+                    nn.Sigmoid(),
+                )
+                for _ in range(num_levels)
+            ]
+        )
+        self.gamma = nn.Parameter(torch.full((num_levels,), float(init_scale)))
+
+    def forward(self, feats):
+        expanded_feats = [expand(feat) for expand, feat in zip(self.expansions, feats)]
+        out_feats = []
+
+        for level, feat in enumerate(feats):
+            context = expanded_feats[level]
+            count = 1
+            if self.cross_scale and level > 0:
+                context = context + F.interpolate(
+                    expanded_feats[level - 1], size=feat.shape[-2:], mode="nearest"
+                )
+                count += 1
+            if self.cross_scale and level + 1 < len(feats):
+                context = context + F.interpolate(
+                    expanded_feats[level + 1], size=feat.shape[-2:], mode="nearest"
+                )
+                count += 1
+            context = context / count
+
+            gate = self.cross_gates[level](torch.cat([feat, context], dim=1))
+            scale = self.gamma[level].to(dtype=feat.dtype)
+            out_feats.append(feat + scale * gate * (context - feat))
+
+        return out_feats
+
+
 # transformer
 class TransformerEncoderLayer(nn.Module):
     def __init__(
@@ -335,6 +448,10 @@ class HybridEncoder(nn.Module):
         hf_gate_init=-3.0,
         hf_gate_level=0,
         hf_return_indices=None,
+        use_bmefs=False,
+        bmefs_init=0.01,
+        bmefs_reduction=4,
+        bmefs_cross_scale=True,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -353,6 +470,7 @@ class HybridEncoder(nn.Module):
         self.use_hf_gate = use_hf_gate
         self.hf_gate_level = hf_gate_level
         self.hf_return_indices = hf_return_indices
+        self.use_bmefs = use_bmefs
         if self.use_hf_gate:
             self.hf_gate = nn.Parameter(torch.tensor(float(hf_gate_init)))
         else:
@@ -434,6 +552,19 @@ class HybridEncoder(nn.Module):
                 # CSPLayer(hidden_dim * 2, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion, bottletype=VGGBlock)
             )
 
+        # BMEFS: optional behavior-aware multi-scale expanded feature set after PAN.
+        if self.use_bmefs:
+            self.bmefs = BehaviorMultiplexedExpandedFeatureSet(
+                hidden_dim=hidden_dim,
+                num_levels=len(in_channels),
+                act=act,
+                reduction=bmefs_reduction,
+                init_scale=bmefs_init,
+                cross_scale=bmefs_cross_scale,
+            )
+        else:
+            self.bmefs = None
+
         self._reset_parameters()
 
     def _reset_parameters(self):
@@ -514,6 +645,9 @@ class HybridEncoder(nn.Module):
             downsample_feat = self.downsample_convs[idx](feat_low)
             out = self.pan_blocks[idx](torch.concat([downsample_feat, feat_height], dim=1))
             outs.append(out)
+
+        if self.use_bmefs:
+            outs = self.bmefs(outs)
 
         if self.hf_return_indices is not None:
             outs = [outs[i] for i in self.hf_return_indices]

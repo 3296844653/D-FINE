@@ -1,0 +1,16 @@
+# BMEFS experiment config.
+# Keeps the original baseline and query-related configs unchanged.
+# BMEFS enhances HybridEncoder multi-scale features before decoder query selection.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+
+HybridEncoder:
+  # BMEFS: behavior-aware multiplexed expanded feature set.
+  use_bmefs: True
+  # Initial residual scale. Starts close to the original PAN features.
+  bmefs_init: 0.01
+  bmefs_reduction: 4
+  # Fuse adjacent P3/P4/P5 levels after per-level expanded-feature generation.
+  bmefs_cross_scale: True
