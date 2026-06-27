@@ -1,0 +1,31 @@
+# BCQS + BMEFS combination experiment config.
+# Keeps the original baseline, BCQS-only, and BMEFS-only configs unchanged.
+#
+# BMEFS enhances HybridEncoder multi-scale features.
+# BCQS re-scores encoder candidates before top-k query selection.
+# This run verifies whether enhanced features and behavior-context query selection can stack.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_bcqs_bmefs
+
+
+HybridEncoder:
+  # BMEFS: behavior-aware multiplexed expanded feature set.
+  use_bmefs: True
+  # BMEFS weight: same as the verified BMEFS-only setting.
+  bmefs_init: 0.01
+  bmefs_reduction: 4
+  bmefs_cross_scale: True
+
+
+DFINETransformer:
+  # BCQS: behavior-context query scoring before encoder top-k selection.
+  use_bcqs: True
+  bcqs_kernel_size: 3
+  # BCQS weight: same as the verified BCQS-only setting.
+  bcqs_score_weight: 0.25
+
+  # Keep PaQ disabled so this run measures BCQS + BMEFS only.
+  use_paq_query: False
