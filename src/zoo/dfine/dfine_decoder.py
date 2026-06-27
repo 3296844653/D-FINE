@@ -1113,6 +1113,9 @@ class DFINETransformer(nn.Module):
         baqa_num_heads=8,
         baqa_dropout=0.0,
         baqa_init=0.01,
+        use_sbdh=False,
+        sbdh_group_ids=None,
+        sbdh_group_weight=0.25,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -1238,6 +1241,9 @@ class DFINETransformer(nn.Module):
             baqa_num_heads,
             baqa_dropout,
             baqa_init,
+            use_sbdh=use_sbdh,
+            sbdh_group_ids=sbdh_group_ids,
+            sbdh_group_weight=sbdh_group_weight,
         )
         # denoising
         self.num_denoising = num_denoising
