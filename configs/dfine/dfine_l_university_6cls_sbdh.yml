@@ -1,0 +1,22 @@
+# SBDH experiment config.
+# Inspired by the merge-then-split idea in No More Sibling Rivalry (ICCV 2025).
+# Keeps query initialization, encoder features, and bbox regression unchanged.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_sbdh
+
+
+DFINETransformer:
+  # SBDH: sibling behavior decoupled classification head.
+  use_sbdh: True
+  # Group adjacent behavior labels as the first conservative setting.
+  # If the dataset class order is known, adjust this list by semantic similarity.
+  sbdh_group_ids: [0, 0, 1, 1, 2, 2]
+  # Group-level logits are added to fine logits with this weight.
+  sbdh_group_weight: 0.25
+
+  # Keep query-related modules disabled for isolated SBDH validation.
+  use_paq_query: False
+  use_bcqs: False

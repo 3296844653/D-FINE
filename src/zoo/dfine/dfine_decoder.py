@@ -127,6 +127,45 @@ class BehaviorAgentQueryAttention(nn.Module):
         return query + self.gamma.to(dtype=query.dtype) * delta
 
 
+class SiblingBehaviorDecoupledHead(nn.Module):
+    """SBDH: merge-then-split style classification head for similar behaviors."""
+
+    def __init__(
+        self,
+        hidden_dim=256,
+        num_classes=6,
+        group_ids=None,
+        group_weight=0.25,
+    ):
+        super().__init__()
+        if group_ids is None:
+            group_ids = list(range(num_classes))
+        assert len(group_ids) == num_classes, "sbdh_group_ids length must equal num_classes"
+        assert min(group_ids) >= 0, "sbdh_group_ids must be non-negative"
+
+        num_groups = max(group_ids) + 1
+        self.fine_head = nn.Linear(hidden_dim, num_classes)
+        self.group_head = nn.Linear(hidden_dim, num_groups)
+        self.group_weight = float(group_weight)
+        self.register_buffer("class_to_group", torch.tensor(group_ids, dtype=torch.long))
+        self._reset_group_branch()
+
+    @property
+    def bias(self):
+        return self.fine_head.bias
+
+    def _reset_group_branch(self):
+        # Start from the original fine classification head and learn group guidance gradually.
+        init.constant_(self.group_head.weight, 0)
+        init.constant_(self.group_head.bias, 0)
+
+    def forward(self, x):
+        fine_logits = self.fine_head(x)
+        group_logits = self.group_head(x)
+        group_logits = group_logits.index_select(-1, self.class_to_group)
+        return fine_logits + self.group_weight * group_logits
+
+
 class BehaviorContextQueryScorer(nn.Module):
     """BCQS: extracts local behavior-context cues for encoder top-k query selection."""
 
@@ -814,6 +853,9 @@ class TransformerDecoder(nn.Module):
         baqa_num_heads=8,
         baqa_dropout=0.0,
         baqa_init=0.01,
+        use_sbdh=False,
+        sbdh_group_ids=None,
+        sbdh_group_weight=0.25,
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -1103,6 +1145,7 @@ class DFINETransformer(nn.Module):
         self.use_bqfe = use_bqfe
         self.use_paq_query = use_paq_query
         self.use_baqa = use_baqa
+        self.use_sbdh = use_sbdh
 
         if self.use_bcqs:
             bcqs_score_weight = min(max(float(bcqs_score_weight), 1e-4), 1.0 - 1e-4)
@@ -1270,9 +1313,19 @@ class DFINETransformer(nn.Module):
 
         # decoder head
         self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
+        def build_score_head(dim):
+            if self.use_sbdh:
+                return SiblingBehaviorDecoupledHead(
+                    dim,
+                    num_classes,
+                    group_ids=sbdh_group_ids,
+                    group_weight=sbdh_group_weight,
+                )
+            return nn.Linear(dim, num_classes)
+
         self.dec_score_head = nn.ModuleList(
-            [nn.Linear(hidden_dim, num_classes) for _ in range(self.eval_idx + 1)]
-            + [nn.Linear(scaled_dim, num_classes) for _ in range(num_layers - self.eval_idx - 1)]
+            [build_score_head(hidden_dim) for _ in range(self.eval_idx + 1)]
+            + [build_score_head(scaled_dim) for _ in range(num_layers - self.eval_idx - 1)]
         )
         self.pre_bbox_head = MLP(hidden_dim, hidden_dim, 4, 3)
         self.dec_bbox_head = nn.ModuleList(
