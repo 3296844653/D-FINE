@@ -1,0 +1,16 @@
+# PaQ/BPAQI gate ablation: initial dynamic-pattern injection weight ~= 1%.
+# sigmoid(-4.595) ~= 0.0100.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_paq_w001
+
+DFINETransformer:
+  use_paq_query: True
+  paq_num_patterns: 100
+  # PaQ gate init: sigmoid(-4.595) ~= 0.0100.
+  paq_gate_init: -4.595
+
+  # Keep BCQS disabled so this run measures PaQ/BPAQI alone.
+  use_bcqs: False
