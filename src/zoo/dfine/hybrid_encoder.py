@@ -240,6 +240,27 @@ class CSPLayer(nn.Module):
         return self.conv3(x_1 + x_2)
 
 
+class SimAMFeatureEnhancer(nn.Module):
+    """Parameter-free SimAM attention for multi-scale feature maps."""
+
+    def __init__(self, e_lambda=1e-4):
+        super().__init__()
+        self.e_lambda = float(e_lambda)
+        self.activation = nn.Sigmoid()
+
+    def _enhance_one(self, feat):
+        height, width = feat.shape[-2:]
+        num_pixels = max(height * width - 1, 1)
+        residual = feat - feat.mean(dim=(2, 3), keepdim=True)
+        residual_square = residual.pow(2)
+        variance = residual_square.sum(dim=(2, 3), keepdim=True) / num_pixels
+        energy = residual_square / (4.0 * (variance + self.e_lambda)) + 0.5
+        return feat * self.activation(energy)
+
+    def forward(self, feats):
+        return [self._enhance_one(feat) for feat in feats]
+
+
 class BMEFSDepthwiseBranch(nn.Module):
     """Lightweight depthwise branch used by BMEFS for expanded local context."""
 
@@ -448,6 +469,8 @@ class HybridEncoder(nn.Module):
         hf_gate_init=-3.0,
         hf_gate_level=0,
         hf_return_indices=None,
+        use_simam=False,
+        simam_e_lambda=1e-4,
         use_bmefs=False,
         bmefs_init=0.01,
         bmefs_reduction=4,
@@ -471,6 +494,7 @@ class HybridEncoder(nn.Module):
         self.hf_gate_level = hf_gate_level
         self.hf_return_indices = hf_return_indices
         self.use_bmefs = use_bmefs
+        self.use_simam = use_simam
         if self.use_hf_gate:
             self.hf_gate = nn.Parameter(torch.tensor(float(hf_gate_init)))
         else:
@@ -553,6 +577,12 @@ class HybridEncoder(nn.Module):
             )
 
         # BMEFS: optional behavior-aware multi-scale expanded feature set after PAN.
+        if self.use_simam:
+            self.simam = SimAMFeatureEnhancer(e_lambda=simam_e_lambda)
+        else:
+            self.simam = None
+
+        # BMEFS: optional behavior-aware multi-scale expanded feature set after SimAM.
         if self.use_bmefs:
             self.bmefs = BehaviorMultiplexedExpandedFeatureSet(
                 hidden_dim=hidden_dim,
@@ -645,6 +675,9 @@ class HybridEncoder(nn.Module):
             downsample_feat = self.downsample_convs[idx](feat_low)
             out = self.pan_blocks[idx](torch.concat([downsample_feat, feat_height], dim=1))
             outs.append(out)
+
+        if self.use_simam:
+            outs = self.simam(outs)
 
         if self.use_bmefs:
             outs = self.bmefs(outs)

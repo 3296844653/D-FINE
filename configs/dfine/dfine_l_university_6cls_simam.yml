@@ -1,0 +1,23 @@
+# SimAM single-module experiment.
+# Source idea: SimAM, a parameter-free attention module (ICML 2021).
+# This config keeps the baseline unchanged and only enhances HybridEncoder features.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_simam
+
+
+HybridEncoder:
+  # SimAM: parameter-free neuron attention after PAN feature fusion.
+  use_simam: True
+  # Default value from SimAM; no learnable module weight is introduced.
+  simam_e_lambda: 0.0001
+
+  # Keep BMEFS disabled so this run measures SimAM alone.
+  use_bmefs: False
+
+DFINETransformer:
+  # Keep query-related modules disabled for isolated SimAM validation.
+  use_bcqs: False
+  use_paq_query: False
