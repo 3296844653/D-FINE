@@ -1,0 +1,31 @@
+# PaQ + BMEFS combination experiment config.
+# Keeps the original baseline, PaQ-only, and BMEFS-only configs unchanged.
+#
+# BMEFS enhances HybridEncoder multi-scale features.
+# PaQ enhances decoder initial query content with dynamic behavior patterns.
+# The two modules are placed at different stages for combination ablation.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_paq_bmefs
+
+
+HybridEncoder:
+  # BMEFS: behavior-aware multiplexed expanded feature set.
+  use_bmefs: True
+  # BMEFS weight: same as the verified BMEFS-only setting.
+  bmefs_init: 0.01
+  bmefs_reduction: 4
+  bmefs_cross_scale: True
+
+
+DFINETransformer:
+  # PaQ/BPAQI: pattern-based dynamic query content enhancement.
+  use_paq_query: True
+  paq_num_patterns: 100
+  # PaQ gate: sigmoid(-3.0) ~= 0.0474, conservative initial dynamic-pattern injection.
+  paq_gate_init: -3.0
+
+  # Keep BCQS disabled so this run measures PaQ + BMEFS without query-selection interference.
+  use_bcqs: False
