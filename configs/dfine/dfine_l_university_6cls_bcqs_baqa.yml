@@ -1,0 +1,25 @@
+# BCQS + BAQA combination experiment config.
+# Keeps the original baseline, BCQS-only, and BAQA-only configs unchanged.
+#
+# BCQS changes encoder top-k query selection.
+# BAQA only enhances decoder classification features.
+# The two modules are placed at different stages for combination ablation.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+
+DFINETransformer:
+  # BCQS: behavior-context query scoring before encoder top-k selection.
+  use_bcqs: True
+  bcqs_kernel_size: 3
+  # BCQS weight: same as the verified BCQS-only setting.
+  bcqs_score_weight: 0.25
+
+  # BAQA: behavior agent query attention before decoder classification heads.
+  use_baqa: True
+  # BAQA weight: baqa_init = 0.01; out_proj final layer is zero-initialized in code.
+  baqa_num_agents: 6
+  baqa_num_heads: 8
+  baqa_dropout: 0.0
+  baqa_init: 0.01
