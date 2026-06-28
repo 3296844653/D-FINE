@@ -800,7 +800,8 @@ class Integral(nn.Module):
     def forward(self, x, project):
         shape = x.shape
         x = F.softmax(x.reshape(-1, self.reg_max + 1), dim=1)
-        x = F.linear(x, project.to(x.device)).reshape(-1, 4)
+        project = project.to(device=x.device, dtype=x.dtype)
+        x = (x * project).sum(dim=1).reshape(-1, 4)
         return x.reshape(list(shape[:-1]) + [-1])
 
 
@@ -1624,7 +1625,7 @@ class DFINETransformer(nn.Module):
                     self.denoising_class_embed,
                     num_denoising=self.num_denoising,
                     label_noise_ratio=self.label_noise_ratio,
-                    box_noise_scale=1.0,
+                    box_noise_scale=self.box_noise_scale,
                 )
             )
         else:
