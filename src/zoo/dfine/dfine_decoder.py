@@ -1087,6 +1087,8 @@ class DFINETransformer(nn.Module):
         use_bcqs=False,
         bcqs_kernel_size=3,
         bcqs_score_weight=0.5,
+        use_iqs=False,
+        iqs_score_weight=0.25,
         use_relation_bcqs=False,
         relation_bcqs_kernel_size=3,
         relation_bcqs_score_weight=0.25,
@@ -1143,6 +1145,7 @@ class DFINETransformer(nn.Module):
         self.cross_attn_method = cross_attn_method
         self.query_select_method = query_select_method
         self.use_bcqs = use_bcqs
+        self.use_iqs = use_iqs
         self.use_relation_bcqs = use_relation_bcqs
         self.use_bcea = use_bcea
         self.use_sbfe = use_sbfe
@@ -1158,6 +1161,7 @@ class DFINETransformer(nn.Module):
             self.bcqs_score_gate_init = None
 
         self.relation_bcqs_score_weight = relation_bcqs_score_weight
+        self.iqs_score_weight = float(iqs_score_weight)
 
         # backbone feature projection
         self._build_input_proj_layer(feat_channels)
@@ -1306,6 +1310,12 @@ class DFINETransformer(nn.Module):
             self.bcqs_score_head = None
             self.bcqs_score_gate = None
 
+        # IQS: class-agnostic localization-quality score for encoder query ranking.
+        if self.use_iqs:
+            self.iqs_score_head = nn.Linear(hidden_dim, 1)
+        else:
+            self.iqs_score_head = None
+
         # RA-BCQS: relation-aware behavior-context branch for encoder query scoring.
         if self.use_relation_bcqs:
             self.relation_bcqs = RelationAwareBehaviorContextQueryScorer(
@@ -1378,6 +1388,11 @@ class DFINETransformer(nn.Module):
             init.constant_(self.bcqs_score_head.bias, 0)
             init.constant_(self.bcqs_score_gate.layers[-1].weight, 0)
             init.constant_(self.bcqs_score_gate.layers[-1].bias, self.bcqs_score_gate_init)
+        if self.use_iqs:
+            # IQS starts as an exact no-op; existing encoder auxiliary VFL then
+            # teaches the scalar branch a quality/objectness correction.
+            init.constant_(self.iqs_score_head.weight, 0)
+            init.constant_(self.iqs_score_head.bias, 0)
         if self.use_relation_bcqs:
             # RA-BCQS: start as a no-op and learn relation-aware candidate re-scoring.
             init.constant_(self.relation_bcqs_score_head.weight, 0)
@@ -1542,6 +1557,12 @@ class DFINETransformer(nn.Module):
                 enc_outputs_logits
                 + self.relation_bcqs_score_weight * relation_bcqs_logits
             )
+        if self.use_iqs:
+            # IQS: add a class-agnostic quality prior before top-k query selection.
+            # The one-channel score is broadcast across classes, preserving the
+            # class-logit structure while biasing candidates toward high-quality boxes.
+            iqs_logits = self.iqs_score_head(output_memory)
+            enc_outputs_logits = enc_outputs_logits + self.iqs_score_weight * iqs_logits
 
         enc_topk_bboxes_list, enc_topk_logits_list = [], []
         enc_topk_memory, enc_topk_logits, enc_topk_anchors = self._select_topk(

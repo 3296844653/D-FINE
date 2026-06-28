@@ -1,0 +1,13 @@
+# IQS weight ablation: stronger quality-aware query scoring.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_iqs_w025
+
+DFINETransformer:
+  use_iqs: True
+  iqs_score_weight: 0.25
+
+  # Keep context query scoring disabled to measure IQS alone.
+  use_bcqs: False

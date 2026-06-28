@@ -1,0 +1,16 @@
+# IQS single-module experiment: IoU/quality-aware query scoring.
+# Keep the baseline config unchanged and only enable IQS here.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_iqs_w010
+
+DFINETransformer:
+  # IQS: class-agnostic quality score before encoder top-k query selection.
+  use_iqs: True
+  # Conservative weight for the first validation because query selection is sensitive.
+  iqs_score_weight: 0.10
+
+  # Keep context query scoring disabled to measure IQS alone.
+  use_bcqs: False
