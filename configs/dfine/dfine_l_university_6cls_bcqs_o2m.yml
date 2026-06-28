@@ -1,0 +1,18 @@
+# BCQS + O2M auxiliary matching experiment.
+# Use this after O2M-only validation to test complementarity with the current best BCQS.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_bcqs_o2m
+
+DFINETransformer:
+  use_bcqs: True
+  bcqs_kernel_size: 3
+  bcqs_score_weight: 0.25
+
+DFINECriterion:
+  use_o2m_aux: True
+  o2m_topk: 3
+  o2m_loss_weight: 0.25
+  o2m_losses: ['vfl', 'boxes']

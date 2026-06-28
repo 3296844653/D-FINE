@@ -1,0 +1,16 @@
+# O2M auxiliary matching experiment.
+# Training-only dense query supervision; inference graph is unchanged.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_o2m
+
+DFINECriterion:
+  # O2M: add top-k auxiliary Hungarian matches on intermediate decoder layers.
+  use_o2m_aux: True
+  o2m_topk: 3
+  # Conservative weight because the original one-to-one losses are still active.
+  o2m_loss_weight: 0.25
+  # Keep the first version simple and stable: no FGL/DDF on O2M matches.
+  o2m_losses: ['vfl', 'boxes']

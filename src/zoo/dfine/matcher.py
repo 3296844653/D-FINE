@@ -132,29 +132,31 @@ class HungarianMatcher(nn.Module):
         return {"indices": indices}  # , 'indices_o2m': C.min(-1)[1]}
 
     def get_top_k_matches(self, C, sizes, k=1, initial_indices=None):
-        indices_list = []
-        # C_original = C.clone()
-        for i in range(k):
-            indices_k = (
-                [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
-                if i > 0
-                else initial_indices
-            )
-            indices_list.append(
-                [
-                    (torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64))
-                    for i, j in indices_k
-                ]
-            )
-            for c, idx_k in zip(C.split(sizes, -1), indices_k):
-                idx_k = np.stack(idx_k)
-                c[:, idx_k] = 1e6
-        indices_list = [
+        cost_per_image = [c[i].clone() for i, c in enumerate(C.split(sizes, -1))]
+        matches_per_image = [[] for _ in sizes]
+
+        for round_idx in range(k):
+            for image_idx, cost in enumerate(cost_per_image):
+                if cost.numel() == 0:
+                    row_ind, col_ind = np.array([], dtype=np.int64), np.array([], dtype=np.int64)
+                elif round_idx == 0 and initial_indices is not None:
+                    row_ind, col_ind = initial_indices[image_idx]
+                else:
+                    row_ind, col_ind = linear_sum_assignment(cost.numpy())
+
+                row_ind = torch.as_tensor(row_ind, dtype=torch.int64)
+                col_ind = torch.as_tensor(col_ind, dtype=torch.int64)
+                matches_per_image[image_idx].append((row_ind, col_ind))
+
+                if row_ind.numel() > 0:
+                    # O2M should add more positive queries per target while avoiding
+                    # assigning the exact same prediction again in later rounds.
+                    cost[row_ind, :] = 1e6
+
+        return [
             (
-                torch.cat([indices_list[i][j][0] for i in range(k)], dim=0),
-                torch.cat([indices_list[i][j][1] for i in range(k)], dim=0),
+                torch.cat([match[0] for match in image_matches], dim=0),
+                torch.cat([match[1] for match in image_matches], dim=0),
             )
-            for j in range(len(sizes))
+            for image_matches in matches_per_image
         ]
-        # C.copy_(C_original)
-        return indices_list

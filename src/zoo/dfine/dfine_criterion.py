@@ -42,6 +42,10 @@ class DFINECriterion(nn.Module):
         reg_max=32,
         boxes_weight_format=None,
         share_matched_indices=False,
+        use_o2m_aux=False,
+        o2m_topk=3,
+        o2m_loss_weight=0.25,
+        o2m_losses=None,
     ):
         """Create the criterion.
         Parameters:
@@ -65,6 +69,10 @@ class DFINECriterion(nn.Module):
         self.own_targets, self.own_targets_dn = None, None
         self.reg_max = reg_max
         self.num_pos, self.num_neg = None, None
+        self.use_o2m_aux = use_o2m_aux
+        self.o2m_topk = max(int(o2m_topk), 1)
+        self.o2m_loss_weight = float(o2m_loss_weight)
+        self.o2m_losses = o2m_losses if o2m_losses is not None else ["vfl", "boxes"]
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
         assert "pred_logits" in outputs
@@ -270,6 +278,13 @@ class DFINECriterion(nn.Module):
         self.own_targets, self.own_targets_dn = None, None
         self.num_pos, self.num_neg = None, None
 
+    def _get_num_boxes_from_indices(self, indices, device):
+        num_boxes = sum(len(x[0]) for x in indices)
+        num_boxes = torch.as_tensor([num_boxes], dtype=torch.float, device=device)
+        if is_dist_available_and_initialized():
+            torch.distributed.all_reduce(num_boxes)
+        return torch.clamp(num_boxes / get_world_size(), min=1).item()
+
     def get_loss(self, loss, outputs, targets, indices, num_boxes, **kwargs):
         loss_map = {
             "boxes": self.loss_boxes,
@@ -352,6 +367,28 @@ class DFINECriterion(nn.Module):
                     }
                     l_dict = {k + f"_aux_{i}": v for k, v in l_dict.items()}
                     losses.update(l_dict)
+
+                if self.use_o2m_aux:
+                    indices_o2m = self.matcher(
+                        aux_outputs, targets, return_topk=self.o2m_topk
+                    )["indices_o2m"]
+                    num_boxes_o2m = self._get_num_boxes_from_indices(
+                        indices_o2m, next(iter(outputs.values())).device
+                    )
+                    for loss in self.o2m_losses:
+                        if loss == "local":
+                            continue
+                        meta = self.get_loss_meta_info(loss, aux_outputs, targets, indices_o2m)
+                        l_dict = self.get_loss(
+                            loss, aux_outputs, targets, indices_o2m, num_boxes_o2m, **meta
+                        )
+                        l_dict = {
+                            k: l_dict[k] * self.weight_dict[k] * self.o2m_loss_weight
+                            for k in l_dict
+                            if k in self.weight_dict
+                        }
+                        l_dict = {k + f"_o2m_aux_{i}": v for k, v in l_dict.items()}
+                        losses.update(l_dict)
 
         # In case of auxiliary traditional head output at first decoder layer.
         if "pre_outputs" in outputs:
