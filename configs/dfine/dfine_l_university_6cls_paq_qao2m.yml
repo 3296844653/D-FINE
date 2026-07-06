@@ -1,0 +1,29 @@
+# PaQ quality-aware one-to-many assignment single-module experiment.
+# Training-only assignment/supervision change; inference graph is unchanged.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_paq_qao2m
+
+
+DFINETransformer:
+  # Keep query/content modules disabled so this run measures QA-O2M alone.
+  use_paq_query: False
+  use_bcqs: False
+
+
+DFINECriterion:
+  # QA-O2M: add auxiliary one-to-many positives on intermediate decoder layers.
+  use_o2m_aux: True
+  # Candidate top-k used by PaQ to dynamically decide positives per GT.
+  o2m_topk: 3
+  # Use PaQ quality score: IoU - gamma * class confidence.
+  o2m_matcher_type: quality
+  o2m_quality_gamma: 0.25
+  # Keep at least one auxiliary positive per GT.
+  o2m_min_pos: 1
+  # Strict PaQ-style validation: no extra attenuation on QA-O2M auxiliary losses.
+  o2m_loss_weight: 1.0
+  # Keep the first validation stable: VFL and box losses only, no FGL/DDF on O2M.
+  o2m_losses: ['vfl', 'boxes']

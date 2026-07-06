@@ -46,6 +46,9 @@ class DFINECriterion(nn.Module):
         o2m_topk=3,
         o2m_loss_weight=0.25,
         o2m_losses=None,
+        o2m_matcher_type="cost",
+        o2m_quality_gamma=0.25,
+        o2m_min_pos=1,
     ):
         """Create the criterion.
         Parameters:
@@ -73,6 +76,10 @@ class DFINECriterion(nn.Module):
         self.o2m_topk = max(int(o2m_topk), 1)
         self.o2m_loss_weight = float(o2m_loss_weight)
         self.o2m_losses = o2m_losses if o2m_losses is not None else ["vfl", "boxes"]
+        assert o2m_matcher_type in ("cost", "quality")
+        self.o2m_matcher_type = o2m_matcher_type
+        self.o2m_quality_gamma = float(o2m_quality_gamma)
+        self.o2m_min_pos = max(int(o2m_min_pos), 1)
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
         assert "pred_logits" in outputs
@@ -370,7 +377,12 @@ class DFINECriterion(nn.Module):
 
                 if self.use_o2m_aux:
                     indices_o2m = self.matcher(
-                        aux_outputs, targets, return_topk=self.o2m_topk
+                        aux_outputs,
+                        targets,
+                        return_topk=self.o2m_topk,
+                        topk_metric=self.o2m_matcher_type,
+                        quality_gamma=self.o2m_quality_gamma,
+                        quality_min_pos=self.o2m_min_pos,
                     )["indices_o2m"]
                     num_boxes_o2m = self._get_num_boxes_from_indices(
                         indices_o2m, next(iter(outputs.values())).device
