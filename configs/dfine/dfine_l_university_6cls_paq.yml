@@ -6,10 +6,11 @@ __include__:
 output_dir: ./output/dfine_l_university_6cls_paq
 
 DFINETransformer:
-  # Isolated PaQ-style ablation: enable dynamic pattern queries only.
+  # PaQ-RT-DETR dynamic query: top-k encoder features generate N x M
+  # combination weights, then decoder content queries are formed from latent patterns.
   use_paq_query: True
+  # Number of latent patterns M in PaQ.
   paq_num_patterns: 100
-  paq_gate_init: -3.0
 
-  # Keep BCQS disabled so this run measures PaQ-style query guidance alone.
+  # Keep BCQS disabled so this run measures PaQ dynamic query alone.
   use_bcqs: False

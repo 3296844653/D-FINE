@@ -47,27 +47,21 @@ class MLP(nn.Module):
 
 
 class PaQDynamicQuery(nn.Module):
-    """PaQ-style pattern-based dynamic query generator for isolated ablation."""
+    """PaQ-RT-DETR pattern-based dynamic query generator."""
 
-    def __init__(self, hidden_dim=256, num_patterns=100, gate_init=-3.0, act="silu"):
+    def __init__(self, hidden_dim=256, num_patterns=100, act="relu"):
         super().__init__()
         self.patterns = nn.Parameter(torch.empty(num_patterns, hidden_dim))
         self.weight_generator = MLP(hidden_dim, hidden_dim, num_patterns, 2, act=act)
-        self.norm = nn.LayerNorm(hidden_dim)
-        self.gate = nn.Parameter(torch.tensor(float(gate_init)))
         self._reset_parameters()
 
     def _reset_parameters(self):
         init.xavier_uniform_(self.patterns)
-        init.constant_(self.weight_generator.layers[-1].weight, 0)
-        init.constant_(self.weight_generator.layers[-1].bias, 0)
 
-    def forward(self, content: torch.Tensor, guide: torch.Tensor) -> torch.Tensor:
-        weights = F.softmax(self.weight_generator(guide), dim=-1)
-        patterns = self.patterns.to(device=content.device, dtype=content.dtype)
-        dynamic_content = torch.matmul(weights, patterns)
-        gate = torch.sigmoid(self.gate).to(dtype=content.dtype)
-        return self.norm(content + gate * dynamic_content)
+    def forward(self, topk_memory: torch.Tensor) -> torch.Tensor:
+        weights = F.softmax(self.weight_generator(topk_memory), dim=-1)
+        patterns = self.patterns.to(device=topk_memory.device, dtype=topk_memory.dtype)
+        return torch.matmul(weights.to(dtype=topk_memory.dtype), patterns)
 
 
 class BehaviorAgentQueryAttention(nn.Module):
@@ -1110,7 +1104,6 @@ class DFINETransformer(nn.Module):
         bra_init=0.01,
         use_paq_query=False,
         paq_num_patterns=100,
-        paq_gate_init=-3.0,
         use_baqa=False,
         baqa_num_agents=6,
         baqa_num_heads=8,
@@ -1268,9 +1261,8 @@ class DFINETransformer(nn.Module):
 
         if self.use_paq_query:
             self.paq_query = PaQDynamicQuery(
-                hidden_dim,
+                hidden_dim=hidden_dim,
                 num_patterns=paq_num_patterns,
-                gate_init=paq_gate_init,
                 act=activation,
             )
         else:
@@ -1585,7 +1577,7 @@ class DFINETransformer(nn.Module):
             content = enc_topk_memory.detach()
 
         if self.use_paq_query:
-            content = self.paq_query(content, enc_topk_memory.detach())
+            content = self.paq_query(enc_topk_memory.detach())
 
         enc_topk_bbox_unact = enc_topk_bbox_unact.detach()
 

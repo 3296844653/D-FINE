@@ -1,5 +1,5 @@
-# PaQ/BPAQI gate ablation: initial dynamic-pattern injection weight ~= 10%.
-# sigmoid(-2.197) ~= 0.1000.
+# Deprecated gate-ablation config from the previous PaQ-style module.
+# Strict PaQ has no residual gate; this now runs the same PaQ query as paq.yml.
 
 __include__:
   - dfine_l_university_6cls.yml
@@ -9,8 +9,6 @@ output_dir: ./output/dfine_l_university_6cls_paq_w010
 DFINETransformer:
   use_paq_query: True
   paq_num_patterns: 100
-  # PaQ gate init: sigmoid(-2.197) ~= 0.1000.
-  paq_gate_init: -2.197
 
-  # Keep BCQS disabled so this run measures PaQ/BPAQI alone.
+  # Keep BCQS disabled so this run measures strict PaQ alone.
   use_bcqs: False
