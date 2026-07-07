@@ -1,0 +1,20 @@
+# BCQS-guided PaQ unified module experiment.
+# BCQS context guides PaQ query generation, but does not separately re-rank top-k queries.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_paq_bcqs_fusion
+
+DFINETransformer:
+  # Disable standalone modules so this run measures the unified query module only.
+  use_paq_query: False
+  use_bcqs: False
+
+  # Unified module: original top-k memory is preserved, BCQS context guides PaQ patterns.
+  use_paq_bcqs_fusion: True
+  paq_bcqs_num_patterns: 100
+  paq_bcqs_kernel_size: 3
+  # Initialize BCQS context mixing with the best fixed BCQS prior.
+  paq_bcqs_context_init: 0.25
+  paq_bcqs_residual_init: 0.03

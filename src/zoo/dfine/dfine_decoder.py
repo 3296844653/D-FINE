@@ -209,6 +209,59 @@ class BehaviorContextQueryScorer(nn.Module):
         return torch.cat(context_features, dim=1)
 
 
+class BCQSGuidedPaQDynamicQuery(nn.Module):
+    """Fuse BCQS context into PaQ query generation without separately re-ranking top-k queries."""
+
+    def __init__(
+        self,
+        hidden_dim=256,
+        num_levels=3,
+        kernel_size=3,
+        num_patterns=100,
+        residual_init=0.03,
+        context_init=0.25,
+        act="relu",
+    ):
+        super().__init__()
+        residual_init = min(max(float(residual_init), 1e-4), 1.0 - 1e-4)
+        context_init = min(max(float(context_init), 1e-4), 1.0 - 1e-4)
+        self.context = BehaviorContextQueryScorer(hidden_dim, num_levels, kernel_size)
+        self.context_gate = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            get_activation(act),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.Sigmoid(),
+        )
+        self.patterns = nn.Parameter(torch.empty(num_patterns, hidden_dim))
+        self.weight_generator = MLP(hidden_dim, hidden_dim, num_patterns, 2, act=act)
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.residual_gate = nn.Parameter(
+            torch.tensor(math.log(residual_init / (1.0 - residual_init)))
+        )
+        self.context_gate_init = math.log(context_init / (1.0 - context_init))
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        init.xavier_uniform_(self.patterns)
+        init.constant_(self.weight_generator.layers[-1].weight, 0)
+        init.constant_(self.weight_generator.layers[-1].bias, 0)
+        init.constant_(self.context_gate[-2].weight, 0)
+        init.constant_(self.context_gate[-2].bias, self.context_gate_init)
+
+    def forward(self, memory, spatial_shapes, topk_ind, content):
+        context_memory = self.context(memory, spatial_shapes)
+        topk_context = context_memory.gather(
+            dim=1, index=topk_ind.unsqueeze(-1).repeat(1, 1, context_memory.shape[-1])
+        )
+        context_gate = self.context_gate(torch.cat([content, topk_context], dim=-1))
+        guide = content + context_gate * (topk_context - content)
+        weights = F.softmax(self.weight_generator(guide), dim=-1)
+        patterns = self.patterns.to(device=content.device, dtype=content.dtype)
+        dynamic_content = torch.matmul(weights.to(dtype=content.dtype), patterns)
+        residual_weight = torch.sigmoid(self.residual_gate).to(dtype=content.dtype)
+        return self.norm(content + residual_weight * dynamic_content)
+
+
 class RelationAwareBehaviorContextQueryScorer(nn.Module):
     """RA-BCQS: scores query candidates with local, global, and spatial relation cues."""
 
@@ -1107,6 +1160,11 @@ class DFINETransformer(nn.Module):
         bra_init=0.01,
         use_paq_query=False,
         paq_num_patterns=100,
+        use_paq_bcqs_fusion=False,
+        paq_bcqs_num_patterns=100,
+        paq_bcqs_kernel_size=3,
+        paq_bcqs_residual_init=0.03,
+        paq_bcqs_context_init=0.25,
         use_baqa=False,
         baqa_num_agents=6,
         baqa_num_heads=8,
@@ -1161,6 +1219,7 @@ class DFINETransformer(nn.Module):
         self.use_sbfe = use_sbfe
         self.use_bqfe = use_bqfe
         self.use_paq_query = use_paq_query
+        self.use_paq_bcqs_fusion = use_paq_bcqs_fusion
         self.use_baqa = use_baqa
         self.use_sbdh = use_sbdh
 
@@ -1308,6 +1367,18 @@ class DFINETransformer(nn.Module):
             )
         else:
             self.paq_query = None
+        if self.use_paq_bcqs_fusion:
+            self.paq_bcqs_query = BCQSGuidedPaQDynamicQuery(
+                hidden_dim=hidden_dim,
+                num_levels=num_levels,
+                kernel_size=paq_bcqs_kernel_size,
+                num_patterns=paq_bcqs_num_patterns,
+                residual_init=paq_bcqs_residual_init,
+                context_init=paq_bcqs_context_init,
+                act=activation,
+            )
+        else:
+            self.paq_bcqs_query = None
 
         # if num_select_queries != self.num_queries:
         #     layer = TransformerEncoderLayer(hidden_dim, nhead, dim_feedforward, activation='gelu')
@@ -1614,7 +1685,7 @@ class DFINETransformer(nn.Module):
             enc_outputs_logits = enc_outputs_logits + self.iqs_score_weight * iqs_logits
 
         enc_topk_bboxes_list, enc_topk_logits_list = [], []
-        enc_topk_memory, enc_topk_logits, enc_topk_anchors = self._select_topk(
+        enc_topk_memory, enc_topk_logits, enc_topk_anchors, enc_topk_ind = self._select_topk(
             output_memory, enc_outputs_logits, anchors, self.num_queries
         )
 
@@ -1633,7 +1704,11 @@ class DFINETransformer(nn.Module):
         else:
             content = enc_topk_memory.detach()
 
-        if self.use_paq_query:
+        if self.use_paq_bcqs_fusion:
+            content = self.paq_bcqs_query(
+                output_memory.detach(), spatial_shapes, enc_topk_ind, content
+            )
+        elif self.use_paq_query:
             content = self.paq_query(enc_topk_memory.detach())
 
         enc_topk_bbox_unact = enc_topk_bbox_unact.detach()
@@ -1679,7 +1754,7 @@ class DFINETransformer(nn.Module):
             dim=1, index=topk_ind.unsqueeze(-1).repeat(1, 1, memory.shape[-1])
         )
 
-        return topk_memory, topk_logits, topk_anchors
+        return topk_memory, topk_logits, topk_anchors, topk_ind
 
     def forward(self, feats, targets=None):
         # input projection and embedding
