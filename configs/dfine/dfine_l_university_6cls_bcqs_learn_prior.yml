@@ -1,0 +1,15 @@
+# BCQS bounded-prior learnable-weight experiment.
+# Starts from the verified 0.25 BCQS strength and learns within [0.15, 0.35].
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_bcqs_learn_prior
+
+DFINETransformer:
+  use_bcqs: True
+  bcqs_kernel_size: 3
+  bcqs_score_weight: 0.25
+  bcqs_learn_score_weight: prior
+  bcqs_score_weight_min: 0.15
+  bcqs_score_weight_max: 0.35

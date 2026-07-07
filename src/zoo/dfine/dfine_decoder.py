@@ -1081,6 +1081,9 @@ class DFINETransformer(nn.Module):
         use_bcqs=False,
         bcqs_kernel_size=3,
         bcqs_score_weight=0.5,
+        bcqs_learn_score_weight=False,
+        bcqs_score_weight_min=0.15,
+        bcqs_score_weight_max=0.35,
         use_iqs=False,
         iqs_score_weight=0.25,
         use_relation_bcqs=False,
@@ -1138,6 +1141,20 @@ class DFINETransformer(nn.Module):
         self.cross_attn_method = cross_attn_method
         self.query_select_method = query_select_method
         self.use_bcqs = use_bcqs
+        if isinstance(bcqs_learn_score_weight, str):
+            bcqs_score_weight_mode = bcqs_learn_score_weight.lower()
+            if bcqs_score_weight_mode in ("false", "fixed", "none"):
+                bcqs_score_weight_mode = "fixed"
+            elif bcqs_score_weight_mode in ("true", "prior", "learn_prior", "bounded"):
+                bcqs_score_weight_mode = "learn_prior"
+            elif bcqs_score_weight_mode in ("zero", "learn_zero"):
+                bcqs_score_weight_mode = "learn_zero"
+            else:
+                raise ValueError(f"Unsupported bcqs_learn_score_weight: {bcqs_learn_score_weight}")
+        else:
+            bcqs_score_weight_mode = "learn_prior" if bcqs_learn_score_weight else "fixed"
+        self.bcqs_score_weight_mode = bcqs_score_weight_mode
+        self.bcqs_learn_score_weight = self.bcqs_score_weight_mode != "fixed"
         self.use_iqs = use_iqs
         self.use_relation_bcqs = use_relation_bcqs
         self.use_bcea = use_bcea
@@ -1150,8 +1167,32 @@ class DFINETransformer(nn.Module):
         if self.use_bcqs:
             bcqs_score_weight = min(max(float(bcqs_score_weight), 1e-4), 1.0 - 1e-4)
             self.bcqs_score_gate_init = math.log(bcqs_score_weight / (1.0 - bcqs_score_weight))
+            if self.bcqs_score_weight_mode == "learn_zero":
+                self.bcqs_score_weight_param = nn.Parameter(torch.tensor(0.0))
+                self.bcqs_score_weight_min = None
+                self.bcqs_score_weight_range = None
+            elif self.bcqs_score_weight_mode == "learn_prior":
+                min_weight = float(bcqs_score_weight_min)
+                max_weight = float(bcqs_score_weight_max)
+                assert 0.0 <= min_weight < max_weight <= 1.0, (
+                    "bcqs_score_weight_min/max must satisfy 0 <= min < max <= 1"
+                )
+                normalized_weight = (bcqs_score_weight - min_weight) / (max_weight - min_weight)
+                normalized_weight = min(max(normalized_weight, 1e-4), 1.0 - 1e-4)
+                self.bcqs_score_weight_param = nn.Parameter(
+                    torch.tensor(math.log(normalized_weight / (1.0 - normalized_weight)))
+                )
+                self.bcqs_score_weight_min = min_weight
+                self.bcqs_score_weight_range = max_weight - min_weight
+            else:
+                self.bcqs_score_weight_param = None
+                self.bcqs_score_weight_min = None
+                self.bcqs_score_weight_range = None
         else:
             self.bcqs_score_gate_init = None
+            self.bcqs_score_weight_param = None
+            self.bcqs_score_weight_min = None
+            self.bcqs_score_weight_range = None
 
         self.relation_bcqs_score_weight = relation_bcqs_score_weight
         self.iqs_score_weight = float(iqs_score_weight)
@@ -1376,10 +1417,16 @@ class DFINETransformer(nn.Module):
         init.constant_(self.enc_score_head.bias, bias)
         if self.use_bcqs:
             # BCQS: start as a no-op so the first epoch is comparable to the baseline query scorer.
-            init.constant_(self.bcqs_score_head.weight, 0)
-            init.constant_(self.bcqs_score_head.bias, 0)
+            if self.bcqs_score_weight_mode != "learn_zero":
+                init.constant_(self.bcqs_score_head.weight, 0)
+                init.constant_(self.bcqs_score_head.bias, 0)
             init.constant_(self.bcqs_score_gate.layers[-1].weight, 0)
-            init.constant_(self.bcqs_score_gate.layers[-1].bias, self.bcqs_score_gate_init)
+            if self.bcqs_learn_score_weight:
+                # Local gate starts at 1.0 after the 2*sigmoid transform; the global scalar
+                # chooses zero-start or bounded-prior BCQS strength.
+                init.constant_(self.bcqs_score_gate.layers[-1].bias, 0)
+            else:
+                init.constant_(self.bcqs_score_gate.layers[-1].bias, self.bcqs_score_gate_init)
         if self.use_iqs:
             # IQS starts as an exact no-op; existing encoder auxiliary VFL then
             # teaches the scalar branch a quality/objectness correction.
@@ -1540,6 +1587,16 @@ class DFINETransformer(nn.Module):
             bcqs_score_gate = torch.sigmoid(
                 self.bcqs_score_gate(torch.concat([output_memory, bcqs_memory], dim=-1))
             ).to(bcqs_logits.dtype)
+            if self.bcqs_score_weight_mode == "learn_zero":
+                bcqs_global_weight = self.bcqs_score_weight_param.to(dtype=bcqs_logits.dtype)
+                bcqs_score_gate = 2.0 * bcqs_global_weight * bcqs_score_gate
+            elif self.bcqs_score_weight_mode == "learn_prior":
+                bcqs_weight_ratio = torch.sigmoid(self.bcqs_score_weight_param)
+                bcqs_global_weight = (
+                    self.bcqs_score_weight_min + self.bcqs_score_weight_range * bcqs_weight_ratio
+                )
+                bcqs_global_weight = bcqs_global_weight.to(dtype=bcqs_logits.dtype)
+                bcqs_score_gate = 2.0 * bcqs_global_weight * bcqs_score_gate
             enc_outputs_logits = enc_outputs_logits + bcqs_score_gate * bcqs_logits
         if self.use_relation_bcqs:
             # RA-BCQS: add local-neighbor, scene-level, and spatial relation cues before top-k.
