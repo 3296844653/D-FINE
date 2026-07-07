@@ -13,7 +13,7 @@ DFINETransformer:
 
   # Unified module: original top-k memory is preserved, BCQS context guides PaQ patterns.
   use_paq_bcqs_fusion: True
-  paq_bcqs_num_patterns: 100
+  paq_bcqs_num_patterns: 50
   paq_bcqs_kernel_size: 3
   # Initialize BCQS context mixing with the best fixed BCQS prior.
   paq_bcqs_context_init: 0.25

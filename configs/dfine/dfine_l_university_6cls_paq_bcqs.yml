@@ -9,7 +9,7 @@ output_dir: ./output/dfine_l_university_6cls_paq_bcqs
 DFINETransformer:
   # Strict PaQ: generate decoder content queries from latent patterns.
   use_paq_query: True
-  paq_num_patterns: 100
+  paq_num_patterns: 50
 
   # BCQS: behavior-context query scoring before encoder top-k query selection.
   use_bcqs: True

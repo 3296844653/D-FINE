@@ -8,7 +8,7 @@ output_dir: ./output/dfine_l_university_6cls_paq_w001
 
 DFINETransformer:
   use_paq_query: True
-  paq_num_patterns: 100
+  paq_num_patterns: 50
 
   # Keep BCQS disabled so this run measures strict PaQ alone.
   use_bcqs: False

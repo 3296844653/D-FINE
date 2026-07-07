@@ -10,7 +10,7 @@ DFINETransformer:
   # combination weights, then decoder content queries are formed from latent patterns.
   use_paq_query: True
   # Number of latent patterns M in PaQ.
-  paq_num_patterns: 100
+  paq_num_patterns: 50
 
   # Keep BCQS disabled so this run measures PaQ dynamic query alone.
   use_bcqs: False

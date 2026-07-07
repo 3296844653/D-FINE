@@ -23,7 +23,7 @@ HybridEncoder:
 DFINETransformer:
   # Strict PaQ: pattern-based dynamic query generation.
   use_paq_query: True
-  paq_num_patterns: 100
+  paq_num_patterns: 50
 
   # Keep BCQS disabled so this run measures PaQ + BMEFS without query-selection interference.
   use_bcqs: False

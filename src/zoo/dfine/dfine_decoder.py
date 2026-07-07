@@ -49,7 +49,7 @@ class MLP(nn.Module):
 class PaQDynamicQuery(nn.Module):
     """PaQ-RT-DETR pattern-based dynamic query generator."""
 
-    def __init__(self, hidden_dim=256, num_patterns=100, act="relu"):
+    def __init__(self, hidden_dim=256, num_patterns=50, act="relu"):
         super().__init__()
         self.patterns = nn.Parameter(torch.empty(num_patterns, hidden_dim))
         self.weight_generator = MLP(hidden_dim, hidden_dim, num_patterns, 2, act=act)
@@ -217,7 +217,7 @@ class BCQSGuidedPaQDynamicQuery(nn.Module):
         hidden_dim=256,
         num_levels=3,
         kernel_size=3,
-        num_patterns=100,
+        num_patterns=50,
         residual_init=0.03,
         context_init=0.25,
         act="relu",
@@ -1159,9 +1159,9 @@ class DFINETransformer(nn.Module):
         bra_reduction=4,
         bra_init=0.01,
         use_paq_query=False,
-        paq_num_patterns=100,
+        paq_num_patterns=50,
         use_paq_bcqs_fusion=False,
-        paq_bcqs_num_patterns=100,
+        paq_bcqs_num_patterns=50,
         paq_bcqs_kernel_size=3,
         paq_bcqs_residual_init=0.03,
         paq_bcqs_context_init=0.25,
