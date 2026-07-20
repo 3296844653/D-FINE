@@ -1,0 +1,11 @@
+# Ablation: test 150 shared PaQ patterns with the current 300-query D-FINE setting.
+# The paper-consistent setting for 300 queries is 50 patterns; this file isolates
+# whether a larger shared-pattern pool helps PaQ alone on this dataset.
+
+__include__:
+  - dfine_l_university_6cls_paq.yml
+
+output_dir: ./output/dfine_l_university_6cls_paq_m150
+
+DFINETransformer:
+  paq_num_patterns: 150
