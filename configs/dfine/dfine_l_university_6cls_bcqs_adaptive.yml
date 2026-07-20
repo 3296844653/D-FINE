@@ -1,0 +1,18 @@
+# BCQS adaptive-weight experiment.
+# The model predicts a bounded per-candidate BCQS score weight instead of using
+# a fixed manual score coefficient.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_bcqs_adaptive
+
+DFINETransformer:
+  use_bcqs: True
+  bcqs_kernel_size: 3
+  # Initial center of the adaptive gate. During training each candidate learns
+  # its own weight in [bcqs_score_weight_min, bcqs_score_weight_max].
+  bcqs_score_weight: 0.25
+  bcqs_learn_score_weight: adaptive
+  bcqs_score_weight_min: 0.05
+  bcqs_score_weight_max: 0.45
