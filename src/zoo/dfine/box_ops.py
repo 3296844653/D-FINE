@@ -90,36 +90,4 @@ def masks_to_boxes(masks):
     y_max = y_mask.flatten(1).max(-1)[0]
     y_min = y_mask.masked_fill(~(masks.bool()), 1e8).flatten(1).min(-1)[0]
 
-    return torch.stack([x_min, y_min, x_max, y_max], 1)��边界框 (Bounding Box)。
-
-    参数:
-        masks: Tensor, 格式为 [N, H, W]，其中 N 为掩码数量，(H, W) 为空间尺寸。
-
-    返回:
-        Tensor, 形状为 [N, 4]，表示转换为 xyxy 格式的边界框。
-    """
-    # 如果没有掩码，返回空的边界框张量
-    if masks.numel() == 0:
-        return torch.zeros((0, 4), device=masks.device)
-
-    h, w = masks.shape[-2:]
-
-    # 生成高度(y)和宽度(x)方向的坐标网格
-    y = torch.arange(0, h, dtype=torch.float)
-    x = torch.arange(0, w, dtype=torch.float)
-    y, x = torch.meshgrid(y, x)
-
-    # 计算 x 方向的边界 (x_min, x_max)
-    x_mask = masks * x.unsqueeze(0)
-    x_max = x_mask.flatten(1).max(-1)[0]
-    # 对于 x_min，非掩码区域填充极大值以防干扰 min() 计算
-    x_min = x_mask.masked_fill(~(masks.bool()), 1e8).flatten(1).min(-1)[0]
-
-    # 计算 y 方向的边界 (y_min, y_max)
-    y_mask = masks * y.unsqueeze(0)
-    y_max = y_mask.flatten(1).max(-1)[0]
-    # 对于 y_min，非掩码区域填充极大值以防干扰 min() 计算
-    y_min = y_mask.masked_fill(~(masks.bool()), 1e8).flatten(1).min(-1)[0]
-
-    # 将 [x_min, y_min, x_max, y_max] 拼接起来并返回
     return torch.stack([x_min, y_min, x_max, y_max], 1)
