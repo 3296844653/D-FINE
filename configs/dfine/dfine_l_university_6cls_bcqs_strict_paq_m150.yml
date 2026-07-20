@@ -1,0 +1,22 @@
+# Strict PaQ M150 + BCQS serial-combination experiment.
+# BCQS re-ranks encoder candidates before top-k selection. Strict PaQ then
+# replaces decoder content queries with a 150-pattern dynamic combination.
+
+__include__:
+  - dfine_l_university_6cls.yml
+
+output_dir: ./output/dfine_l_university_6cls_bcqs_strict_paq_m150
+
+DFINETransformer:
+  # Standalone BCQS path, kept identical to the verified BCQS-only setting.
+  use_bcqs: True
+  bcqs_kernel_size: 3
+  bcqs_score_weight: 0.25
+  bcqs_learn_score_weight: False
+
+  # Strict PaQ path: dynamic pattern queries replace encoder content queries.
+  use_paq_query: True
+  paq_num_patterns: 150
+
+  # Do not use the separate residual/gated PaQ-BCQS experiment.
+  use_paq_bcqs_fusion: False
