@@ -5,6 +5,14 @@ Copyright (c) 2024 The D-FINE Authors. All Rights Reserved.
 Modified from RT-DETR (https://github.com/lyuwenyu/RT-DETR)
 Copyright (c) 2023 lyuwenyu. All Rights Reserved.
 """
+"""
+它本身不负责生成预测，而是接收：
+    D-FINE 解码器输出；
+    真实标签 targets；
+    匈牙利匹配器 matcher；
+    各损失项的权重；
+然后计算分类、边界框、FGL、GO-LSD 自蒸馏、编码器辅助监督和去噪监督等损失。 
+"""
 
 import copy
 
@@ -25,10 +33,10 @@ class DFINECriterion(nn.Module):
     """This class computes the loss for D-FINE."""
 
     __share__ = [
-        "num_classes",
+        "num_classes", # 表示 num_classes 可以与项目中的其他模块共享，例如模型、匹配器和损失函数使用同一类别数量
     ]
     __inject__ = [
-        "matcher",
+        "matcher", # 匈牙利匹配器，用于建立：预测 Query ↔ 真实目标 的一对一匹配
     ]
 
     def __init__(
@@ -81,11 +89,12 @@ class DFINECriterion(nn.Module):
         self.o2m_quality_gamma = float(o2m_quality_gamma)
         self.o2m_min_pos = max(int(o2m_min_pos), 1)
 
+    # 定义分类焦点损失函数
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
         assert "pred_logits" in outputs
-        src_logits = outputs["pred_logits"]
-        idx = self._get_src_permutation_idx(indices)
-        target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
+        src_logits = outputs["pred_logits"] # 读取分类 logits
+        idx = self._get_src_permutation_idx(indices) # 把 Hungarian Matcher 的结果整理成可以直接用于 PyTorch 张量索引的格式
+        target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)]) # J 就是：GT索引 t["labels"][J]：取出这些GT对应的真实类别 torch.cat()：把整个batch匹配到的真实类别拼起来
         target_classes = torch.full(
             src_logits.shape[:2], self.num_classes, dtype=torch.int64, device=src_logits.device
         )

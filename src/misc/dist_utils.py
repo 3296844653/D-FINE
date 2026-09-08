@@ -11,6 +11,11 @@ import os
 import random
 import time
 
+# Must be configured before CUDA/cuBLAS is initialized. This makes supported
+# CUDA matrix multiplications reproducible when deterministic algorithms are
+# enabled below.
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+
 import numpy as np
 import torch
 import torch.backends.cudnn
@@ -29,6 +34,7 @@ def setup_distributed(
     print_rank: int = 0,
     print_method: str = "builtin",
     seed: int = None,
+    deterministic: bool = True,
 ):
     """
     env setup
@@ -36,6 +42,7 @@ def setup_distributed(
         print_rank,
         print_method, (builtin, rich)
         seed,
+        deterministic,
     """
     try:
         # https://pytorch.org/docs/stable/elastic/run.html
@@ -60,7 +67,7 @@ def setup_distributed(
 
     setup_print(get_rank() == print_rank, method=print_method)
     if seed is not None:
-        setup_seed(seed)
+        setup_seed(seed, deterministic=deterministic)
 
     return enabled_dist
 
@@ -236,9 +243,17 @@ def sync_time():
     return time.time()
 
 
-def setup_seed(seed: int, deterministic=False):
-    """setup_seed for reproducibility
-    torch.manual_seed(3407) is all you need. https://arxiv.org/abs/2109.08203
+def setup_seed(seed: int, deterministic: bool = True):
+    """Seed all RNGs and prefer reproducible CUDA execution.
+
+    A fixed seed alone does not make CUDA training deterministic.  When
+    ``deterministic`` is enabled, disable cuDNN autotuning and TF32, and ask
+    PyTorch to use deterministic implementations whenever they are available.
+
+    ``warn_only=True`` keeps training usable when an operation (for example a
+    CUDA ``grid_sample`` backward implementation in some PyTorch versions)
+    has no deterministic alternative.  Such warnings must not be ignored when
+    exact, bitwise reproducibility is required.
     """
     seed = seed + get_rank()
     random.seed(seed)
@@ -246,11 +261,19 @@ def setup_seed(seed: int, deterministic=False):
     torch.manual_seed(seed)
 
     if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-    # memory will be large when setting deterministic to True
-    if torch.backends.cudnn.is_available() and deterministic:
-        torch.backends.cudnn.deterministic = True
+    if deterministic:
+        if torch.backends.cudnn.is_available():
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.allow_tf32 = False
+
+        if torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = False
+
+        torch.use_deterministic_algorithms(True, warn_only=True)
 
 
 # for torch.compile

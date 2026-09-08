@@ -1,0 +1,1966 @@
+{
+  "meta": {
+    "projectName": "D-FINE",
+    "primaryLanguage": "Python",
+    "framework": "PyTorch",
+    "description": "D-FINE: 将 DETR 目标检测框回归任务重定义为细粒度分布细化 (Fine-grained Distribution Refinement, FDR) 的 SOTA 实时目标检测模型",
+    "granularity": "line-by-line",
+    "generatedAt": "2026-07-30T16:11:14.547792"
+  },
+  "chapters": [
+    {
+      "id": "preparation",
+      "title": "前置准备",
+      "sections": [
+        {
+          "title": "D-FINE 项目简介与核心突破",
+          "anchor": "prep-intro",
+          "blocks": [
+            {
+              "type": "text",
+              "text": "### 什么是 D-FINE？\n**D-FINE** 是由南开大学团队提出的 SOTA 实时目标检测模型。传统端到端检测器（如 RT-DETR、YOLO）在边界框回归上通常采用直接回归四元组 $(x, y, w, h)$ 或均匀离散分布（如 DFL）。但固定精度的均匀分布极易在预测框微调时遇到瓶颈。\n\n**D-FINE 的核心突破**在于将边界框回归重定义为**细粒度分布细化 (Fine-grained Distribution Refinement, FDR)**：\n1. **非均匀权重函数 $W(n)$**：构建靠近框中心区域平缓、靠近框边缘区域陡峭的非均匀分布桶，大幅提升边缘定位敏感度。\n2. **跨层细化机制 (FDR)**：在 Transformer Decoder 的 6 个层级中，后一层以后一层为基准逐步微调边缘分布，实现从粗粒度到毫米级细粒度的定位修正。\n3. **轻量高效架构 (RepNCSPELAN4 + Lightweight Decoder)**：在保证更高 mAP 的同时，实现超越 RT-DETR 的超高 FPS 实时推理速度。"
+            },
+            {
+              "type": "table",
+              "headers": [
+                "模型对比",
+                "回归机制",
+                "定位精度 (AP)",
+                "推理延时",
+                "部署友好度"
+              ],
+              "rows": [
+                [
+                  "YOLOv8 / YOLOv10",
+                  "DFL 均匀离散分布回归",
+                  "中高",
+                  "极快",
+                  "高 (NMS 后处理)"
+                ],
+                [
+                  "RT-DETR",
+                  "直接坐标值线性回归",
+                  "高",
+                  "快 (无 NMS)",
+                  "高 (TensorRT 优异)"
+                ],
+                [
+                  "D-FINE (本项目)",
+                  "FDR 细粒度分布细化",
+                  "极高 (SOTA)",
+                  "超快 (实时无 NMS)",
+                  "极高 (重参数化+算子优化)"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "title": "环境搭建与运行验证",
+          "anchor": "prep-env",
+          "blocks": [
+            {
+              "type": "text",
+              "text": "D-FINE 基于 PyTorch 和 CUDA 开发，本地已配置专用 Conda 环境 `dfine` (`/Users/wq/anaconda/anaconda3/envs/dfine`)。使用以下命令即可在本地快速验证与运行："
+            },
+            {
+              "type": "code",
+              "language": "bash",
+              "caption": "终端激活环境与验证命令",
+              "content": "# 1. 激活 dfine 专用环境\nconda activate dfine\n\n# 2. 检查 PyTorch 与 Torchvision 版本\npython -c \"import torch, torchvision; print('PyTorch:', torch.__version__, 'CUDA Available:', torch.cuda.is_available())\"\n\n# 3. 运行模型预测或验证脚本\npython train.py -c configs/dfine/dfine_hgnetv2_s_coco.yml --eval"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "architecture",
+      "title": "架构设计",
+      "sections": [
+        {
+          "title": "D-FINE 全局端到端网络架构",
+          "anchor": "arch-overview",
+          "blocks": [
+            {
+              "type": "text",
+              "text": "D-FINE 采用了经典的端到端检测管道，由 **Backbone (骨干网络)**、**HybridEncoder (跨尺度融合编码器)** 和 **DFINETransformer Decoder (FDR 解码器)** 三大核心部分组成："
+            },
+            {
+              "type": "diagram",
+              "language": "mermaid",
+              "caption": "D-FINE 端到端数据流图",
+              "content": "graph TD\n    Input[输入图像 Bx3xHxW] --> Backbone[Backbone 骨干网络<br/>HGNetv2 / PResNet]\n    Backbone -->|C3, C4, C5| HybridEncoder[HybridEncoder 跨尺度编码器<br/>RepNCSPELAN4 + SCDown]\n    HybridEncoder -->|P3, P4, P5| Decoder[DFINETransformer Decoder<br/>6层 FDR 细粒度分布细化]\n    Decoder --> Head[Sibling Decoupled Head<br/>分类 Head + 4方向 FDR 预测 Head]\n    Head --> PostProcessor[DFINEPostProcessor 后处理器<br/>Top-K 提取 + 尺寸还原]\n    PostProcessor --> Output[最终检测框与类别 Bx300x(4+1)]"
+            }
+          ]
+        },
+        {
+          "title": "src/zoo/dfine 核心文件分工表",
+          "anchor": "arch-modules",
+          "blocks": [
+            {
+              "type": "table",
+              "headers": [
+                "文件名",
+                "核心模块/类",
+                "主要职责与设计亮点"
+              ],
+              "rows": [
+                [
+                  "dfine.py",
+                  "DFINE",
+                  "模型总组装入口，注入 backbone/encoder/decoder，提供 deploy() 部署接口"
+                ],
+                [
+                  "hybrid_encoder.py",
+                  "HybridEncoder, RepNCSPELAN4",
+                  "实现高效多尺度特征自注意力与 Top-Down/Bottom-Up 跨尺度特征融合"
+                ],
+                [
+                  "dfine_decoder.py",
+                  "DFINETransformer, TransformerDecoder",
+                  "实现 6 层渐进式 FDR 分布细化 Transformer 解码器与解耦预测头"
+                ],
+                [
+                  "dfine_criterion.py",
+                  "DFINECriterion",
+                  "计算分类 FocalLoss、L1 损失、GIoU 损失以及 FDR 细粒度分布回归 Loss"
+                ],
+                [
+                  "postprocessor.py",
+                  "DFINEPostProcessor",
+                  "推理与部署阶段的预测框还原、Sigmoid 转换与 TensorRT 兼容取模"
+                ],
+                [
+                  "matcher.py",
+                  "HungarianMatcher",
+                  "二分图匹配算法，计算预测 Query 与 Ground Truth 的代价矩阵并一对一匹配"
+                ],
+                [
+                  "denoising.py",
+                  "get_contrastive_denoising_training_group",
+                  "Contrastive Denoising (去噪训练) 模块，加速 Transformer 收敛"
+                ],
+                [
+                  "dfine_utils.py",
+                  "weighting_function, translate_gt",
+                  "数学工具箱：构建非均匀权重函数 W(n)，解算边缘距离与 GT 离散分布"
+                ],
+                [
+                  "box_ops.py",
+                  "box_cxcywh_to_xyxy, generalized_box_iou",
+                  "边界框格式转换 [cx,cy,w,h] <-> [x1,y1,x2,y2] 及 GIoU 计算"
+                ],
+                [
+                  "utils.py",
+                  "inverse_sigmoid, deformable_attention_core_func",
+                  "数值稳定反 Sigmoid 函数与可形变注意力 (Deformable Attention) 核心算子"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "practice",
+      "title": "实战演练（源码逐行走读）",
+      "sections": [
+        {
+          "groupTitle": "D-FINE 核心算法源码解析",
+          "title": "1. dfine.py — 模型总串联与部署接口",
+          "anchor": "code-dfine",
+          "blocks": [
+            {
+              "type": "text",
+              "text": "### 模块职责与原理\n`dfine.py` 是整个 D-FINE 模型的最外层封装类。它通过 `@register()` 注册到配置系统中，利用依赖注入机制接收 `backbone`、`encoder` 和 `decoder`。\n\n在训练模式下，它将图像张量送入骨干网络提取特征，经 `HybridEncoder` 进行跨尺度融合，最后传入 `DFINETransformer` 执行 6 层细粒度分布回归。在部署模式下，通过 `deploy()` 递归触发所有子模块的重参数化钩子（如 `ConvNormLayer_fuse`），将卷积与 BN 融合，从而大幅缩减 TensorRT 推理延时。"
+            },
+            {
+              "type": "callchain",
+              "callchain": {
+                "endpoint": "MODEL Forward & Deploy Entry",
+                "steps": [
+                  {
+                    "layer": "DFINE (src/zoo/dfine/dfine.py)",
+                    "filePath": "src/zoo/dfine/dfine.py:L1-L58",
+                    "functionName": "DFINE.forward() / deploy()",
+                    "explanation": "DFINE 类实现了全流程前向计算与部署转换。`forward` 顺序调用 backbone -> encoder -> decoder；`deploy` 将网络切换至 eval 模式并递归融合所有 BN 层。",
+                    "code": "\"\"\"\nCopyright (c) 2024 The D-FINE Authors. All Rights Reserved.\n\"\"\"\n\n# DFINE 类的导入与注册\n# 导入 PyTorch 神经网络模块库，所有网络层均继承自 nn.Module\nimport torch.nn as nn\n\n# 从项目核心库导入 @register() 注册器装饰器\nfrom ...core import register\n\n__all__ = [\n    \"DFINE\",\n]\n\n\n# 将 DFINE 类注册到系统的组件工厂中，便于按 YAML 配置文件动态实例化\n@register()\nclass DFINE(nn.Module):\n    __inject__ = [\n        # 指定依赖注入的子模块名称，系统解析配置时会自动创建 backbone、encoder 和 decoder 并注入\n        \"backbone\",\n        \"encoder\",\n        \"decoder\",\n    ]\n\n    # DFINE 的构造函数与前向传播\n    def __init__(\n        self,\n        backbone: nn.Module,\n        encoder: nn.Module,\n        decoder: nn.Module,\n    ):\n        # 调用父类构造方法完成 PyTorch 基础节点初始化\n        super().__init__()\n        self.backbone = backbone\n        self.decoder = decoder\n        self.encoder = encoder\n\n    # 主前向传播入口\n    # x：输入的图像 Batch Tensor，形状为 [B, 3, H, W]\n    def forward(self, x, targets=None):\n        x = self.backbone(x) # 提取基础多尺度特征图 $C3, C4, C5$\n        x = self.encoder(x) # 跨尺度特征金字塔融合，输出 $P3, P4, P5$\n        x = self.decoder(x, targets) # 执行 Top-K 选框和 6 层 FDR 细粒度分布回归\n\n        return x\n\n    # 部署模式重参数化 convert_to_deploy\n    def deploy(\n        self,\n    ):\n        self.eval() # 锁定 Batch Normalization 均值方差并关闭 Dropout\n        for m in self.modules(): # 递归遍历网络中所有子模块\n            if hasattr(m, \"convert_to_deploy\"): # 查找拥有重参数化钩子的模块（如 ConvNormLayer_fuse）\n                m.convert_to_deploy() # 将卷积权重与 BN 层参数等价融合为单个 nn.Conv2d，大幅提升 TensorRT 部署速度\n        return self\n",
+                    "lineAnnotations": [
+                      {
+                        "line": 1,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 2,
+                        "annotation": "核心计算/张量变换步骤: Copyright (c) 2024 The D-FINE Authors. All Rights Reserved."
+                      },
+                      {
+                        "line": 3,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 4,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 5,
+                        "annotation": "代码注释：DFINE 类的导入与注册"
+                      },
+                      {
+                        "line": 6,
+                        "annotation": "代码注释：导入 PyTorch 神经网络模块库，所有网络层均继承自 nn.Module"
+                      },
+                      {
+                        "line": 7,
+                        "annotation": "导入 PyTorch 基础神经网络模块库 torch.nn"
+                      },
+                      {
+                        "line": 8,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 9,
+                        "annotation": "代码注释：从项目核心库导入 @register() 注册器装饰器"
+                      },
+                      {
+                        "line": 10,
+                        "annotation": "从项目核心模块导入 @register 注册器装饰器，用于 YAML 配置动态实例化"
+                      },
+                      {
+                        "line": 11,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 12,
+                        "annotation": "属性/变量赋值: 设定 __all__"
+                      },
+                      {
+                        "line": 13,
+                        "annotation": "核心计算/张量变换步骤: \"DFINE\","
+                      },
+                      {
+                        "line": 14,
+                        "annotation": "核心计算/张量变换步骤: ]"
+                      },
+                      {
+                        "line": 15,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 16,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 17,
+                        "annotation": "代码注释：将 DFINE 类注册到系统的组件工厂中，便于按 YAML 配置文件动态实例化"
+                      },
+                      {
+                        "line": 18,
+                        "annotation": "@register() 装饰器将 DFINE 类注册进系统组件工厂"
+                      },
+                      {
+                        "line": 19,
+                        "annotation": "定义类 DFINE，封装核心组件数据与前向计算"
+                      },
+                      {
+                        "line": 20,
+                        "annotation": "__inject__ 属性定义需要由配置工厂动态注入的子模块名称 (backbone, encoder, decoder)"
+                      },
+                      {
+                        "line": 21,
+                        "annotation": "代码注释：指定依赖注入的子模块名称，系统解析配置时会自动创建 backbone、encoder 和 decoder 并注入"
+                      },
+                      {
+                        "line": 22,
+                        "annotation": "核心计算/张量变换步骤: \"backbone\","
+                      },
+                      {
+                        "line": 23,
+                        "annotation": "核心计算/张量变换步骤: \"encoder\","
+                      },
+                      {
+                        "line": 24,
+                        "annotation": "核心计算/张量变换步骤: \"decoder\","
+                      },
+                      {
+                        "line": 25,
+                        "annotation": "核心计算/张量变换步骤: ]"
+                      },
+                      {
+                        "line": 26,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 27,
+                        "annotation": "代码注释：DFINE 的构造函数与前向传播"
+                      },
+                      {
+                        "line": 28,
+                        "annotation": "DFINE 主类的构造函数，接收由工厂实例化的 backbone, encoder, decoder 三大核心组件"
+                      },
+                      {
+                        "line": 29,
+                        "annotation": "核心计算/张量变换步骤: self,"
+                      },
+                      {
+                        "line": 30,
+                        "annotation": "核心计算/张量变换步骤: backbone: nn.Module,"
+                      },
+                      {
+                        "line": 31,
+                        "annotation": "核心计算/张量变换步骤: encoder: nn.Module,"
+                      },
+                      {
+                        "line": 32,
+                        "annotation": "核心计算/张量变换步骤: decoder: nn.Module,"
+                      },
+                      {
+                        "line": 33,
+                        "annotation": "核心计算/张量变换步骤: ):"
+                      },
+                      {
+                        "line": 34,
+                        "annotation": "代码注释：调用父类构造方法完成 PyTorch 基础节点初始化"
+                      },
+                      {
+                        "line": 35,
+                        "annotation": "调用父类 nn.Module 的构造方法"
+                      },
+                      {
+                        "line": 36,
+                        "annotation": "保存传入的 Backbone 骨干网络（如 HGNetv2 或 PResNet）"
+                      },
+                      {
+                        "line": 37,
+                        "annotation": "保存传入的 Decoder 解码器（FDR 细粒度分布回归解码器）"
+                      },
+                      {
+                        "line": 38,
+                        "annotation": "保存传入的 Encoder 特征融合编码器（HybridEncoder）"
+                      },
+                      {
+                        "line": 39,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 40,
+                        "annotation": "代码注释：主前向传播入口"
+                      },
+                      {
+                        "line": 41,
+                        "annotation": "代码注释：x：输入的图像 Batch Tensor，形状为 [B, 3, H, W]"
+                      },
+                      {
+                        "line": 42,
+                        "annotation": "主前向传播入口 forward()，接收输入图像 Batch 张量 x [B, 3, H, W] 与标注 targets"
+                      },
+                      {
+                        "line": 43,
+                        "annotation": "第一步：通过 Backbone 提取基础多尺度金字塔特征图 (如 C3, C4, C5)"
+                      },
+                      {
+                        "line": 44,
+                        "annotation": "第二步：通过 HybridEncoder 执行跨尺度特征融合与 Transformer 全局增强，输出 (P3, P4, P5)"
+                      },
+                      {
+                        "line": 45,
+                        "annotation": "第三步：通过 DFINE Decoder 执行选框 Top-K 提取与 6 层 FDR 分布回归解码"
+                      },
+                      {
+                        "line": 46,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 47,
+                        "annotation": "返回最终预测结果字典（包含 pred_logits, pred_boxes 以及中间层辅助损失预测）"
+                      },
+                      {
+                        "line": 48,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 49,
+                        "annotation": "代码注释：部署模式重参数化 convert_to_deploy"
+                      },
+                      {
+                        "line": 50,
+                        "annotation": "deploy() 部署转换方法，用于将模型切换为推理部署高效模式"
+                      },
+                      {
+                        "line": 51,
+                        "annotation": "核心计算/张量变换步骤: self,"
+                      },
+                      {
+                        "line": 52,
+                        "annotation": "核心计算/张量变换步骤: ):"
+                      },
+                      {
+                        "line": 53,
+                        "annotation": "锁定 Batch Normalization 状态（eval 模式），关闭 Dropout"
+                      },
+                      {
+                        "line": 54,
+                        "annotation": "递归遍历模型中的所有子网络模块"
+                      },
+                      {
+                        "line": 55,
+                        "annotation": "检查模块是否拥有 convert_to_deploy 重参数化钩子（如 ConvNormLayer_fuse）"
+                      },
+                      {
+                        "line": 56,
+                        "annotation": "执行重参数化算子融合：将 卷积+BN 融合成单一 nn.Conv2d，极大提升 TensorRT 部署加速效率"
+                      },
+                      {
+                        "line": 57,
+                        "annotation": "返回重参数化后的模型实例本身"
+                      }
+                    ],
+                    "keyPoint": "使用 @register 依赖注入解耦组件，并通过 deploy() 钩子实现训练与部署架构无缝重参数化"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "groupTitle": "D-FINE 核心算法源码解析",
+          "title": "2. postprocessor.py — 后处理与 TensorRT 兼容算子",
+          "anchor": "code-postprocessor",
+          "blocks": [
+            {
+              "type": "text",
+              "text": "### 模块职责与原理\n`postprocessor.py` 负责将 Decoder 输出的原始 logits 和框坐标解算为最终的预测类别与真实像素框。其关键亮点在于实现了兼容老版本 TensorRT 的 `mod(a, b)` 取模算子。原生 Python `%` 算子导出 ONNX 时易生成不兼容的 `Mod` 节点，写成 $a - (a // b) \times b$ 可使解析器将其识别为标准算子，保证工业级部署兼容性。"
+            },
+            {
+              "type": "callchain",
+              "callchain": {
+                "endpoint": "POSTPROCESSOR Top-K & BBox Decode",
+                "steps": [
+                  {
+                    "layer": "DFINEPostProcessor (src/zoo/dfine/postprocessor.py)",
+                    "filePath": "src/zoo/dfine/postprocessor.py:L1-L94",
+                    "functionName": "DFINEPostProcessor.forward()",
+                    "explanation": "将 cxcywh 转化为 xyxy 格式并乘上图像分辨率；应用 Sigmoid 与 Top-K 选框；使用 mod 算子解算类别 ID 与 Query 索引。",
+                    "code": "\"\"\"\nCopied from RT-DETR (https://github.com/lyuwenyu/RT-DETR)\nCopyright(c) 2023 lyuwenyu. All Rights Reserved.\n\"\"\"\n\nimport torch\nimport torch.nn as nn\nimport torch.nn.functional as F\nimport torchvision\n\nfrom ...core import register\n\n__all__ = [\"DFINEPostProcessor\"]\n\n\ndef mod(a, b):\n    out = a - a // b * b\n    return out\n\n\n@register()\nclass DFINEPostProcessor(nn.Module):\n    __share__ = [\"num_classes\", \"use_focal_loss\", \"num_top_queries\", \"remap_mscoco_category\"]\n\n    def __init__(\n        self, num_classes=80, use_focal_loss=True, num_top_queries=300, remap_mscoco_category=False\n    ) -> None:\n        super().__init__()\n        self.use_focal_loss = use_focal_loss\n        self.num_top_queries = num_top_queries\n        self.num_classes = int(num_classes)\n        self.remap_mscoco_category = remap_mscoco_category\n        self.deploy_mode = False\n\n    def extra_repr(self) -> str:\n        return f\"use_focal_loss={self.use_focal_loss}, num_classes={self.num_classes}, num_top_queries={self.num_top_queries}\"\n\n    # def forward(self, outputs, orig_target_sizes):\n    def forward(self, outputs, orig_target_sizes: torch.Tensor):\n        logits, boxes = outputs[\"pred_logits\"], outputs[\"pred_boxes\"]\n        # orig_target_sizes = torch.stack([t[\"orig_size\"] for t in targets], dim=0)\n\n        bbox_pred = torchvision.ops.box_convert(boxes, in_fmt=\"cxcywh\", out_fmt=\"xyxy\")\n        bbox_pred *= orig_target_sizes.repeat(1, 2).unsqueeze(1)\n\n        if self.use_focal_loss:\n            scores = F.sigmoid(logits)\n            scores, index = torch.topk(scores.flatten(1), self.num_top_queries, dim=-1)\n            # TODO for older tensorrt\n            # labels = index % self.num_classes\n            labels = mod(index, self.num_classes)\n            index = index // self.num_classes\n            boxes = bbox_pred.gather(\n                dim=1, index=index.unsqueeze(-1).repeat(1, 1, bbox_pred.shape[-1])\n            )\n\n        else:\n            scores = F.softmax(logits)[:, :, :-1]\n            scores, labels = scores.max(dim=-1)\n            if scores.shape[1] > self.num_top_queries:\n                scores, index = torch.topk(scores, self.num_top_queries, dim=-1)\n                labels = torch.gather(labels, dim=1, index=index)\n                boxes = torch.gather(\n                    boxes, dim=1, index=index.unsqueeze(-1).tile(1, 1, boxes.shape[-1])\n                )\n\n        # TODO for onnx export\n        if self.deploy_mode:\n            return labels, boxes, scores\n\n        # TODO\n        if self.remap_mscoco_category:\n            from ...data.dataset import mscoco_label2category\n\n            labels = (\n                torch.tensor([mscoco_label2category[int(x.item())] for x in labels.flatten()])\n                .to(boxes.device)\n                .reshape(labels.shape)\n            )\n\n        results = []\n        for lab, box, sco in zip(labels, boxes, scores):\n            result = dict(labels=lab, boxes=box, scores=sco)\n            results.append(result)\n\n        return results\n\n    def deploy(\n        self,\n    ):\n        self.eval()\n        self.deploy_mode = True\n        return self\n",
+                    "lineAnnotations": [
+                      {
+                        "line": 1,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 2,
+                        "annotation": "核心计算/张量变换步骤: Copied from RT-DETR (https://github.com/lyuwenyu/RT-DETR)"
+                      },
+                      {
+                        "line": 3,
+                        "annotation": "核心计算/张量变换步骤: Copyright(c) 2023 lyuwenyu. All Rights Reserved."
+                      },
+                      {
+                        "line": 4,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 5,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 6,
+                        "annotation": "引入模块/类库依赖: torch"
+                      },
+                      {
+                        "line": 7,
+                        "annotation": "引入模块/类库依赖: torch.nn"
+                      },
+                      {
+                        "line": 8,
+                        "annotation": "引入模块/类库依赖: torch.nn.functional"
+                      },
+                      {
+                        "line": 9,
+                        "annotation": "引入模块/类库依赖: torchvision"
+                      },
+                      {
+                        "line": 10,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 11,
+                        "annotation": "引入模块/类库依赖: ...core"
+                      },
+                      {
+                        "line": 12,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 13,
+                        "annotation": "属性/变量赋值: 设定 __all__"
+                      },
+                      {
+                        "line": 14,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 15,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 16,
+                        "annotation": "定义 TensorRT 兼容算子 mod(a, b)。老版本 TensorRT 解析 Python 原生取模 % 易报错，拆为 a - (a // b) * b 完美兼容标准算子"
+                      },
+                      {
+                        "line": 17,
+                        "annotation": "计算整除乘积项 (a // b) * b"
+                      },
+                      {
+                        "line": 18,
+                        "annotation": "用被除数减去整除项，得到数学余数 a % b"
+                      },
+                      {
+                        "line": 19,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 20,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 21,
+                        "annotation": "装饰器：应用 @register() 注册或修改函数/类行为"
+                      },
+                      {
+                        "line": 22,
+                        "annotation": "@register() 将后处理器类注册进配置工厂"
+                      },
+                      {
+                        "line": 23,
+                        "annotation": "__share__ 共享全局配置参数 (类别数、FocalLoss 标记、Top-K 数量等)"
+                      },
+                      {
+                        "line": 24,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 25,
+                        "annotation": "DFINEPostProcessor 构造函数，初始化评估与部署后处理参数"
+                      },
+                      {
+                        "line": 26,
+                        "annotation": "属性/变量赋值: 设定 self, num_classes"
+                      },
+                      {
+                        "line": 27,
+                        "annotation": "核心计算/张量变换步骤: ) -> None:"
+                      },
+                      {
+                        "line": 28,
+                        "annotation": "调用 nn.Module 父类构造方法完成 PyTorch 基础节点初始化"
+                      },
+                      {
+                        "line": 29,
+                        "annotation": "属性/变量赋值: 设定 self.use_focal_loss"
+                      },
+                      {
+                        "line": 30,
+                        "annotation": "属性/变量赋值: 设定 self.num_top_queries"
+                      },
+                      {
+                        "line": 31,
+                        "annotation": "属性/变量赋值: 设定 self.num_classes"
+                      },
+                      {
+                        "line": 32,
+                        "annotation": "属性/变量赋值: 设定 self.remap_mscoco_category"
+                      },
+                      {
+                        "line": 33,
+                        "annotation": "属性/变量赋值: 设定 self.deploy_mode"
+                      },
+                      {
+                        "line": 34,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 35,
+                        "annotation": "定义方法/函数 extra_repr() 入口"
+                      },
+                      {
+                        "line": 36,
+                        "annotation": "返回计算结果对象: f\"use_focal_loss={self.use_focal_loss}, num_classes={self.num_classes}, num_top_queries={self.num_top_queries}\""
+                      },
+                      {
+                        "line": 37,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 38,
+                        "annotation": "代码注释：def forward(self, outputs, orig_target_sizes):"
+                      },
+                      {
+                        "line": 39,
+                        "annotation": "定义方法/函数 forward() 入口"
+                      },
+                      {
+                        "line": 40,
+                        "annotation": "后处理器 forward 核心入口，接收模型输出 logits [B, N, num_classes] 与预测框 boxes [B, N, 4]"
+                      },
+                      {
+                        "line": 41,
+                        "annotation": "代码注释：orig_target_sizes = torch.stack([t[\"orig_size\"] for t in targets], dim=0)"
+                      },
+                      {
+                        "line": 42,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 43,
+                        "annotation": "将预测框 boxes 格式从中心宽高 [cx, cy, w, h] 转换为左上右下坐标 [x1, y1, x2, y2]"
+                      },
+                      {
+                        "line": 44,
+                        "annotation": "将归一化坐标乘以原始图像尺寸 orig_target_sizes，还原为真实图像像素坐标"
+                      },
+                      {
+                        "line": 45,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 46,
+                        "annotation": "分支条件判断: if self.use_focal_loss:"
+                      },
+                      {
+                        "line": 47,
+                        "annotation": "应用 Sigmoid 激活函数将 logits 转化为 0~1 预测概率得分 scores"
+                      },
+                      {
+                        "line": 48,
+                        "annotation": "在展平维度上挑选概率最高的前 num_top_queries (如 300) 个候选框及其索引 index"
+                      },
+                      {
+                        "line": 49,
+                        "annotation": "代码注释：TODO for older tensorrt"
+                      },
+                      {
+                        "line": 50,
+                        "annotation": "代码注释：labels = index % self.num_classes"
+                      },
+                      {
+                        "line": 51,
+                        "annotation": "调用兼容算子 mod(index, num_classes) 提取对应候选框的类别 ID labels"
+                      },
+                      {
+                        "line": 52,
+                        "annotation": "用整除 index // num_classes 还原得到该候选框对应的 Query 索引"
+                      },
+                      {
+                        "line": 53,
+                        "annotation": "利用 gather 算子根据 Top-K 索引从 bbox_pred 中提取对应的 300 个目标框坐标"
+                      },
+                      {
+                        "line": 54,
+                        "annotation": "属性/变量赋值: 设定 dim"
+                      },
+                      {
+                        "line": 55,
+                        "annotation": "核心计算/张量变换步骤: )"
+                      },
+                      {
+                        "line": 56,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 57,
+                        "annotation": "默认分支处理逻辑"
+                      },
+                      {
+                        "line": 58,
+                        "annotation": "属性/变量赋值: 设定 scores"
+                      },
+                      {
+                        "line": 59,
+                        "annotation": "属性/变量赋值: 设定 scores, labels"
+                      },
+                      {
+                        "line": 60,
+                        "annotation": "分支条件判断: if scores.shape[1] > self.num_top_queries:"
+                      },
+                      {
+                        "line": 61,
+                        "annotation": "属性/变量赋值: 设定 scores, index"
+                      },
+                      {
+                        "line": 62,
+                        "annotation": "属性/变量赋值: 设定 labels"
+                      },
+                      {
+                        "line": 63,
+                        "annotation": "属性/变量赋值: 设定 boxes"
+                      },
+                      {
+                        "line": 64,
+                        "annotation": "属性/变量赋值: 设定 boxes, dim"
+                      },
+                      {
+                        "line": 65,
+                        "annotation": "核心计算/张量变换步骤: )"
+                      },
+                      {
+                        "line": 66,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 67,
+                        "annotation": "代码注释：TODO for onnx export"
+                      },
+                      {
+                        "line": 68,
+                        "annotation": "如果处于 deploy_mode 部署模式，直接返回 (labels, boxes, scores) 元组便于 TensorRT / ONNX 解析"
+                      },
+                      {
+                        "line": 69,
+                        "annotation": "返回计算结果对象: labels, boxes, scores"
+                      },
+                      {
+                        "line": 70,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 71,
+                        "annotation": "代码注释：TODO"
+                      },
+                      {
+                        "line": 72,
+                        "annotation": "分支条件判断: if self.remap_mscoco_category:"
+                      },
+                      {
+                        "line": 73,
+                        "annotation": "引入模块/类库依赖: ...data.dataset"
+                      },
+                      {
+                        "line": 74,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 75,
+                        "annotation": "属性/变量赋值: 设定 labels"
+                      },
+                      {
+                        "line": 76,
+                        "annotation": "核心计算/张量变换步骤: torch.tensor([mscoco_label2category[int(x.item())] for x in labels.flatten()])"
+                      },
+                      {
+                        "line": 77,
+                        "annotation": "核心计算/张量变换步骤: .to(boxes.device)"
+                      },
+                      {
+                        "line": 78,
+                        "annotation": "核心计算/张量变换步骤: .reshape(labels.shape)"
+                      },
+                      {
+                        "line": 79,
+                        "annotation": "核心计算/张量变换步骤: )"
+                      },
+                      {
+                        "line": 80,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 81,
+                        "annotation": "属性/变量赋值: 设定 results"
+                      },
+                      {
+                        "line": 82,
+                        "annotation": "在 PyTorch 评估模式下，将结果组织为每张图片的字典结构 list of dicts"
+                      },
+                      {
+                        "line": 83,
+                        "annotation": "属性/变量赋值: 设定 result"
+                      },
+                      {
+                        "line": 84,
+                        "annotation": "核心计算/张量变换步骤: results.append(result)"
+                      },
+                      {
+                        "line": 85,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 86,
+                        "annotation": "返回计算结果对象: results"
+                      },
+                      {
+                        "line": 87,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 88,
+                        "annotation": "定义方法/函数 deploy() 入口"
+                      },
+                      {
+                        "line": 89,
+                        "annotation": "核心计算/张量变换步骤: self,"
+                      },
+                      {
+                        "line": 90,
+                        "annotation": "核心计算/张量变换步骤: ):"
+                      },
+                      {
+                        "line": 91,
+                        "annotation": "核心计算/张量变换步骤: self.eval()"
+                      },
+                      {
+                        "line": 92,
+                        "annotation": "属性/变量赋值: 设定 self.deploy_mode"
+                      },
+                      {
+                        "line": 93,
+                        "annotation": "返回计算结果对象: self"
+                      }
+                    ],
+                    "keyPoint": "拆解取模算子为加减乘，彻底解决 TensorRT / ONNX 导出过程中的算子不兼容问题"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "groupTitle": "D-FINE 核心算法源码解析",
+          "title": "3. box_ops.py — 边界框几何转换与 GIoU 计算",
+          "anchor": "code-box-ops",
+          "blocks": [
+            {
+              "type": "text",
+              "text": "### 模块职责与原理\n`box_ops.py` 提供了高效的边界框几何计算工具函数，包括 `[cx, cy, w, h]` 与 `[x1, y1, x2, y2]` 之间的坐标相互转换、并行 IoU/GIoU 计算以及掩码框解算。所有计算均采用并行 Tensor 广播，具备极高执行效率。"
+            },
+            {
+              "type": "callchain",
+              "callchain": {
+                "endpoint": "BOX_OPS Bounding Box Operations",
+                "steps": [
+                  {
+                    "layer": "box_ops (src/zoo/dfine/box_ops.py)",
+                    "filePath": "src/zoo/dfine/box_ops.py:L1-L94",
+                    "functionName": "box_cxcywh_to_xyxy() / generalized_box_iou()",
+                    "explanation": "实现框格式快速互转，并计算 GIoU 损失矩阵。GIoU 避免了预测框与真实框无重叠时 IoU=0 导致梯度消失的问题。",
+                    "code": "\"\"\"\n# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved\nhttps://github.com/facebookresearch/detr/blob/main/util/box_ops.py\n\"\"\"\n\nimport torch\nfrom torch import Tensor\nfrom torchvision.ops.boxes import box_area\n\n\ndef box_cxcywh_to_xyxy(x):\n    x_c, y_c, w, h = x.unbind(-1)\n    b = [\n        (x_c - 0.5 * w.clamp(min=0.0)),\n        (y_c - 0.5 * h.clamp(min=0.0)),\n        (x_c + 0.5 * w.clamp(min=0.0)),\n        (y_c + 0.5 * h.clamp(min=0.0)),\n    ]\n    return torch.stack(b, dim=-1)\n\n\ndef box_xyxy_to_cxcywh(x: Tensor) -> Tensor:\n    x0, y0, x1, y1 = x.unbind(-1)\n    b = [(x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0), (y1 - y0)]\n    return torch.stack(b, dim=-1)\n\n\n# modified from torchvision to also return the union\ndef box_iou(boxes1: Tensor, boxes2: Tensor):\n    area1 = box_area(boxes1)\n    area2 = box_area(boxes2)\n\n    lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])  # [N,M,2]\n    rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])  # [N,M,2]\n\n    wh = (rb - lt).clamp(min=0)  # [N,M,2]\n    inter = wh[:, :, 0] * wh[:, :, 1]  # [N,M]\n\n    union = area1[:, None] + area2 - inter\n\n    iou = inter / union\n    return iou, union\n\n\ndef generalized_box_iou(boxes1, boxes2):\n    \"\"\"\n    Generalized IoU from https://giou.stanford.edu/\n\n    The boxes should be in [x0, y0, x1, y1] format\n\n    Returns a [N, M] pairwise matrix, where N = len(boxes1)\n    and M = len(boxes2)\n    \"\"\"\n    # degenerate boxes gives inf / nan results\n    # so do an early check\n    assert (boxes1[:, 2:] >= boxes1[:, :2]).all()\n    assert (boxes2[:, 2:] >= boxes2[:, :2]).all()\n    iou, union = box_iou(boxes1, boxes2)\n\n    lt = torch.min(boxes1[:, None, :2], boxes2[:, :2])\n    rb = torch.max(boxes1[:, None, 2:], boxes2[:, 2:])\n\n    wh = (rb - lt).clamp(min=0)  # [N,M,2]\n    area = wh[:, :, 0] * wh[:, :, 1]\n\n    return iou - (area - union) / area\n\n\ndef masks_to_boxes(masks):\n    \"\"\"Compute the bounding boxes around the provided masks\n\n    The masks should be in format [N, H, W] where N is the number of masks, (H, W) are the spatial dimensions.\n\n    Returns a [N, 4] tensors, with the boxes in xyxy format\n    \"\"\"\n    if masks.numel() == 0:\n        return torch.zeros((0, 4), device=masks.device)\n\n    h, w = masks.shape[-2:]\n\n    y = torch.arange(0, h, dtype=torch.float)\n    x = torch.arange(0, w, dtype=torch.float)\n    y, x = torch.meshgrid(y, x)\n\n    x_mask = masks * x.unsqueeze(0)\n    x_max = x_mask.flatten(1).max(-1)[0]\n    x_min = x_mask.masked_fill(~(masks.bool()), 1e8).flatten(1).min(-1)[0]\n\n    y_mask = masks * y.unsqueeze(0)\n    y_max = y_mask.flatten(1).max(-1)[0]\n    y_min = y_mask.masked_fill(~(masks.bool()), 1e8).flatten(1).min(-1)[0]\n\n    return torch.stack([x_min, y_min, x_max, y_max], 1)\n",
+                    "lineAnnotations": [
+                      {
+                        "line": 1,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 2,
+                        "annotation": "代码注释：Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved"
+                      },
+                      {
+                        "line": 3,
+                        "annotation": "核心计算/张量变换步骤: https://github.com/facebookresearch/detr/blob/main/util/box_ops.py"
+                      },
+                      {
+                        "line": 4,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 5,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 6,
+                        "annotation": "引入模块/类库依赖: torch"
+                      },
+                      {
+                        "line": 7,
+                        "annotation": "引入模块/类库依赖: torch"
+                      },
+                      {
+                        "line": 8,
+                        "annotation": "引入模块/类库依赖: torchvision.ops.boxes"
+                      },
+                      {
+                        "line": 9,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 10,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 11,
+                        "annotation": "box_cxcywh_to_xyxy()：将中心坐标与宽高格式 [cx, cy, w, h] 转换为左上右下格式 [x1, y1, x2, y2]"
+                      },
+                      {
+                        "line": 12,
+                        "annotation": "属性/变量赋值: 设定 x_c, y_c, w, h"
+                      },
+                      {
+                        "line": 13,
+                        "annotation": "属性/变量赋值: 设定 b"
+                      },
+                      {
+                        "line": 14,
+                        "annotation": "属性/变量赋值: 设定 (x_c - 0.5 * w.clamp(min"
+                      },
+                      {
+                        "line": 15,
+                        "annotation": "属性/变量赋值: 设定 (y_c - 0.5 * h.clamp(min"
+                      },
+                      {
+                        "line": 16,
+                        "annotation": "属性/变量赋值: 设定 (x_c + 0.5 * w.clamp(min"
+                      },
+                      {
+                        "line": 17,
+                        "annotation": "属性/变量赋值: 设定 (y_c + 0.5 * h.clamp(min"
+                      },
+                      {
+                        "line": 18,
+                        "annotation": "核心计算/张量变换步骤: ]"
+                      },
+                      {
+                        "line": 19,
+                        "annotation": "返回计算结果对象: torch.stack(b, dim=-1)"
+                      },
+                      {
+                        "line": 20,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 21,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 22,
+                        "annotation": "box_xyxy_to_cxcywh()：将左上右下格式 [x1, y1, x2, y2] 转换为中心坐标与宽高格式 [cx, cy, w, h]"
+                      },
+                      {
+                        "line": 23,
+                        "annotation": "属性/变量赋值: 设定 x0, y0, x1, y1"
+                      },
+                      {
+                        "line": 24,
+                        "annotation": "属性/变量赋值: 设定 b"
+                      },
+                      {
+                        "line": 25,
+                        "annotation": "返回计算结果对象: torch.stack(b, dim=-1)"
+                      },
+                      {
+                        "line": 26,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 27,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 28,
+                        "annotation": "代码注释：modified from torchvision to also return the union"
+                      },
+                      {
+                        "line": 29,
+                        "annotation": "box_iou()：高效并行计算两组边界框之间的交并比 IoU 及 Union 联合面积"
+                      },
+                      {
+                        "line": 30,
+                        "annotation": "属性/变量赋值: 设定 area1"
+                      },
+                      {
+                        "line": 31,
+                        "annotation": "属性/变量赋值: 设定 area2"
+                      },
+                      {
+                        "line": 32,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 33,
+                        "annotation": "属性/变量赋值: 设定 lt"
+                      },
+                      {
+                        "line": 34,
+                        "annotation": "属性/变量赋值: 设定 rb"
+                      },
+                      {
+                        "line": 35,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 36,
+                        "annotation": "属性/变量赋值: 设定 wh"
+                      },
+                      {
+                        "line": 37,
+                        "annotation": "属性/变量赋值: 设定 inter"
+                      },
+                      {
+                        "line": 38,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 39,
+                        "annotation": "属性/变量赋值: 设定 union"
+                      },
+                      {
+                        "line": 40,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 41,
+                        "annotation": "属性/变量赋值: 设定 iou"
+                      },
+                      {
+                        "line": 42,
+                        "annotation": "返回计算结果对象: iou, union"
+                      },
+                      {
+                        "line": 43,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 44,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 45,
+                        "annotation": "generalized_box_iou()：计算 GIoU (Generalized IoU)，解决预测框与真实框无重叠时梯度消失问题"
+                      },
+                      {
+                        "line": 46,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 47,
+                        "annotation": "核心计算/张量变换步骤: Generalized IoU from https://giou.stanford.edu/"
+                      },
+                      {
+                        "line": 48,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 49,
+                        "annotation": "核心计算/张量变换步骤: The boxes should be in [x0, y0, x1, y1] format"
+                      },
+                      {
+                        "line": 50,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 51,
+                        "annotation": "属性/变量赋值: 设定 Returns a [N, M] pairwise matrix, where N"
+                      },
+                      {
+                        "line": 52,
+                        "annotation": "属性/变量赋值: 设定 and M"
+                      },
+                      {
+                        "line": 53,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 54,
+                        "annotation": "代码注释：degenerate boxes gives inf / nan results"
+                      },
+                      {
+                        "line": 55,
+                        "annotation": "代码注释：so do an early check"
+                      },
+                      {
+                        "line": 56,
+                        "annotation": "断言检查：校验输入符合预期条件 (assert (boxes1[:, 2:] >= boxes1[:, :2]).all())"
+                      },
+                      {
+                        "line": 57,
+                        "annotation": "断言检查：校验输入符合预期条件 (assert (boxes2[:, 2:] >= boxes2[:, :2]).all())"
+                      },
+                      {
+                        "line": 58,
+                        "annotation": "属性/变量赋值: 设定 iou, union"
+                      },
+                      {
+                        "line": 59,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 60,
+                        "annotation": "属性/变量赋值: 设定 lt"
+                      },
+                      {
+                        "line": 61,
+                        "annotation": "属性/变量赋值: 设定 rb"
+                      },
+                      {
+                        "line": 62,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 63,
+                        "annotation": "属性/变量赋值: 设定 wh"
+                      },
+                      {
+                        "line": 64,
+                        "annotation": "属性/变量赋值: 设定 area"
+                      },
+                      {
+                        "line": 65,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 66,
+                        "annotation": "返回计算结果对象: iou - (area - union) / area"
+                      },
+                      {
+                        "line": 67,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 68,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 69,
+                        "annotation": "masks_to_boxes()：从分割掩码 (Masks) 中提取最小外接矩形边界框"
+                      },
+                      {
+                        "line": 70,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 71,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 72,
+                        "annotation": "核心计算/张量变换步骤: The masks should be in format [N, H, W] where N is the number of masks, (H, W) are the spatial dimensions."
+                      },
+                      {
+                        "line": 73,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 74,
+                        "annotation": "核心计算/张量变换步骤: Returns a [N, 4] tensors, with the boxes in xyxy format"
+                      },
+                      {
+                        "line": 75,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 76,
+                        "annotation": "分支条件判断: if masks.numel() == 0:"
+                      },
+                      {
+                        "line": 77,
+                        "annotation": "返回计算结果对象: torch.zeros((0, 4), device=masks.device)"
+                      },
+                      {
+                        "line": 78,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 79,
+                        "annotation": "属性/变量赋值: 设定 h, w"
+                      },
+                      {
+                        "line": 80,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 81,
+                        "annotation": "属性/变量赋值: 设定 y"
+                      },
+                      {
+                        "line": 82,
+                        "annotation": "属性/变量赋值: 设定 x"
+                      },
+                      {
+                        "line": 83,
+                        "annotation": "属性/变量赋值: 设定 y, x"
+                      },
+                      {
+                        "line": 84,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 85,
+                        "annotation": "属性/变量赋值: 设定 x_mask"
+                      },
+                      {
+                        "line": 86,
+                        "annotation": "属性/变量赋值: 设定 x_max"
+                      },
+                      {
+                        "line": 87,
+                        "annotation": "属性/变量赋值: 设定 x_min"
+                      },
+                      {
+                        "line": 88,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 89,
+                        "annotation": "属性/变量赋值: 设定 y_mask"
+                      },
+                      {
+                        "line": 90,
+                        "annotation": "属性/变量赋值: 设定 y_max"
+                      },
+                      {
+                        "line": 91,
+                        "annotation": "属性/变量赋值: 设定 y_min"
+                      },
+                      {
+                        "line": 92,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 93,
+                        "annotation": "返回计算结果对象: torch.stack([x_min, y_min, x_max, y_max], 1)"
+                      }
+                    ],
+                    "keyPoint": "利用向量化广播并行计算 Pairwise GIoU 矩阵，为 HungarianMatcher 提供高效匹配依据"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "groupTitle": "D-FINE 核心算法源码解析",
+          "title": "4. dfine_utils.py — 非均匀权重函数 W(n) 与 FDR 解算",
+          "anchor": "code-dfine-utils",
+          "blocks": [
+            {
+              "type": "text",
+              "text": "### 模块职责与原理\n`dfine_utils.py` 是 D-FINE 数学创新的核心落地点。其中 `weighting_function()` 构建了非均匀分布桶 $W(n)$。在回归边缘时，中心区域概率权重变化平缓、边缘区域极度陡峭，赋予了网络在框边界处极高的梯度敏感度，从而打破传统离散回归的精度上限。"
+            },
+            {
+              "type": "callchain",
+              "callchain": {
+                "endpoint": "FDR Distribution Decoding & GT Translation",
+                "steps": [
+                  {
+                    "layer": "dfine_utils (src/zoo/dfine/dfine_utils.py)",
+                    "filePath": "src/zoo/dfine/dfine_utils.py:L1-L170",
+                    "functionName": "weighting_function() / translate_gt() / distance2bbox()",
+                    "explanation": "生成非均匀分布桶 W(n)，将连续 GT 映射为邻近离散桶的线性插值权重，并将预测距离转化为绝对坐标框。",
+                    "code": "\"\"\"\nCopyright (c) 2024 The D-FINE Authors. All Rights Reserved.\n\"\"\"\n\nimport torch\n\nfrom .box_ops import box_xyxy_to_cxcywh\n\n\ndef weighting_function(reg_max, up, reg_scale, deploy=False):\n    \"\"\"\n    Generates the non-uniform Weighting Function W(n) for bounding box regression.\n\n    Args:\n        reg_max (int): Max number of the discrete bins.\n        up (Tensor): Controls upper bounds of the sequence,\n                     where maximum offset is ±up * H / W.\n        reg_scale (float): Controls the curvature of the Weighting Function.\n                           Larger values result in flatter weights near the central axis W(reg_max/2)=0\n                           and steeper weights at both ends.\n        deploy (bool): If True, uses deployment mode settings.\n\n    Returns:\n        Tensor: Sequence of Weighting Function.\n    \"\"\"\n    if deploy:\n        upper_bound1 = (abs(up[0]) * abs(reg_scale)).item()\n        upper_bound2 = (abs(up[0]) * abs(reg_scale) * 2).item()\n        step = (upper_bound1 + 1) ** (2 / (reg_max - 2))\n        left_values = [-((step) ** i) + 1 for i in range(reg_max // 2 - 1, 0, -1)]\n        right_values = [(step) ** i - 1 for i in range(1, reg_max // 2)]\n        values = (\n            [-upper_bound2]\n            + left_values\n            + [torch.zeros_like(up[0][None])]\n            + right_values\n            + [upper_bound2]\n        )\n        return torch.tensor(values, dtype=up.dtype, device=up.device)\n    else:\n        upper_bound1 = abs(up[0]) * abs(reg_scale)\n        upper_bound2 = abs(up[0]) * abs(reg_scale) * 2\n        step = (upper_bound1 + 1) ** (2 / (reg_max - 2))\n        left_values = [-((step) ** i) + 1 for i in range(reg_max // 2 - 1, 0, -1)]\n        right_values = [(step) ** i - 1 for i in range(1, reg_max // 2)]\n        values = (\n            [-upper_bound2]\n            + left_values\n            + [torch.zeros_like(up[0][None])]\n            + right_values\n            + [upper_bound2]\n        )\n        return torch.cat(values, 0)\n\n\ndef translate_gt(gt, reg_max, reg_scale, up):\n    \"\"\"\n    Decodes bounding box ground truth (GT) values into distribution-based GT representations.\n\n    This function maps continuous GT values into discrete distribution bins, which can be used\n    for regression tasks in object detection models. It calculates the indices of the closest\n    bins to each GT value and assigns interpolation weights to these bins based on their proximity\n    to the GT value.\n\n    Args:\n        gt (Tensor): Ground truth bounding box values, shape (N, ).\n        reg_max (int): Maximum number of discrete bins for the distribution.\n        reg_scale (float): Controls the curvature of the Weighting Function.\n        up (Tensor): Controls the upper bounds of the Weighting Function.\n\n    Returns:\n        Tuple[Tensor, Tensor, Tensor]:\n            - indices (Tensor): Index of the left bin closest to each GT value, shape (N, ).\n            - weight_right (Tensor): Weight assigned to the right bin, shape (N, ).\n            - weight_left (Tensor): Weight assigned to the left bin, shape (N, ).\n    \"\"\"\n    gt = gt.reshape(-1)\n    function_values = weighting_function(reg_max, up, reg_scale)\n\n    # Find the closest left-side indices for each value\n    diffs = function_values.unsqueeze(0) - gt.unsqueeze(1)\n    mask = diffs <= 0\n    closest_left_indices = torch.sum(mask, dim=1) - 1\n\n    # Calculate the weights for the interpolation\n    indices = closest_left_indices.float()\n\n    weight_right = torch.zeros_like(indices)\n    weight_left = torch.zeros_like(indices)\n\n    valid_idx_mask = (indices >= 0) & (indices < reg_max)\n    valid_indices = indices[valid_idx_mask].long()\n\n    # Obtain distances\n    left_values = function_values[valid_indices]\n    right_values = function_values[valid_indices + 1]\n\n    left_diffs = torch.abs(gt[valid_idx_mask] - left_values)\n    right_diffs = torch.abs(right_values - gt[valid_idx_mask])\n\n    # Valid weights\n    weight_right[valid_idx_mask] = left_diffs / (left_diffs + right_diffs)\n    weight_left[valid_idx_mask] = 1.0 - weight_right[valid_idx_mask]\n\n    # Invalid weights (out of range)\n    invalid_idx_mask_neg = indices < 0\n    weight_right[invalid_idx_mask_neg] = 0.0\n    weight_left[invalid_idx_mask_neg] = 1.0\n    indices[invalid_idx_mask_neg] = 0.0\n\n    invalid_idx_mask_pos = indices >= reg_max\n    weight_right[invalid_idx_mask_pos] = 1.0\n    weight_left[invalid_idx_mask_pos] = 0.0\n    indices[invalid_idx_mask_pos] = reg_max - 0.1\n\n    return indices, weight_right, weight_left\n\n\ndef distance2bbox(points, distance, reg_scale):\n    \"\"\"\n    Decodes edge-distances into bounding box coordinates.\n\n    Args:\n        points (Tensor): (B, N, 4) or (N, 4) format, representing [x, y, w, h],\n                         where (x, y) is the center and (w, h) are width and height.\n        distance (Tensor): (B, N, 4) or (N, 4), representing distances from the\n                           point to the left, top, right, and bottom boundaries.\n\n        reg_scale (float): Controls the curvature of the Weighting Function.\n\n    Returns:\n        Tensor: Bounding boxes in (N, 4) or (B, N, 4) format [cx, cy, w, h].\n    \"\"\"\n    reg_scale = abs(reg_scale)\n    x1 = points[..., 0] - (0.5 * reg_scale + distance[..., 0]) * (points[..., 2] / reg_scale)\n    y1 = points[..., 1] - (0.5 * reg_scale + distance[..., 1]) * (points[..., 3] / reg_scale)\n    x2 = points[..., 0] + (0.5 * reg_scale + distance[..., 2]) * (points[..., 2] / reg_scale)\n    y2 = points[..., 1] + (0.5 * reg_scale + distance[..., 3]) * (points[..., 3] / reg_scale)\n\n    bboxes = torch.stack([x1, y1, x2, y2], -1)\n\n    return box_xyxy_to_cxcywh(bboxes)\n\n\ndef bbox2distance(points, bbox, reg_max, reg_scale, up, eps=0.1):\n    \"\"\"\n    Converts bounding box coordinates to distances from a reference point.\n\n    Args:\n        points (Tensor): (n, 4) [x, y, w, h], where (x, y) is the center.\n        bbox (Tensor): (n, 4) bounding boxes in \"xyxy\" format.\n        reg_max (float): Maximum bin value.\n        reg_scale (float): Controling curvarture of W(n).\n        up (Tensor): Controling upper bounds of W(n).\n        eps (float): Small value to ensure target < reg_max.\n\n    Returns:\n        Tensor: Decoded distances.\n    \"\"\"\n    reg_scale = abs(reg_scale)\n    left = (points[:, 0] - bbox[:, 0]) / (points[..., 2] / reg_scale + 1e-16) - 0.5 * reg_scale\n    top = (points[:, 1] - bbox[:, 1]) / (points[..., 3] / reg_scale + 1e-16) - 0.5 * reg_scale\n    right = (bbox[:, 2] - points[:, 0]) / (points[..., 2] / reg_scale + 1e-16) - 0.5 * reg_scale\n    bottom = (bbox[:, 3] - points[:, 1]) / (points[..., 3] / reg_scale + 1e-16) - 0.5 * reg_scale\n    four_lens = torch.stack([left, top, right, bottom], -1)\n    four_lens, weight_right, weight_left = translate_gt(four_lens, reg_max, reg_scale, up)\n    if reg_max is not None:\n        four_lens = four_lens.clamp(min=0, max=reg_max - eps)\n    return four_lens.reshape(-1).detach(), weight_right.detach(), weight_left.detach()\n",
+                    "lineAnnotations": [
+                      {
+                        "line": 1,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 2,
+                        "annotation": "核心计算/张量变换步骤: Copyright (c) 2024 The D-FINE Authors. All Rights Reserved."
+                      },
+                      {
+                        "line": 3,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 4,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 5,
+                        "annotation": "引入模块/类库依赖: torch"
+                      },
+                      {
+                        "line": 6,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 7,
+                        "annotation": "引入模块/类库依赖: .box_ops"
+                      },
+                      {
+                        "line": 8,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 9,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 10,
+                        "annotation": "weighting_function()：生成 D-FINE 核心非均匀权值函数 W(n)，实现靠近中心平缓、边缘陡峭的离散化回归桶"
+                      },
+                      {
+                        "line": 11,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 12,
+                        "annotation": "核心计算/张量变换步骤: Generates the non-uniform Weighting Function W(n) for bounding box regression."
+                      },
+                      {
+                        "line": 13,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 14,
+                        "annotation": "核心计算/张量变换步骤: Args:"
+                      },
+                      {
+                        "line": 15,
+                        "annotation": "核心计算/张量变换步骤: reg_max (int): Max number of the discrete bins."
+                      },
+                      {
+                        "line": 16,
+                        "annotation": "核心计算/张量变换步骤: up (Tensor): Controls upper bounds of the sequence,"
+                      },
+                      {
+                        "line": 17,
+                        "annotation": "核心计算/张量变换步骤: where maximum offset is ±up * H / W."
+                      },
+                      {
+                        "line": 18,
+                        "annotation": "核心计算/张量变换步骤: reg_scale (float): Controls the curvature of the Weighting Function."
+                      },
+                      {
+                        "line": 19,
+                        "annotation": "属性/变量赋值: 设定 Larger values result in flatter weights near the central axis W(reg_max/2)"
+                      },
+                      {
+                        "line": 20,
+                        "annotation": "核心计算/张量变换步骤: and steeper weights at both ends."
+                      },
+                      {
+                        "line": 21,
+                        "annotation": "核心计算/张量变换步骤: deploy (bool): If True, uses deployment mode settings."
+                      },
+                      {
+                        "line": 22,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 23,
+                        "annotation": "核心计算/张量变换步骤: Returns:"
+                      },
+                      {
+                        "line": 24,
+                        "annotation": "核心计算/张量变换步骤: Tensor: Sequence of Weighting Function."
+                      },
+                      {
+                        "line": 25,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 26,
+                        "annotation": "分支条件判断: if deploy:"
+                      },
+                      {
+                        "line": 27,
+                        "annotation": "属性/变量赋值: 设定 upper_bound1"
+                      },
+                      {
+                        "line": 28,
+                        "annotation": "属性/变量赋值: 设定 upper_bound2"
+                      },
+                      {
+                        "line": 29,
+                        "annotation": "属性/变量赋值: 设定 step"
+                      },
+                      {
+                        "line": 30,
+                        "annotation": "属性/变量赋值: 设定 left_values"
+                      },
+                      {
+                        "line": 31,
+                        "annotation": "属性/变量赋值: 设定 right_values"
+                      },
+                      {
+                        "line": 32,
+                        "annotation": "属性/变量赋值: 设定 values"
+                      },
+                      {
+                        "line": 33,
+                        "annotation": "核心计算/张量变换步骤: [-upper_bound2]"
+                      },
+                      {
+                        "line": 34,
+                        "annotation": "核心计算/张量变换步骤: + left_values"
+                      },
+                      {
+                        "line": 35,
+                        "annotation": "核心计算/张量变换步骤: + [torch.zeros_like(up[0][None])]"
+                      },
+                      {
+                        "line": 36,
+                        "annotation": "核心计算/张量变换步骤: + right_values"
+                      },
+                      {
+                        "line": 37,
+                        "annotation": "核心计算/张量变换步骤: + [upper_bound2]"
+                      },
+                      {
+                        "line": 38,
+                        "annotation": "核心计算/张量变换步骤: )"
+                      },
+                      {
+                        "line": 39,
+                        "annotation": "返回计算结果对象: torch.tensor(values, dtype=up.dtype, device=up.device)"
+                      },
+                      {
+                        "line": 40,
+                        "annotation": "默认分支处理逻辑"
+                      },
+                      {
+                        "line": 41,
+                        "annotation": "属性/变量赋值: 设定 upper_bound1"
+                      },
+                      {
+                        "line": 42,
+                        "annotation": "属性/变量赋值: 设定 upper_bound2"
+                      },
+                      {
+                        "line": 43,
+                        "annotation": "属性/变量赋值: 设定 step"
+                      },
+                      {
+                        "line": 44,
+                        "annotation": "属性/变量赋值: 设定 left_values"
+                      },
+                      {
+                        "line": 45,
+                        "annotation": "属性/变量赋值: 设定 right_values"
+                      },
+                      {
+                        "line": 46,
+                        "annotation": "属性/变量赋值: 设定 values"
+                      },
+                      {
+                        "line": 47,
+                        "annotation": "核心计算/张量变换步骤: [-upper_bound2]"
+                      },
+                      {
+                        "line": 48,
+                        "annotation": "核心计算/张量变换步骤: + left_values"
+                      },
+                      {
+                        "line": 49,
+                        "annotation": "核心计算/张量变换步骤: + [torch.zeros_like(up[0][None])]"
+                      },
+                      {
+                        "line": 50,
+                        "annotation": "核心计算/张量变换步骤: + right_values"
+                      },
+                      {
+                        "line": 51,
+                        "annotation": "核心计算/张量变换步骤: + [upper_bound2]"
+                      },
+                      {
+                        "line": 52,
+                        "annotation": "核心计算/张量变换步骤: )"
+                      },
+                      {
+                        "line": 53,
+                        "annotation": "返回计算结果对象: torch.cat(values, 0)"
+                      },
+                      {
+                        "line": 54,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 55,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 56,
+                        "annotation": "translate_gt()：将连续边界框 Ground Truth (GT) 映射到非均匀离散分布桶上，计算左右邻近桶的线性插值权重"
+                      },
+                      {
+                        "line": 57,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 58,
+                        "annotation": "核心计算/张量变换步骤: Decodes bounding box ground truth (GT) values into distribution-based GT representations."
+                      },
+                      {
+                        "line": 59,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 60,
+                        "annotation": "核心计算/张量变换步骤: This function maps continuous GT values into discrete distribution bins, which can be used"
+                      },
+                      {
+                        "line": 61,
+                        "annotation": "循环迭代逻辑: for regression tasks in object detection models. It calculates the indices of the closest"
+                      },
+                      {
+                        "line": 62,
+                        "annotation": "核心计算/张量变换步骤: bins to each GT value and assigns interpolation weights to these bins based on their proximity"
+                      },
+                      {
+                        "line": 63,
+                        "annotation": "核心计算/张量变换步骤: to the GT value."
+                      },
+                      {
+                        "line": 64,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 65,
+                        "annotation": "核心计算/张量变换步骤: Args:"
+                      },
+                      {
+                        "line": 66,
+                        "annotation": "核心计算/张量变换步骤: gt (Tensor): Ground truth bounding box values, shape (N, )."
+                      },
+                      {
+                        "line": 67,
+                        "annotation": "核心计算/张量变换步骤: reg_max (int): Maximum number of discrete bins for the distribution."
+                      },
+                      {
+                        "line": 68,
+                        "annotation": "核心计算/张量变换步骤: reg_scale (float): Controls the curvature of the Weighting Function."
+                      },
+                      {
+                        "line": 69,
+                        "annotation": "核心计算/张量变换步骤: up (Tensor): Controls the upper bounds of the Weighting Function."
+                      },
+                      {
+                        "line": 70,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 71,
+                        "annotation": "核心计算/张量变换步骤: Returns:"
+                      },
+                      {
+                        "line": 72,
+                        "annotation": "核心计算/张量变换步骤: Tuple[Tensor, Tensor, Tensor]:"
+                      },
+                      {
+                        "line": 73,
+                        "annotation": "核心计算/张量变换步骤: - indices (Tensor): Index of the left bin closest to each GT value, shape (N, )."
+                      },
+                      {
+                        "line": 74,
+                        "annotation": "核心计算/张量变换步骤: - weight_right (Tensor): Weight assigned to the right bin, shape (N, )."
+                      },
+                      {
+                        "line": 75,
+                        "annotation": "核心计算/张量变换步骤: - weight_left (Tensor): Weight assigned to the left bin, shape (N, )."
+                      },
+                      {
+                        "line": 76,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 77,
+                        "annotation": "属性/变量赋值: 设定 gt"
+                      },
+                      {
+                        "line": 78,
+                        "annotation": "属性/变量赋值: 设定 function_values"
+                      },
+                      {
+                        "line": 79,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 80,
+                        "annotation": "代码注释：Find the closest left-side indices for each value"
+                      },
+                      {
+                        "line": 81,
+                        "annotation": "属性/变量赋值: 设定 diffs"
+                      },
+                      {
+                        "line": 82,
+                        "annotation": "属性/变量赋值: 设定 mask"
+                      },
+                      {
+                        "line": 83,
+                        "annotation": "属性/变量赋值: 设定 closest_left_indices"
+                      },
+                      {
+                        "line": 84,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 85,
+                        "annotation": "代码注释：Calculate the weights for the interpolation"
+                      },
+                      {
+                        "line": 86,
+                        "annotation": "属性/变量赋值: 设定 indices"
+                      },
+                      {
+                        "line": 87,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 88,
+                        "annotation": "属性/变量赋值: 设定 weight_right"
+                      },
+                      {
+                        "line": 89,
+                        "annotation": "属性/变量赋值: 设定 weight_left"
+                      },
+                      {
+                        "line": 90,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 91,
+                        "annotation": "属性/变量赋值: 设定 valid_idx_mask"
+                      },
+                      {
+                        "line": 92,
+                        "annotation": "属性/变量赋值: 设定 valid_indices"
+                      },
+                      {
+                        "line": 93,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 94,
+                        "annotation": "代码注释：Obtain distances"
+                      },
+                      {
+                        "line": 95,
+                        "annotation": "属性/变量赋值: 设定 left_values"
+                      },
+                      {
+                        "line": 96,
+                        "annotation": "属性/变量赋值: 设定 right_values"
+                      },
+                      {
+                        "line": 97,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 98,
+                        "annotation": "属性/变量赋值: 设定 left_diffs"
+                      },
+                      {
+                        "line": 99,
+                        "annotation": "属性/变量赋值: 设定 right_diffs"
+                      },
+                      {
+                        "line": 100,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 101,
+                        "annotation": "代码注释：Valid weights"
+                      },
+                      {
+                        "line": 102,
+                        "annotation": "属性/变量赋值: 设定 weight_right[valid_idx_mask]"
+                      },
+                      {
+                        "line": 103,
+                        "annotation": "属性/变量赋值: 设定 weight_left[valid_idx_mask]"
+                      },
+                      {
+                        "line": 104,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 105,
+                        "annotation": "代码注释：Invalid weights (out of range)"
+                      },
+                      {
+                        "line": 106,
+                        "annotation": "属性/变量赋值: 设定 invalid_idx_mask_neg"
+                      },
+                      {
+                        "line": 107,
+                        "annotation": "属性/变量赋值: 设定 weight_right[invalid_idx_mask_neg]"
+                      },
+                      {
+                        "line": 108,
+                        "annotation": "属性/变量赋值: 设定 weight_left[invalid_idx_mask_neg]"
+                      },
+                      {
+                        "line": 109,
+                        "annotation": "属性/变量赋值: 设定 indices[invalid_idx_mask_neg]"
+                      },
+                      {
+                        "line": 110,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 111,
+                        "annotation": "属性/变量赋值: 设定 invalid_idx_mask_pos"
+                      },
+                      {
+                        "line": 112,
+                        "annotation": "属性/变量赋值: 设定 weight_right[invalid_idx_mask_pos]"
+                      },
+                      {
+                        "line": 113,
+                        "annotation": "属性/变量赋值: 设定 weight_left[invalid_idx_mask_pos]"
+                      },
+                      {
+                        "line": 114,
+                        "annotation": "属性/变量赋值: 设定 indices[invalid_idx_mask_pos]"
+                      },
+                      {
+                        "line": 115,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 116,
+                        "annotation": "返回计算结果对象: indices, weight_right, weight_left"
+                      },
+                      {
+                        "line": 117,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 118,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 119,
+                        "annotation": "distance2bbox()：将网络预测的四个方向的边缘分布距离解算解码为 [cx, cy, w, h] 边界框"
+                      },
+                      {
+                        "line": 120,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 121,
+                        "annotation": "核心计算/张量变换步骤: Decodes edge-distances into bounding box coordinates."
+                      },
+                      {
+                        "line": 122,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 123,
+                        "annotation": "核心计算/张量变换步骤: Args:"
+                      },
+                      {
+                        "line": 124,
+                        "annotation": "核心计算/张量变换步骤: points (Tensor): (B, N, 4) or (N, 4) format, representing [x, y, w, h],"
+                      },
+                      {
+                        "line": 125,
+                        "annotation": "核心计算/张量变换步骤: where (x, y) is the center and (w, h) are width and height."
+                      },
+                      {
+                        "line": 126,
+                        "annotation": "核心计算/张量变换步骤: distance (Tensor): (B, N, 4) or (N, 4), representing distances from the"
+                      },
+                      {
+                        "line": 127,
+                        "annotation": "核心计算/张量变换步骤: point to the left, top, right, and bottom boundaries."
+                      },
+                      {
+                        "line": 128,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 129,
+                        "annotation": "核心计算/张量变换步骤: reg_scale (float): Controls the curvature of the Weighting Function."
+                      },
+                      {
+                        "line": 130,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 131,
+                        "annotation": "核心计算/张量变换步骤: Returns:"
+                      },
+                      {
+                        "line": 132,
+                        "annotation": "核心计算/张量变换步骤: Tensor: Bounding boxes in (N, 4) or (B, N, 4) format [cx, cy, w, h]."
+                      },
+                      {
+                        "line": 133,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 134,
+                        "annotation": "属性/变量赋值: 设定 reg_scale"
+                      },
+                      {
+                        "line": 135,
+                        "annotation": "属性/变量赋值: 设定 x1"
+                      },
+                      {
+                        "line": 136,
+                        "annotation": "属性/变量赋值: 设定 y1"
+                      },
+                      {
+                        "line": 137,
+                        "annotation": "属性/变量赋值: 设定 x2"
+                      },
+                      {
+                        "line": 138,
+                        "annotation": "属性/变量赋值: 设定 y2"
+                      },
+                      {
+                        "line": 139,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 140,
+                        "annotation": "属性/变量赋值: 设定 bboxes"
+                      },
+                      {
+                        "line": 141,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 142,
+                        "annotation": "返回计算结果对象: box_xyxy_to_cxcywh(bboxes)"
+                      },
+                      {
+                        "line": 143,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 144,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 145,
+                        "annotation": "bbox2distance()：将 Ground Truth 边界框转换为四个方向的边缘预测距离，用于计算 FDR 损失"
+                      },
+                      {
+                        "line": 146,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 147,
+                        "annotation": "核心计算/张量变换步骤: Converts bounding box coordinates to distances from a reference point."
+                      },
+                      {
+                        "line": 148,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 149,
+                        "annotation": "核心计算/张量变换步骤: Args:"
+                      },
+                      {
+                        "line": 150,
+                        "annotation": "核心计算/张量变换步骤: points (Tensor): (n, 4) [x, y, w, h], where (x, y) is the center."
+                      },
+                      {
+                        "line": 151,
+                        "annotation": "核心计算/张量变换步骤: bbox (Tensor): (n, 4) bounding boxes in \"xyxy\" format."
+                      },
+                      {
+                        "line": 152,
+                        "annotation": "核心计算/张量变换步骤: reg_max (float): Maximum bin value."
+                      },
+                      {
+                        "line": 153,
+                        "annotation": "核心计算/张量变换步骤: reg_scale (float): Controling curvarture of W(n)."
+                      },
+                      {
+                        "line": 154,
+                        "annotation": "核心计算/张量变换步骤: up (Tensor): Controling upper bounds of W(n)."
+                      },
+                      {
+                        "line": 155,
+                        "annotation": "核心计算/张量变换步骤: eps (float): Small value to ensure target < reg_max."
+                      },
+                      {
+                        "line": 156,
+                        "annotation": "空行，分隔代码块提升可读性"
+                      },
+                      {
+                        "line": 157,
+                        "annotation": "核心计算/张量变换步骤: Returns:"
+                      },
+                      {
+                        "line": 158,
+                        "annotation": "核心计算/张量变换步骤: Tensor: Decoded distances."
+                      },
+                      {
+                        "line": 159,
+                        "annotation": "文档说明 (Docstring)"
+                      },
+                      {
+                        "line": 160,
+                        "annotation": "属性/变量赋值: 设定 reg_scale"
+                      },
+                      {
+                        "line": 161,
+                        "annotation": "属性/变量赋值: 设定 left"
+                      },
+                      {
+                        "line": 162,
+                        "annotation": "属性/变量赋值: 设定 top"
+                      },
+                      {
+                        "line": 163,
+                        "annotation": "属性/变量赋值: 设定 right"
+                      },
+                      {
+                        "line": 164,
+                        "annotation": "属性/变量赋值: 设定 bottom"
+                      },
+                      {
+                        "line": 165,
+                        "annotation": "属性/变量赋值: 设定 four_lens"
+                      },
+                      {
+                        "line": 166,
+                        "annotation": "属性/变量赋值: 设定 four_lens, weight_right, weight_left"
+                      },
+                      {
+                        "line": 167,
+                        "annotation": "分支条件判断: if reg_max is not None:"
+                      },
+                      {
+                        "line": 168,
+                        "annotation": "属性/变量赋值: 设定 four_lens"
+                      },
+                      {
+                        "line": 169,
+                        "annotation": "返回计算结果对象: four_lens.reshape(-1).detach(), weight_right.detach(), weight_left.detach()"
+                      }
+                    ],
+                    "keyPoint": "非均匀分布桶 W(n) + 离散线性插值，实现了超高精度的边界框分布回归"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "interview",
+      "title": "面试准备",
+      "optional": true,
+      "sections": [
+        {
+          "title": "D-FINE 核心架构与工程高频面试题",
+          "anchor": "interview-questions",
+          "blocks": [
+            {
+              "type": "question",
+              "category": "算法创新",
+              "question": "D-FINE 相比 RT-DETR 和 YOLO，在目标检测框回归上有何核心创新？",
+              "answer": "**参考答案**：\nD-FINE 的核心创新在于提出了**细粒度分布细化 (Fine-grained Distribution Refinement, FDR)**。\n1. **打破传统回归瓶颈**：传统 DETR 直接预测坐标 $(x,y,w,h)$ 或采用均匀分布（DFL），在边界框微调时定位精度有限。D-FINE 通过非均匀权重函数 $W(n)$，在边缘区域赋予更高的敏感度与梯度响应。\n2. **渐进式 6 层微调**：在 Transformer Decoder 的 6 个层级中，每一层都在上一层预测框的基础上预测残差分布，实现由粗到精（Coarse-to-Fine）的亚像素级定位修正。\n3. **极致性能**：在保持实时推理速度（高于 RT-DETR）的同时，获得了显著的 mAP 提升。"
+            },
+            {
+              "type": "question",
+              "category": "工程部署",
+              "question": "请阐述 D-FINE 项目中的重参数化 (Reparameterization) 机制及其在 TensorRT 上的加速原理。",
+              "answer": "**参考答案**：\n在 `src/zoo/dfine/hybrid_encoder.py` 中，D-FINE 采用了 `ConvNormLayer_fuse` 和 `VGGBlock` 等重参数化模块。\n* **训练阶段**：采用 `Conv2d + BatchNorm2d` 或 `3x3 Conv + 1x1 Conv` 的多分支结构，增加表达能力与训练稳定性。\n* **部署阶段**：调用 `deploy()` 方法，利用数学公式将卷积权重 $W$ 与 BN 参数 $(\\mu, \\sigma^2, \\gamma, \beta)$ 等价熔断为单个 `nn.Conv2d`：\n$$W_{\\text{fused}} = W \\cdot \\frac{\\gamma}{\\sqrt{\\sigma^2 + \\epsilon}}, \\quad b_{\\text{fused}} = \\beta - \\mu \\cdot \\frac{\\gamma}{\\sqrt{\\sigma^2 + \\epsilon}}$$\n消除了推理时的 BN 节点与分支加法，使 TensorRT 可以将其做成极致的底层算子融合，极大降低了显存开销与推理耗时。"
+            },
+            {
+              "type": "question",
+              "category": "算子兼容",
+              "question": "为什么在 postprocessor.py 中要自定义 mod(a, b) 函数而不直接使用 Python 原生的 a % b？",
+              "answer": "**参考答案**：\n在将 PyTorch 模型导出为 ONNX 并转换为 TensorRT 引擎时，Python 原生的 `%` 取模运算符会被 PyTorch 导出器解析为 `Mod` ONNX 算子。许多旧版本或特定平台的 TensorRT 解析器对 `Mod` 算子的支持存在 Bug 或无法直接融合。\n\nD-FINE 将取模拆解为 `a - (a // b) * b`。这样导出的 ONNX 图仅包含 `Sub`（减法）、`FloorDiv`（整除）和 `Mul`（乘法）。这三个基础算子在所有 ONNX 运行时与硬件芯片（如 NPU、TensorRT、OpenVINO）中均获得 100% 原生支持，保证了导出的工业级模型在各种部署环境下的零报错运行。"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
