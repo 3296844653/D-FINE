@@ -53,10 +53,13 @@ class DetSolver(BaseSolver):
                 self.use_wandb
             )
             for k in test_stats:
-                best_stat["epoch"] = self.last_epoch
-                best_stat[k] = test_stats[k][0]
-                top1 = test_stats[k][0]
-                print(f"best_stat: {best_stat}")
+                if k.endswith("_per_class"):
+                    continue
+
+            best_stat["epoch"] = self.last_epoch
+            best_stat[k] = test_stats[k][0]
+            top1 = test_stats[k][0]
+            print(f"best_stat: {best_stat}")
 
         best_stat_print = best_stat.copy()
         start_time = time.time()
@@ -119,6 +122,11 @@ class DetSolver(BaseSolver):
 
             # TODO
             for k in test_stats:
+                # Per-category metrics are dictionaries used for logging and
+                # analysis; they are not scalar COCO summaries for checkpoint
+                # selection or TensorBoard curves.
+                if k.endswith("_per_class"):
+                    continue
                 if self.writer and dist_utils.is_main_process():
                     for i, v in enumerate(test_stats[k]):
                         self.writer.add_scalar(f"Test/{k}_{i}".format(k), v, epoch)

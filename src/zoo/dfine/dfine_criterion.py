@@ -5,14 +5,6 @@ Copyright (c) 2024 The D-FINE Authors. All Rights Reserved.
 Modified from RT-DETR (https://github.com/lyuwenyu/RT-DETR)
 Copyright (c) 2023 lyuwenyu. All Rights Reserved.
 """
-"""
-它本身不负责生成预测，而是接收：
-    D-FINE 解码器输出；
-    真实标签 targets；
-    匈牙利匹配器 matcher；
-    各损失项的权重；
-然后计算分类、边界框、FGL、GO-LSD 自蒸馏、编码器辅助监督和去噪监督等损失。 
-"""
 
 import copy
 
@@ -33,10 +25,10 @@ class DFINECriterion(nn.Module):
     """This class computes the loss for D-FINE."""
 
     __share__ = [
-        "num_classes", # 表示 num_classes 可以与项目中的其他模块共享，例如模型、匹配器和损失函数使用同一类别数量
+        "num_classes", 
     ]
     __inject__ = [
-        "matcher", # 匈牙利匹配器，用于建立：预测 Query ↔ 真实目标 的一对一匹配
+        "matcher", 
     ]
 
     def __init__(
@@ -89,36 +81,36 @@ class DFINECriterion(nn.Module):
         self.o2m_quality_gamma = float(o2m_quality_gamma)
         self.o2m_min_pos = max(int(o2m_min_pos), 1)
 
-    # 定义分类焦点损失函数
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
         assert "pred_logits" in outputs
-        src_logits = outputs["pred_logits"] # 读取分类 logits
-        idx = self._get_src_permutation_idx(indices) # 把 Hungarian Matcher 的结果整理成可以直接用于 PyTorch 张量索引的格式
-        target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)]) # J 就是：GT索引 t["labels"][J]：取出这些GT对应的真实类别 torch.cat()：把整个batch匹配到的真实类别拼起来
+        src_logits = outputs["pred_logits"] # 取分类预测
+        idx = self._get_src_permutation_idx(indices) # 把每张图片单独的 matcher 下标转成可直接索引 [B,Q,...] 张量的形式
+        target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)]) # 逐张图片取出与预测成功匹配的 GT 类别，然后拼接
         target_classes = torch.full(
             src_logits.shape[:2], self.num_classes, dtype=torch.int64, device=src_logits.device
-        )
-        target_classes[idx] = target_classes_o
-        target = F.one_hot(target_classes, num_classes=self.num_classes + 1)[..., :-1]
+        ) # 创建 [B,Q] 的类别标签矩阵，初始值全部为 num_classes 这里的 num_classes 充当临时背景类编号
+        target_classes[idx] = target_classes_o # 把匹配成功 query 的背景编号替换为真实类别 未匹配 query 仍然是背景类
+        target = F.one_hot(target_classes, num_classes=self.num_classes + 1)[..., :-1] # 前景 query：对应类别位置为 1 背景 query：所有类别位置均为 0
         loss = torchvision.ops.sigmoid_focal_loss(
             src_logits, target, self.alpha, self.gamma, reduction="none"
-        )
+        ) # 容易分类的样本权重较低 困难样本权重较高
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
 
         return {"loss_focal": loss}
 
+    # 正样本的监督分数是预测框和 GT 的 IoU
     def loss_labels_vfl(self, outputs, targets, indices, num_boxes, values=None):
         assert "pred_boxes" in outputs
-        idx = self._get_src_permutation_idx(indices)
-        if values is None:
-            src_boxes = outputs["pred_boxes"][idx]
-            target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
+        idx = self._get_src_permutation_idx(indices) # 生成匹配预测的批量索引
+        if values is None: # 如果调用者没有预先提供 IoU，就在这里计算
+            src_boxes = outputs["pred_boxes"][idx] # 取出匹配成功的预测框
+            target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0) # 取出一一对应的 GT 框
             ious, _ = box_iou(box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes))
             ious = torch.diag(ious).detach()
         else:
             ious = values
 
-        src_logits = outputs["pred_logits"]
+        src_logits = outputs["pred_logits"] 
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
         target_classes = torch.full(
             src_logits.shape[:2], self.num_classes, dtype=torch.int64, device=src_logits.device
@@ -126,19 +118,20 @@ class DFINECriterion(nn.Module):
         target_classes[idx] = target_classes_o
         target = F.one_hot(target_classes, num_classes=self.num_classes + 1)[..., :-1]
 
-        target_score_o = torch.zeros_like(target_classes, dtype=src_logits.dtype)
-        target_score_o[idx] = ious.to(target_score_o.dtype)
+        target_score_o = torch.zeros_like(target_classes, dtype=src_logits.dtype) # 创建 [B,Q] 的质量分数矩阵，初始为 0
+        target_score_o[idx] = ious.to(target_score_o.dtype) # 匹配 query 的质量分数设置为 IoU
         target_score = target_score_o.unsqueeze(-1) * target
 
-        pred_score = F.sigmoid(src_logits).detach()
+        pred_score = F.sigmoid(src_logits).detach() # 把 logits 转为预测概率，但切断梯度。这里只把预测概率用于计算权重
         weight = self.alpha * pred_score.pow(self.gamma) * (1 - target) + target_score
 
-        loss = F.binary_cross_entropy_with_logits(
+        loss = F.binary_cross_entropy_with_logits( # 使用软标签 target_score 计算带权 BCE
             src_logits, target_score, weight=weight, reduction="none"
         )
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
         return {"loss_vfl": loss}
 
+    # 边框损失
     def loss_boxes(self, outputs, targets, indices, num_boxes, boxes_weight=None):
         """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
         targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
@@ -150,7 +143,7 @@ class DFINECriterion(nn.Module):
         target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
         losses = {}
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction="none")
-        losses["loss_bbox"] = loss_bbox.sum() / num_boxes
+        losses["loss_bbox"] = loss_bbox.sum() / num_boxes # 所有坐标误差求和，再除以归一化框数
 
         loss_giou = 1 - torch.diag(
             generalized_box_iou(box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes))
@@ -169,7 +162,7 @@ class DFINECriterion(nn.Module):
             idx = self._get_src_permutation_idx(indices)
             target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
 
-            pred_corners = outputs["pred_corners"][idx].reshape(-1, (self.reg_max + 1))
+            pred_corners = outputs["pred_corners"][idx].reshape(-1, (self.reg_max + 1)) # 每个框拆成左、上、右、下四条边，每条边预测一个离散概率分布
             ref_points = outputs["ref_points"][idx].detach()
             with torch.no_grad():
                 if self.fgl_targets_dn is None and "is_dn" in outputs:

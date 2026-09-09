@@ -1,0 +1,27 @@
+__include__:
+  - include/dfine_hgnetv2.yml
+  - include/dataloader.yml
+  - include/optimizer.yml
+  - dfine_hgnetv2_l_coco.yml
+
+
+epochs: 80
+num_classes: 5
+remap_mscoco_category: False
+
+
+train_dataloader:
+  total_batch_size: 8
+  num_workers: 4
+  dataset:
+    img_folder: dataset/0.671k_university_yolo_Dataset/images/train
+    ann_file: dataset/0.671k_university_5cls_Dataset/annotations/instances_train.json
+
+  collate_fn:
+    stop_epoch: 72
+
+val_dataloader:
+  total_batch_size: 8
+  dataset:
+    img_folder: dataset/0.671k_university_yolo_Dataset/images/val
+    ann_file: dataset/0.671k_university_5cls_Dataset/annotations/instances_val.json
