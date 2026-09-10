@@ -1,0 +1,17 @@
+# BCQE-only ablation on the five-class D-FINE-L baseline.
+# BCQE enhances already-selected content queries and does not change top-k ranking.
+
+__include__:
+  - dfine_l_university_5cls.yml
+
+
+DFINETransformer:
+  use_bcqe: True
+  bcqe_roi_size: 3
+  bcqe_expand_ratio: 1.25
+  bcqe_context_level: 0
+
+  # Keep earlier query experiments disabled for a clean BCQE-only ablation.
+  use_bcqs: False
+  use_paq_query: False
+  use_paq_bcqs_fusion: False

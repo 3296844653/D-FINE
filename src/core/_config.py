@@ -73,6 +73,11 @@ class BaseConfig(object):
         self.output_dir: str = None
         self.summary_dir: str = None
         self.device: str = ""
+        self.export_diagnostics: bool = False
+        self.diagnostic_conf_thresh: float = 0.5
+        self.diagnostic_iou_thresh: float = 0.5
+        self.diagnostic_max_images: int = 50
+        self.diagnostic_run_name: str = ""
 
     @property
     def model(self) -> nn.Module:

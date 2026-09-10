@@ -209,6 +209,106 @@ class BehaviorContextQueryScorer(nn.Module):
         return torch.cat(context_features, dim=1)
 
 
+class BehaviorContextQueryEnhancer(nn.Module):
+    """BCQE: enhance selected content queries with box-aligned behavior context.
+
+    Unlike BCQS, this module does not change encoder candidate scores or top-k
+    selection.  It samples an instance region and a slightly enlarged context
+    region for every selected proposal, then injects the fused context through
+    a zero-start residual gate.  Therefore enabling BCQE is exactly equivalent
+    to the baseline at initialization.
+    """
+
+    def __init__(
+        self,
+        hidden_dim=256,
+        roi_size=3,
+        expand_ratio=1.25,
+        context_level=0,
+        act="relu",
+    ):
+        super().__init__()
+        assert roi_size > 0, "bcqe_roi_size must be positive"
+        assert expand_ratio >= 1.0, "bcqe_expand_ratio must be >= 1"
+        assert context_level >= 0, "bcqe_context_level must be non-negative"
+
+        self.roi_size = int(roi_size)
+        self.expand_ratio = float(expand_ratio)
+        self.context_level = int(context_level)
+        self.context_proj = MLP(2 * hidden_dim, hidden_dim, hidden_dim, 2, act=act)
+        self.context_gate = MLP(2 * hidden_dim, hidden_dim, hidden_dim, 2, act=act)
+        self.residual_scale = nn.Parameter(torch.tensor(0.0))
+
+    def _get_level_feature(self, memory, spatial_shapes):
+        assert self.context_level < len(spatial_shapes), (
+            f"bcqe_context_level={self.context_level} exceeds "
+            f"the available {len(spatial_shapes)} feature levels"
+        )
+        start = sum(h * w for h, w in spatial_shapes[: self.context_level])
+        height, width = spatial_shapes[self.context_level]
+        length = height * width
+        level_memory = memory[:, start : start + length]
+        return level_memory.transpose(1, 2).reshape(
+            memory.shape[0], memory.shape[-1], height, width
+        )
+
+    def _sample_regions(self, feature, boxes, scale):
+        """Sample normalized cxcywh boxes into fixed-size query-aligned grids."""
+        batch_size, num_queries = boxes.shape[:2]
+        dtype, device = boxes.dtype, boxes.device
+        offsets = torch.linspace(
+            -0.5, 0.5, self.roi_size, dtype=dtype, device=device
+        )
+        grid_y, grid_x = torch.meshgrid(offsets, offsets, indexing="ij")
+        unit_grid = torch.stack([grid_x, grid_y], dim=-1).view(
+            1, 1, self.roi_size, self.roi_size, 2
+        )
+
+        centers = boxes[..., :2].view(batch_size, num_queries, 1, 1, 2)
+        sizes = boxes[..., 2:].clamp_min(1e-4).view(
+            batch_size, num_queries, 1, 1, 2
+        )
+        sample_grid = centers + unit_grid * sizes * scale
+        # grid_sample expects coordinates in [-1, 1]. Out-of-image context is
+        # handled by border padding instead of introducing artificial zeros.
+        sample_grid = sample_grid.mul(2.0).sub(1.0)
+
+        # Pack all query grids into the output-height dimension. This samples
+        # every proposal in one call without repeating the full feature map Q
+        # times, which would otherwise be prohibitively memory intensive.
+        packed_grid = sample_grid.reshape(
+            batch_size, num_queries * self.roi_size, self.roi_size, 2
+        )
+        sampled = F.grid_sample(
+            feature,
+            packed_grid,
+            mode="bilinear",
+            padding_mode="border",
+            align_corners=False,
+        )
+        sampled = sampled.view(
+            batch_size,
+            feature.shape[1],
+            num_queries,
+            self.roi_size,
+            self.roi_size,
+        )
+        return sampled.mean(dim=(-1, -2)).transpose(1, 2)
+
+    def forward(self, content, memory, spatial_shapes, boxes):
+        feature = self._get_level_feature(memory, spatial_shapes)
+        center_context = self._sample_regions(feature, boxes, 1.0)
+        expanded_context = self._sample_regions(
+            feature, boxes, self.expand_ratio
+        )
+        context = self.context_proj(
+            torch.cat([center_context, expanded_context], dim=-1)
+        )
+        gate = torch.sigmoid(self.context_gate(torch.cat([content, context], dim=-1)))
+        scale = torch.tanh(self.residual_scale).to(dtype=content.dtype)
+        return content + scale * gate * context.to(dtype=content.dtype)
+
+
 class BCQSGuidedPaQDynamicQuery(nn.Module):
     """Apply the original residual PaQ after BCQS-guided top-k selection.
 
@@ -1146,6 +1246,10 @@ class DFINETransformer(nn.Module):
         bra_init=0.01,
         use_paq_query=False,
         paq_num_patterns=50,
+        use_bcqe=False,
+        bcqe_roi_size=3,
+        bcqe_expand_ratio=1.25,
+        bcqe_context_level=0,
         use_paq_bcqs_fusion=False,
         paq_bcqs_num_patterns=150,
         paq_bcqs_kernel_size=3,
@@ -1207,6 +1311,7 @@ class DFINETransformer(nn.Module):
         self.use_sbfe = use_sbfe
         self.use_bqfe = use_bqfe
         self.use_paq_query = use_paq_query
+        self.use_bcqe = use_bcqe
         self.use_paq_bcqs_fusion = use_paq_bcqs_fusion
         assert not (self.use_paq_query and self.use_paq_bcqs_fusion), (
             "use_paq_query and use_paq_bcqs_fusion are mutually exclusive"
@@ -1392,6 +1497,16 @@ class DFINETransformer(nn.Module):
             )
         else:
             self.paq_query = None
+        if self.use_bcqe:
+            self.bcqe = BehaviorContextQueryEnhancer(
+                hidden_dim=hidden_dim,
+                roi_size=bcqe_roi_size,
+                expand_ratio=bcqe_expand_ratio,
+                context_level=bcqe_context_level,
+                act=activation,
+            )
+        else:
+            self.bcqe = None
         if self.use_paq_bcqs_fusion:
             self.paq_bcqs_query = BCQSGuidedPaQDynamicQuery(
                 hidden_dim=hidden_dim,
@@ -1743,6 +1858,17 @@ class DFINETransformer(nn.Module):
             content = self.paq_bcqs_query(content, enc_topk_memory.detach())
         elif self.use_paq_query:
             content = self.paq_query(enc_topk_memory.detach())
+
+        if self.use_bcqe:
+            # Use the same detached proposal geometry as the decoder reference
+            # points, while allowing the context branch to learn from encoder
+            # features. BCQE never changes which candidates enter the decoder.
+            content = self.bcqe(
+                content,
+                output_memory,
+                spatial_shapes,
+                F.sigmoid(enc_topk_bbox_unact).detach(),
+            )
 
         enc_topk_bbox_unact = enc_topk_bbox_unact.detach()
 

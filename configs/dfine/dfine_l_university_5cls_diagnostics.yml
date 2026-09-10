@@ -1,0 +1,11 @@
+# Export diagnostic artifacts for a five-class D-FINE-L checkpoint.
+
+__include__:
+  - dfine_l_university_5cls.yml
+
+
+export_diagnostics: True
+diagnostic_conf_thresh: 0.5
+diagnostic_iou_thresh: 0.5
+diagnostic_max_images: 50
+diagnostic_run_name: baseline_best_stg2

@@ -11,11 +11,6 @@ import os
 import random
 import time
 
-# Must be configured before CUDA/cuBLAS is initialized. This makes supported
-# CUDA matrix multiplications reproducible when deterministic algorithms are
-# enabled below.
-os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-
 import numpy as np
 import torch
 import torch.backends.cudnn
@@ -34,7 +29,7 @@ def setup_distributed(
     print_rank: int = 0,
     print_method: str = "builtin",
     seed: int = None,
-    deterministic: bool = True,
+    deterministic: bool = False,
 ):
     """
     env setup
@@ -243,12 +238,12 @@ def sync_time():
     return time.time()
 
 
-def setup_seed(seed: int, deterministic: bool = True):
-    """Seed all RNGs and prefer reproducible CUDA execution.
+def setup_seed(seed: int, deterministic: bool = False):
+    """Seed all RNGs, with strict deterministic CUDA execution opt-in.
 
-    A fixed seed alone does not make CUDA training deterministic.  When
-    ``deterministic`` is enabled, disable cuDNN autotuning and TF32, and ask
-    PyTorch to use deterministic implementations whenever they are available.
+    The default follows the original training behavior: random generators are
+    seeded, while deterministic CUDA algorithms remain disabled.  Pass
+    ``deterministic=True`` explicitly when strict reproducibility is required.
 
     ``warn_only=True`` keeps training usable when an operation (for example a
     CUDA ``grid_sample`` backward implementation in some PyTorch versions)

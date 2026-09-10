@@ -8,6 +8,7 @@ Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 import math
 import sys
+from pathlib import Path
 from typing import Dict, Iterable, List
 
 import numpy as np
@@ -241,6 +242,11 @@ def evaluate(
 
     output_dir = kwargs.get("output_dir", None)
     num_visualization_sample_batch = kwargs.get("num_visualization_sample_batch", 1)
+    export_diagnostics = kwargs.get("export_diagnostics", False)
+    diagnostic_conf_thresh = kwargs.get("diagnostic_conf_thresh", 0.5)
+    diagnostic_iou_thresh = kwargs.get("diagnostic_iou_thresh", 0.5)
+    diagnostic_max_images = kwargs.get("diagnostic_max_images", 50)
+    diagnostic_run_name = kwargs.get("diagnostic_run_name", "")
 
     for i, (samples, targets) in enumerate(metric_logger.log_every(data_loader, 10, header)):
         global_step = epoch * len(data_loader) + i
@@ -279,6 +285,8 @@ def evaluate(
                         (samples[idx].shape[-1], samples[idx].shape[-2]),
                     ),
                     "labels": target["labels"],
+                    "image_id": int(target["image_id"].item()),
+                    "image_path": target.get("image_path", ""),
                 }
             )
             labels = (
@@ -291,8 +299,37 @@ def evaluate(
             )
 
     # Conf matrix, F1, Precision, Recall, box IoU
-    metrics = Validator(gt, preds).compute_metrics()
+    dataset = data_loader.dataset
+    while hasattr(dataset, "dataset"):
+        dataset = dataset.dataset
+    category2name = getattr(dataset, "category2name", {})
+    if postprocessor.remap_mscoco_category:
+        class_names = {
+            mscoco_category2label[category_id]: name
+            for category_id, name in category2name.items()
+            if category_id in mscoco_category2label
+        }
+    else:
+        class_names = {int(category_id): name for category_id, name in category2name.items()}
+
+    validator = Validator(
+        gt,
+        preds,
+        conf_thresh=diagnostic_conf_thresh,
+        iou_thresh=diagnostic_iou_thresh,
+        class_names=class_names,
+    )
+    metrics = validator.compute_metrics(extended=export_diagnostics)
     print("Metrics:", metrics)
+    if export_diagnostics and output_dir is not None and dist_utils.is_main_process():
+        diagnostic_dir = Path(output_dir) / "diagnostics"
+        if epoch >= 0:
+            diagnostic_dir = diagnostic_dir / f"epoch_{epoch:03d}"
+        validator.save_diagnostics(
+            diagnostic_dir,
+            max_images_per_type=diagnostic_max_images,
+            run_name=diagnostic_run_name,
+        )
     if use_wandb:
         metrics = {f"metrics/{k}": v for k, v in metrics.items()}
         metrics["epoch"] = epoch

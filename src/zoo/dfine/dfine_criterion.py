@@ -49,6 +49,10 @@ class DFINECriterion(nn.Module):
         o2m_matcher_type="cost",
         o2m_quality_gamma=0.25,
         o2m_min_pos=1,
+        use_class_aware_vfl=False,
+        vfl_class_counts=None,
+        vfl_class_weight_power=0.25,
+        vfl_class_weight_max=2.0,
     ):
         """Create the criterion.
         Parameters:
@@ -80,6 +84,57 @@ class DFINECriterion(nn.Module):
         self.o2m_matcher_type = o2m_matcher_type
         self.o2m_quality_gamma = float(o2m_quality_gamma)
         self.o2m_min_pos = max(int(o2m_min_pos), 1)
+        self.use_class_aware_vfl = bool(use_class_aware_vfl)
+        if self.use_class_aware_vfl:
+            assert vfl_class_counts is not None, (
+                "vfl_class_counts is required when use_class_aware_vfl=True"
+            )
+            assert len(vfl_class_counts) == num_classes, (
+                "vfl_class_counts must contain one count per category"
+            )
+            assert all(float(count) > 0 for count in vfl_class_counts), (
+                "all vfl_class_counts must be positive"
+            )
+            assert float(vfl_class_weight_power) >= 0, (
+                "vfl_class_weight_power must be non-negative"
+            )
+            assert float(vfl_class_weight_max) >= 1, (
+                "vfl_class_weight_max must be >= 1"
+            )
+            class_counts = torch.as_tensor(vfl_class_counts, dtype=torch.float32)
+            class_weights = (class_counts.max() / class_counts).pow(
+                float(vfl_class_weight_power)
+            )
+            class_weights = class_weights.clamp(max=float(vfl_class_weight_max))
+        else:
+            class_weights = torch.ones(num_classes, dtype=torch.float32)
+        # These weights are deterministically derived from the YAML config and
+        # must not become part of checkpoint compatibility. Keeping the buffer
+        # non-persistent allows pre-HC-VFL baseline checkpoints to load strictly.
+        self.register_buffer("vfl_class_weights", class_weights, persistent=False)
+
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ):
+        # Early HC-VFL checkpoints may contain the formerly persistent buffer.
+        # Discard it and always rebuild the weights from the active YAML config.
+        state_dict.pop(prefix + "vfl_class_weights", None)
+        super()._load_from_state_dict(
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
         assert "pred_logits" in outputs
@@ -123,7 +178,19 @@ class DFINECriterion(nn.Module):
         target_score = target_score_o.unsqueeze(-1) * target
 
         pred_score = F.sigmoid(src_logits).detach() # 把 logits 转为预测概率，但切断梯度。这里只把预测概率用于计算权重
-        weight = self.alpha * pred_score.pow(self.gamma) * (1 - target) + target_score
+        negative_weight = self.alpha * pred_score.pow(self.gamma) * (1 - target)
+        if self.use_class_aware_vfl and src_logits.shape[-1] == self.vfl_class_weights.numel():
+            # Only reweight matched positive targets. Reweighting every channel
+            # would also amplify the many negatives of rare classes and can
+            # increase false positives in dense classroom scenes.
+            positive_class_weight = self.vfl_class_weights.to(
+                device=src_logits.device, dtype=src_logits.dtype
+            ).view(1, 1, -1)
+            positive_weight = target_score * positive_class_weight
+        else:
+            # Also covers a possible class-agnostic encoder auxiliary head.
+            positive_weight = target_score
+        weight = negative_weight + positive_weight
 
         loss = F.binary_cross_entropy_with_logits( # 使用软标签 target_score 计算带权 BCE
             src_logits, target_score, weight=weight, reduction="none"

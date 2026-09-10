@@ -1,0 +1,13 @@
+# Hard-Class-Aware Varifocal Loss ablation on the five-class D-FINE-L baseline.
+# Counts come from the training annotations in category-id order:
+# reading, writing, using_phone, bowing_head, leaning_over_table.
+
+__include__:
+  - dfine_l_university_5cls.yml
+
+
+DFINECriterion:
+  use_class_aware_vfl: True
+  vfl_class_counts: [6216, 2365, 5506, 762, 807]
+  vfl_class_weight_power: 0.25
+  vfl_class_weight_max: 2.0

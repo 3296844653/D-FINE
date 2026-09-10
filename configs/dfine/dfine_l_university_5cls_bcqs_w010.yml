@@ -1,0 +1,13 @@
+# BCQS score-weight ablation on the five-class D-FINE-L baseline.
+
+__include__:
+  - dfine_l_university_5cls.yml
+
+
+DFINETransformer:
+  use_bcqs: True
+  bcqs_kernel_size: 3
+  bcqs_score_weight: 0.10
+
+  # Keep PAQ disabled so this run measures BCQS alone.
+  use_paq_query: False

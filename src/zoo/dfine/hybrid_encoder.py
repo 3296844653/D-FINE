@@ -261,6 +261,73 @@ class SimAMFeatureEnhancer(nn.Module):
         return [self._enhance_one(feat) for feat in feats]
 
 
+class MBDEDepthwiseBranch(nn.Module):
+    """Depthwise-pointwise detail branch used only by MBDE-P3."""
+
+    def __init__(self, hidden_dim, dilation=1, act="silu"):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(
+                hidden_dim,
+                hidden_dim,
+                3,
+                padding=dilation,
+                dilation=dilation,
+                groups=hidden_dim,
+                bias=False,
+            ),
+            nn.BatchNorm2d(hidden_dim),
+            get_activation(act),
+            nn.Conv2d(hidden_dim, hidden_dim, 1, bias=False),
+            nn.BatchNorm2d(hidden_dim),
+            get_activation(act),
+        )
+
+    def forward(self, feature):
+        return self.block(feature)
+
+
+class MultiScaleBehaviorDetailEnhancer(nn.Module):
+    """MBDE-P3: dynamically enhance local behavior details on the P3 feature.
+
+    The identity branch preserves the original representation, while standard
+    and dilated depthwise branches capture hand/object details at two receptive
+    fields. A zero-start residual scale makes the enabled model identical to
+    the baseline at initialization.
+    """
+
+    def __init__(self, hidden_dim=256, reduction=4, init_scale=0.0, act="silu"):
+        super().__init__()
+        mid_dim = max(hidden_dim // reduction, 16)
+        self.branches = nn.ModuleList(
+            [
+                nn.Identity(),
+                MBDEDepthwiseBranch(hidden_dim, dilation=1, act=act),
+                MBDEDepthwiseBranch(hidden_dim, dilation=2, act=act),
+            ]
+        )
+        self.branch_gate = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(hidden_dim, mid_dim, 1),
+            get_activation(act),
+            nn.Conv2d(mid_dim, len(self.branches), 1),
+        )
+        self.fusion = nn.Sequential(
+            nn.Conv2d(hidden_dim, hidden_dim, 1, bias=False),
+            nn.BatchNorm2d(hidden_dim),
+        )
+        self.residual_scale = nn.Parameter(torch.tensor(float(init_scale)))
+
+    def forward(self, feature):
+        weights = F.softmax(self.branch_gate(feature), dim=1)
+        detail = torch.zeros_like(feature)
+        for branch_index, branch in enumerate(self.branches):
+            detail = detail + branch(feature) * weights[:, branch_index : branch_index + 1]
+        detail = self.fusion(detail)
+        scale = torch.tanh(self.residual_scale).to(dtype=feature.dtype)
+        return feature + scale * detail
+
+
 class BMEFSDepthwiseBranch(nn.Module):
     """Lightweight depthwise branch used by BMEFS for expanded local context."""
 
@@ -475,6 +542,9 @@ class HybridEncoder(nn.Module):
         bmefs_init=0.01,
         bmefs_reduction=4,
         bmefs_cross_scale=True,
+        use_mbde_p3=False,
+        mbde_p3_init=0.0,
+        mbde_p3_reduction=4,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -495,6 +565,7 @@ class HybridEncoder(nn.Module):
         self.hf_return_indices = hf_return_indices
         self.use_bmefs = use_bmefs
         self.use_simam = use_simam
+        self.use_mbde_p3 = use_mbde_p3
         if self.use_hf_gate:
             self.hf_gate = nn.Parameter(torch.tensor(float(hf_gate_init)))
         else:
@@ -595,6 +666,17 @@ class HybridEncoder(nn.Module):
         else:
             self.bmefs = None
 
+        # MBDE-P3 is deliberately limited to the final stride-8 PAN feature.
+        if self.use_mbde_p3:
+            self.mbde_p3 = MultiScaleBehaviorDetailEnhancer(
+                hidden_dim=hidden_dim,
+                reduction=mbde_p3_reduction,
+                init_scale=mbde_p3_init,
+                act=act,
+            )
+        else:
+            self.mbde_p3 = None
+
         self._reset_parameters()
 
     def _reset_parameters(self):
@@ -675,6 +757,9 @@ class HybridEncoder(nn.Module):
             downsample_feat = self.downsample_convs[idx](feat_low)
             out = self.pan_blocks[idx](torch.concat([downsample_feat, feat_height], dim=1))
             outs.append(out)
+
+        if self.use_mbde_p3:
+            outs[0] = self.mbde_p3(outs[0])
 
         if self.use_simam:
             outs = self.simam(outs)
