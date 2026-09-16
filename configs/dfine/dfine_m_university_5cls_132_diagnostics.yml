@@ -1,0 +1,10 @@
+# Export class-confusion and error-case diagnostics from the D-FINE-M baseline.
+
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+export_diagnostics: true
+diagnostic_conf_thresh: 0.5
+diagnostic_iou_thresh: 0.5
+diagnostic_max_images: 50
+diagnostic_run_name: baseline_m_5cls_seed0

@@ -1,0 +1,7 @@
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+DFINETransformer:
+  use_bcea: true
+  bcea_kernel_size: 3
+  bcea_init: 0.01

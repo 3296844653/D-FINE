@@ -1,0 +1,8 @@
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+DFINETransformer:
+  use_bqfe: true
+  bqfe_kernel_size: 3
+  bqfe_reduction: 4
+  bqfe_init: 0.01

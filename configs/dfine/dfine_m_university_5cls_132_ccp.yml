@@ -1,0 +1,16 @@
+# Class-confusion-aware prototype loss ablation.
+# The baseline model and inference graph remain unchanged.
+
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+DFINETransformer:
+  return_query_features: true
+
+DFINECriterion:
+  use_ccp_loss: true
+  ccp_feature_dim: 256
+  ccp_loss_weight: 0.05
+  ccp_temperature: 0.10
+  ccp_momentum: 0.90
+  ccp_confusion_weight: 1.0

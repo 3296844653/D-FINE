@@ -1,0 +1,6 @@
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+DFINETransformer:
+  use_afdr: true
+  afdr_range: 0.25

@@ -1,0 +1,7 @@
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+DFINETransformer:
+  use_bra: true
+  bra_reduction: 4
+  bra_init: 0.01

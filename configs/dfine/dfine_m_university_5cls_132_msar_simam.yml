@@ -1,0 +1,8 @@
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+HybridEncoder:
+  use_simam: true
+  simam_e_lambda: 0.0001
+  simam_mode: adaptive_residual
+  simam_residual_init: 1.0

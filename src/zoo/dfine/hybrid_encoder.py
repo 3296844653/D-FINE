@@ -241,24 +241,119 @@ class CSPLayer(nn.Module):
 
 
 class SimAMFeatureEnhancer(nn.Module):
-    """Parameter-free SimAM attention for multi-scale feature maps."""
+    """SimAM and local-global adaptive residual SimAM for multi-scale features.
 
-    def __init__(self, e_lambda=1e-4):
+    ``standard`` preserves the original parameter-free implementation.
+    ``adaptive_residual`` learns an independent residual strength for every
+    feature level. ``local_global_adaptive_residual`` additionally introduces
+    a local energy correction. Both modes initialize exactly as ``standard``
+    SimAM.
+    """
+
+    def __init__(
+        self,
+        e_lambda=1e-4,
+        num_levels=3,
+        mode="standard",
+        local_kernel_size=3,
+        residual_init=1.0,
+    ):
         super().__init__()
+        assert mode in (
+            "standard",
+            "adaptive_residual",
+            "local_global_adaptive_residual",
+        ), (
+            "simam_mode must be 'standard', 'adaptive_residual', or "
+            "'local_global_adaptive_residual'"
+        )
+        assert int(num_levels) > 0, "simam num_levels must be positive"
+        assert int(local_kernel_size) > 0 and int(local_kernel_size) % 2 == 1, (
+            "simam_local_kernel_size must be a positive odd number"
+        )
+        assert 0.0 < float(residual_init) < 2.0, (
+            "simam_residual_init must be between 0 and 2"
+        )
+
         self.e_lambda = float(e_lambda)
+        self.num_levels = int(num_levels)
+        self.mode = mode
+        self.local_kernel_size = int(local_kernel_size)
         self.activation = nn.Sigmoid()
 
-    def _enhance_one(self, feat):
+        if self.mode == "local_global_adaptive_residual":
+            # beta=0 selects the verified global SimAM path exactly.
+            self.local_mix = nn.Parameter(torch.zeros(self.num_levels))
+        else:
+            self.local_mix = None
+
+        if self.mode in ("adaptive_residual", "local_global_adaptive_residual"):
+            residual_ratio = float(residual_init) / 2.0
+            residual_logit = torch.logit(torch.tensor(residual_ratio)).item()
+            self.residual_scale_logits = nn.Parameter(
+                torch.full((self.num_levels,), residual_logit)
+            )
+        else:
+            self.residual_scale_logits = None
+
+    def _global_attention(self, feat):
         height, width = feat.shape[-2:]
         num_pixels = max(height * width - 1, 1)
         residual = feat - feat.mean(dim=(2, 3), keepdim=True)
         residual_square = residual.pow(2)
         variance = residual_square.sum(dim=(2, 3), keepdim=True) / num_pixels
         energy = residual_square / (4.0 * (variance + self.e_lambda)) + 0.5
-        return feat * self.activation(energy)
+        return self.activation(energy)
+
+    def _local_attention(self, feat):
+        padding = self.local_kernel_size // 2
+        local_mean = F.avg_pool2d(
+            feat,
+            self.local_kernel_size,
+            stride=1,
+            padding=padding,
+            count_include_pad=False,
+        )
+        local_residual_square = (feat - local_mean).pow(2)
+        local_variance = F.avg_pool2d(
+            local_residual_square,
+            self.local_kernel_size,
+            stride=1,
+            padding=padding,
+            count_include_pad=False,
+        )
+        local_energy = local_residual_square / (
+            4.0 * (local_variance + self.e_lambda)
+        ) + 0.5
+        return self.activation(local_energy)
 
     def forward(self, feats):
-        return [self._enhance_one(feat) for feat in feats]
+        assert len(feats) == self.num_levels, (
+            f"SimAM expected {self.num_levels} feature levels, got {len(feats)}"
+        )
+        enhanced_feats = []
+        for level, feat in enumerate(feats):
+            global_attention = self._global_attention(feat)
+            if self.mode == "standard":
+                enhanced_feats.append(feat * global_attention)
+                continue
+
+            if self.mode == "local_global_adaptive_residual":
+                local_attention = self._local_attention(feat)
+                local_mix = torch.tanh(self.local_mix[level]).to(dtype=feat.dtype)
+                attention = global_attention + local_mix * (
+                    local_attention - global_attention
+                )
+            else:
+                attention = global_attention
+
+            residual_scale = 2.0 * torch.sigmoid(
+                self.residual_scale_logits[level]
+            ).to(dtype=feat.dtype)
+            simam_feat = feat * attention
+            enhanced_feats.append(feat + residual_scale * (simam_feat - feat))
+
+        return enhanced_feats
 
 
 class MBDEDepthwiseBranch(nn.Module):
@@ -538,6 +633,9 @@ class HybridEncoder(nn.Module):
         hf_return_indices=None,
         use_simam=False,
         simam_e_lambda=1e-4,
+        simam_mode="standard",
+        simam_local_kernel_size=3,
+        simam_residual_init=1.0,
         use_bmefs=False,
         bmefs_init=0.01,
         bmefs_reduction=4,
@@ -649,7 +747,13 @@ class HybridEncoder(nn.Module):
 
         # BMEFS: optional behavior-aware multi-scale expanded feature set after PAN.
         if self.use_simam:
-            self.simam = SimAMFeatureEnhancer(e_lambda=simam_e_lambda)
+            self.simam = SimAMFeatureEnhancer(
+                e_lambda=simam_e_lambda,
+                num_levels=len(in_channels),
+                mode=simam_mode,
+                local_kernel_size=simam_local_kernel_size,
+                residual_init=simam_residual_init,
+            )
         else:
             self.simam = None
 

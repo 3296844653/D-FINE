@@ -1,0 +1,13 @@
+# Localization-aware hard-negative suppression ablation.
+# Keep the D-FINE-M baseline unchanged and add only the training-time loss.
+
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+DFINECriterion:
+  use_lahns: true
+  lahns_loss_weight: 0.05
+  lahns_score_threshold: 0.4
+  lahns_iou_power: 2.0
+  lahns_score_power: 2.0
+  lahns_topk: 30

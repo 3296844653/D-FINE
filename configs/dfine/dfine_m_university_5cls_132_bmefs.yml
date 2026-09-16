@@ -1,0 +1,8 @@
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+HybridEncoder:
+  use_bmefs: true
+  bmefs_init: 0.01
+  bmefs_reduction: 4
+  bmefs_cross_scale: true

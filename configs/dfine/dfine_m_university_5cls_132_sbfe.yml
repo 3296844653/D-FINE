@@ -1,0 +1,8 @@
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+DFINETransformer:
+  use_sbfe: true
+  sbfe_kernel_size: 3
+  sbfe_reduction: 4
+  sbfe_init: 0.01

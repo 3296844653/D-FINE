@@ -53,6 +53,18 @@ class DFINECriterion(nn.Module):
         vfl_class_counts=None,
         vfl_class_weight_power=0.25,
         vfl_class_weight_max=2.0,
+        use_ccp_loss=False,
+        ccp_feature_dim=256,
+        ccp_loss_weight=0.05,
+        ccp_temperature=0.1,
+        ccp_momentum=0.9,
+        ccp_confusion_weight=1.0,
+        use_lahns=False,
+        lahns_loss_weight=0.05,
+        lahns_score_threshold=0.4,
+        lahns_iou_power=2.0,
+        lahns_score_power=2.0,
+        lahns_topk=30,
     ):
         """Create the criterion.
         Parameters:
@@ -113,6 +125,47 @@ class DFINECriterion(nn.Module):
         # non-persistent allows pre-HC-VFL baseline checkpoints to load strictly.
         self.register_buffer("vfl_class_weights", class_weights, persistent=False)
 
+        # Class-Confusion-aware Prototype (CCP) loss.  The prototype bank is
+        # updated from matched decoder queries with EMA; it is deliberately a
+        # non-persistent buffer so old checkpoints remain strictly loadable.
+        self.use_ccp_loss = bool(use_ccp_loss)
+        self.ccp_feature_dim = int(ccp_feature_dim)
+        self.ccp_loss_weight = float(ccp_loss_weight)
+        self.ccp_temperature = float(ccp_temperature)
+        self.ccp_momentum = float(ccp_momentum)
+        self.ccp_confusion_weight = float(ccp_confusion_weight)
+        assert self.ccp_feature_dim > 0
+        assert self.ccp_loss_weight >= 0
+        assert self.ccp_temperature > 0
+        assert 0 <= self.ccp_momentum < 1
+        assert self.ccp_confusion_weight >= 0
+        self.register_buffer(
+            "ccp_prototypes",
+            torch.zeros(num_classes, self.ccp_feature_dim),
+            persistent=False,
+        )
+        self.register_buffer(
+            "ccp_prototype_counts",
+            torch.zeros(num_classes),
+            persistent=False,
+        )
+
+        # Localization-Aware Hard Negative Suppression (LA-HNS) is a
+        # training-only auxiliary objective for unmatched final-layer queries.
+        # It focuses on predictions that are confident despite having poor
+        # overlap with every ground-truth box.
+        self.use_lahns = bool(use_lahns)
+        self.lahns_loss_weight = float(lahns_loss_weight)
+        self.lahns_score_threshold = float(lahns_score_threshold)
+        self.lahns_iou_power = float(lahns_iou_power)
+        self.lahns_score_power = float(lahns_score_power)
+        self.lahns_topk = int(lahns_topk)
+        assert self.lahns_loss_weight >= 0
+        assert 0 <= self.lahns_score_threshold <= 1
+        assert self.lahns_iou_power >= 0
+        assert self.lahns_score_power >= 0
+        assert self.lahns_topk >= 0
+
     def _load_from_state_dict(
         self,
         state_dict,
@@ -126,6 +179,8 @@ class DFINECriterion(nn.Module):
         # Early HC-VFL checkpoints may contain the formerly persistent buffer.
         # Discard it and always rebuild the weights from the active YAML config.
         state_dict.pop(prefix + "vfl_class_weights", None)
+        state_dict.pop(prefix + "ccp_prototypes", None)
+        state_dict.pop(prefix + "ccp_prototype_counts", None)
         super()._load_from_state_dict(
             state_dict,
             prefix,
@@ -197,6 +252,151 @@ class DFINECriterion(nn.Module):
         )
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
         return {"loss_vfl": loss}
+
+    def loss_class_confusion_prototype(self, outputs, targets, indices):
+        """Separate matched query features with an EMA class-prototype bank.
+
+        Incorrect classes already assigned a high classification probability
+        are treated as harder negatives.  Only matched final-layer queries are
+        used, so background queries and auxiliary decoder layers cannot
+        dominate the objective.
+        """
+        query_features = outputs.get("query_features")
+        if query_features is None:
+            return None
+
+        idx = self._get_src_permutation_idx(indices)
+        features = query_features[idx]
+        labels = torch.cat(
+            [target["labels"][target_idx] for target, (_, target_idx) in zip(targets, indices)]
+        )
+        if features.numel() == 0:
+            return query_features.sum() * 0.0
+        if features.shape[-1] != self.ccp_feature_dim:
+            raise ValueError(
+                f"CCP expected feature dim {self.ccp_feature_dim}, got {features.shape[-1]}"
+            )
+
+        # Compute in fp32 even under AMP; gradients still flow to decoder features.
+        features = F.normalize(features.float(), dim=-1)
+        with torch.no_grad():
+            class_sums = features.detach().new_zeros(
+                self.num_classes, self.ccp_feature_dim
+            )
+            class_counts = features.detach().new_zeros(self.num_classes)
+            class_sums.index_add_(0, labels, features.detach())
+            class_counts.index_add_(
+                0, labels, torch.ones_like(labels, dtype=features.dtype)
+            )
+            if is_dist_available_and_initialized():
+                torch.distributed.all_reduce(class_sums)
+                torch.distributed.all_reduce(class_counts)
+
+            present = class_counts > 0
+            batch_prototypes = class_sums / class_counts.clamp_min(1).unsqueeze(-1)
+            batch_prototypes = F.normalize(batch_prototypes, dim=-1)
+
+            # New classes use their current batch center immediately.  Seen
+            # classes use the history available before this optimizer step.
+            prototypes = self.ccp_prototypes.detach().clone().to(features)
+            seen = self.ccp_prototype_counts > 0
+            new_classes = present & ~seen
+            prototypes[new_classes] = batch_prototypes[new_classes]
+            valid_classes = seen | present
+
+        prototype_logits = features @ F.normalize(prototypes, dim=-1).transpose(0, 1)
+        prototype_logits = prototype_logits / self.ccp_temperature
+        prototype_logits = prototype_logits.masked_fill(
+            ~valid_classes.view(1, -1), torch.finfo(prototype_logits.dtype).min
+        )
+
+        if self.ccp_confusion_weight > 0 and "pred_logits" in outputs:
+            confusion = outputs["pred_logits"][idx].detach().float().sigmoid()
+            confusion.scatter_(1, labels.unsqueeze(1), 0.0)
+            prototype_logits = (
+                prototype_logits + self.ccp_confusion_weight * confusion
+            )
+
+        loss = F.cross_entropy(prototype_logits, labels)
+
+        with torch.no_grad():
+            old_present = present & seen
+            updated = (
+                self.ccp_momentum * self.ccp_prototypes[old_present]
+                + (1.0 - self.ccp_momentum)
+                * batch_prototypes[old_present].to(self.ccp_prototypes)
+            )
+            self.ccp_prototypes[old_present] = F.normalize(updated, dim=-1)
+            self.ccp_prototypes[new_classes] = batch_prototypes[new_classes].to(
+                self.ccp_prototypes
+            )
+            self.ccp_prototype_counts.add_(class_counts.to(self.ccp_prototype_counts))
+
+        return loss * self.ccp_loss_weight
+
+    def loss_localization_aware_hard_negatives(self, outputs, targets, indices):
+        """Suppress confident unmatched queries in proportion to localization error.
+
+        A query close to a real object may simply be a duplicate candidate, so
+        it receives a small weight. A confident query with little overlap with
+        any target receives the strongest penalty. Selection and weights are
+        detached; gradients affect only the predicted top-class logit.
+        """
+        pred_logits = outputs["pred_logits"]
+        pred_boxes = outputs["pred_boxes"]
+        total_loss = pred_logits.float().sum() * 0.0
+        selected_count = 0
+
+        for batch_index, ((matched_queries, _), target) in enumerate(
+            zip(indices, targets)
+        ):
+            unmatched_mask = torch.ones(
+                pred_logits.shape[1], dtype=torch.bool, device=pred_logits.device
+            )
+            unmatched_mask[matched_queries.to(unmatched_mask.device)] = False
+
+            scores, classes = pred_logits[batch_index].detach().float().sigmoid().max(dim=-1)
+            candidate_indices = torch.nonzero(
+                unmatched_mask & (scores >= self.lahns_score_threshold),
+                as_tuple=False,
+            ).flatten()
+            if candidate_indices.numel() == 0:
+                continue
+
+            candidate_boxes = pred_boxes[batch_index, candidate_indices].detach().float()
+            target_boxes = target["boxes"].detach().float()
+            if target_boxes.numel() > 0:
+                ious, _ = box_iou(
+                    box_cxcywh_to_xyxy(candidate_boxes),
+                    box_cxcywh_to_xyxy(target_boxes),
+                )
+                max_iou = ious.max(dim=1).values.clamp(0, 1)
+            else:
+                max_iou = candidate_boxes.new_zeros(candidate_boxes.shape[0])
+
+            candidate_scores = scores[candidate_indices]
+            hardness = candidate_scores.pow(self.lahns_score_power) * (
+                1.0 - max_iou
+            ).pow(self.lahns_iou_power)
+
+            if self.lahns_topk > 0 and candidate_indices.numel() > self.lahns_topk:
+                _, keep = torch.topk(hardness, self.lahns_topk, sorted=False)
+                candidate_indices = candidate_indices[keep]
+                hardness = hardness[keep]
+
+            candidate_classes = classes[candidate_indices]
+            hard_logits = pred_logits[
+                batch_index, candidate_indices, candidate_classes
+            ].float()
+            negative_loss = F.binary_cross_entropy_with_logits(
+                hard_logits, torch.zeros_like(hard_logits), reduction="none"
+            )
+            total_loss = total_loss + (negative_loss * hardness).sum()
+            selected_count += int(candidate_indices.numel())
+
+        if selected_count == 0:
+            return total_loss
+        return total_loss * (self.lahns_loss_weight / selected_count)
 
     # 边框损失
     def loss_boxes(self, outputs, targets, indices, num_boxes, boxes_weight=None):
@@ -425,6 +625,16 @@ class DFINECriterion(nn.Module):
             l_dict = self.get_loss(loss, outputs, targets, indices_in, num_boxes_in, **meta)
             l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
             losses.update(l_dict)
+
+        if self.use_ccp_loss:
+            loss_ccp = self.loss_class_confusion_prototype(outputs, targets, indices)
+            if loss_ccp is not None:
+                losses["loss_ccp"] = loss_ccp
+
+        if self.use_lahns:
+            losses["loss_lahns"] = self.loss_localization_aware_hard_negatives(
+                outputs, targets, indices
+            )
 
         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
         if "aux_outputs" in outputs:

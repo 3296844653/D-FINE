@@ -47,21 +47,82 @@ class MLP(nn.Module):
 
 
 class PaQDynamicQuery(nn.Module):
-    """PaQ-RT-DETR pattern-based dynamic query generator."""
+    """PaQ-RT-DETR pattern-based dynamic query generator.
 
-    def __init__(self, hidden_dim=256, num_patterns=50, act="relu"):
+    ``replace`` preserves the original PaQ behavior and returns only the
+    pattern-composed query. ``adaptive_residual`` retains the selected encoder
+    query and injects a normalized dynamic pattern through a per-query gate and
+    a small learnable global scale.
+    """
+
+    def __init__(
+        self,
+        hidden_dim=256,
+        num_patterns=50,
+        act="relu",
+        mode="replace",
+        residual_init=0.05,
+        gate_reduction=4,
+    ):
         super().__init__()
+        assert mode in ("replace", "adaptive_residual"), (
+            "paq_query_mode must be 'replace' or 'adaptive_residual'"
+        )
+        assert 0.0 < float(residual_init) < 1.0, (
+            "paq_residual_init must be between 0 and 1"
+        )
+        assert int(gate_reduction) > 0, "paq_gate_reduction must be positive"
+
+        self.mode = mode
         self.patterns = nn.Parameter(torch.empty(num_patterns, hidden_dim))
         self.weight_generator = MLP(hidden_dim, hidden_dim, num_patterns, 2, act=act)
+
+        if self.mode == "adaptive_residual":
+            gate_hidden_dim = max(hidden_dim // int(gate_reduction), 16)
+            self.dynamic_norm = nn.LayerNorm(hidden_dim)
+            self.residual_gate = nn.Sequential(
+                nn.Linear(2 * hidden_dim, gate_hidden_dim),
+                nn.SiLU(),
+                nn.Linear(gate_hidden_dim, 1),
+            )
+            residual_init = float(residual_init)
+            self.residual_scale_logit = nn.Parameter(
+                torch.tensor(math.log(residual_init / (1.0 - residual_init)))
+            )
+        else:
+            self.dynamic_norm = None
+            self.residual_gate = None
+            self.residual_scale_logit = None
+
         self._reset_parameters()
 
     def _reset_parameters(self):
         init.xavier_uniform_(self.patterns)
+        if self.mode == "adaptive_residual":
+            # Start with uniform pattern mixing and a neutral per-query gate.
+            # The configured small global scale keeps the enabled model close
+            # to baseline while allowing gradients to reach PaQ at step 1.
+            init.constant_(self.weight_generator.layers[-1].weight, 0)
+            init.constant_(self.weight_generator.layers[-1].bias, 0)
+            init.constant_(self.residual_gate[-1].weight, 0)
+            init.constant_(self.residual_gate[-1].bias, 0)
 
     def forward(self, topk_memory: torch.Tensor) -> torch.Tensor:
         weights = F.softmax(self.weight_generator(topk_memory), dim=-1)
         patterns = self.patterns.to(device=topk_memory.device, dtype=topk_memory.dtype)
-        return torch.matmul(weights.to(dtype=topk_memory.dtype), patterns)
+        dynamic_query = torch.matmul(weights.to(dtype=topk_memory.dtype), patterns)
+
+        if self.mode == "replace":
+            return dynamic_query
+
+        dynamic_query = self.dynamic_norm(dynamic_query)
+        residual_gate = torch.sigmoid(
+            self.residual_gate(torch.cat([topk_memory, dynamic_query], dim=-1))
+        ).to(dtype=topk_memory.dtype)
+        residual_scale = torch.sigmoid(self.residual_scale_logit).to(
+            dtype=topk_memory.dtype
+        )
+        return topk_memory + residual_scale * residual_gate * dynamic_query
 
 
 class BehaviorAgentQueryAttention(nn.Module):
@@ -990,6 +1051,7 @@ class TransformerDecoder(nn.Module):
         use_sbdh=False,
         sbdh_group_ids=None,
         sbdh_group_weight=0.25,
+        return_query_features=False,
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -1002,6 +1064,7 @@ class TransformerDecoder(nn.Module):
         self.afdr_range = afdr_range
         self.use_bra = use_bra
         self.use_baqa = use_baqa
+        self.return_query_features = bool(return_query_features)
         self.layers = nn.ModuleList(
             [copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)]
             + [copy.deepcopy(decoder_layer_wide) for _ in range(num_layers - self.eval_idx - 1)]
@@ -1110,6 +1173,7 @@ class TransformerDecoder(nn.Module):
         dec_out_logits = []
         dec_out_pred_corners = []
         dec_out_refs = []
+        final_query_features = None
         if not hasattr(self, "project"):
             project = weighting_function(self.reg_max, up, reg_scale)
         else:
@@ -1168,6 +1232,11 @@ class TransformerDecoder(nn.Module):
                 dec_out_bboxes.append(inter_ref_bbox)
                 dec_out_pred_corners.append(pred_corners)
                 dec_out_refs.append(ref_points_initial)
+                # Keep only the final reference when explicitly requested by
+                # a training-only auxiliary loss. Baseline and inference runs
+                # retain their original memory and output behavior.
+                if self.training and self.return_query_features:
+                    final_query_features = cls_head_output
 
                 if not self.training:
                     break
@@ -1181,6 +1250,7 @@ class TransformerDecoder(nn.Module):
             torch.stack(dec_out_logits),
             torch.stack(dec_out_pred_corners),
             torch.stack(dec_out_refs),
+            final_query_features,
             pre_bboxes,
             pre_scores,
         )
@@ -1246,6 +1316,9 @@ class DFINETransformer(nn.Module):
         bra_init=0.01,
         use_paq_query=False,
         paq_num_patterns=50,
+        paq_query_mode="replace",
+        paq_residual_init=0.05,
+        paq_gate_reduction=4,
         use_bcqe=False,
         bcqe_roi_size=3,
         bcqe_expand_ratio=1.25,
@@ -1263,6 +1336,7 @@ class DFINETransformer(nn.Module):
         use_sbdh=False,
         sbdh_group_ids=None,
         sbdh_group_weight=0.25,
+        return_query_features=False,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -1311,6 +1385,7 @@ class DFINETransformer(nn.Module):
         self.use_sbfe = use_sbfe
         self.use_bqfe = use_bqfe
         self.use_paq_query = use_paq_query
+        self.paq_query_mode = paq_query_mode
         self.use_bcqe = use_bcqe
         self.use_paq_bcqs_fusion = use_paq_bcqs_fusion
         assert not (self.use_paq_query and self.use_paq_bcqs_fusion), (
@@ -1330,6 +1405,7 @@ class DFINETransformer(nn.Module):
         )
         self.use_baqa = use_baqa
         self.use_sbdh = use_sbdh
+        self.return_query_features = bool(return_query_features)
 
         if self.enable_bcqs:
             active_score_weight = min(
@@ -1472,6 +1548,7 @@ class DFINETransformer(nn.Module):
             use_sbdh=use_sbdh,
             sbdh_group_ids=sbdh_group_ids,
             sbdh_group_weight=sbdh_group_weight,
+            return_query_features=self.return_query_features,
         )
         # denoising
         self.num_denoising = num_denoising
@@ -1494,6 +1571,9 @@ class DFINETransformer(nn.Module):
                 hidden_dim=hidden_dim,
                 num_patterns=paq_num_patterns,
                 act=activation,
+                mode=paq_query_mode,
+                residual_init=paq_residual_init,
+                gate_reduction=paq_gate_reduction,
             )
         else:
             self.paq_query = None
@@ -1940,7 +2020,15 @@ class DFINETransformer(nn.Module):
         )
 
         # decoder
-        out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_logits = self.decoder(
+        (
+            out_bboxes,
+            out_logits,
+            out_corners,
+            out_refs,
+            out_query_features,
+            pre_bboxes,
+            pre_logits,
+        ) = self.decoder(
             init_ref_contents,
             init_ref_points_unact,
             memory,
@@ -1964,6 +2052,10 @@ class DFINETransformer(nn.Module):
 
             dn_out_corners, out_corners = torch.split(out_corners, dn_meta["dn_num_split"], dim=2)
             dn_out_refs, out_refs = torch.split(out_refs, dn_meta["dn_num_split"], dim=2)
+            if out_query_features is not None:
+                _, out_query_features = torch.split(
+                    out_query_features, dn_meta["dn_num_split"], dim=1
+                )
 
         if self.training:
             out = {
@@ -1974,6 +2066,8 @@ class DFINETransformer(nn.Module):
                 "up": self.up,
                 "reg_scale": self.reg_scale,
             }
+            if out_query_features is not None:
+                out["query_features"] = out_query_features
         else:
             out = {"pred_logits": out_logits[-1], "pred_boxes": out_bboxes[-1]}
 

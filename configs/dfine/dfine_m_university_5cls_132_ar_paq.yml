@@ -1,0 +1,18 @@
+# Adaptive residual PaQ ablation on the five-class D-FINE-M baseline.
+# All dataset and training settings are inherited from the frozen baseline.
+
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+DFINETransformer:
+  use_paq_query: true
+  paq_num_patterns: 50
+  paq_query_mode: adaptive_residual
+  paq_residual_init: 0.05
+  paq_gate_reduction: 4
+
+  # Keep other query variants disabled to isolate adaptive residual PaQ.
+  use_bcqs: false
+  use_iqs: false
+  use_relation_bcqs: false
+  use_paq_bcqs_fusion: false

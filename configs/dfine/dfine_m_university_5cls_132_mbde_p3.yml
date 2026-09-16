@@ -1,0 +1,7 @@
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+HybridEncoder:
+  use_mbde_p3: true
+  mbde_p3_init: 0.0
+  mbde_p3_reduction: 4
