@@ -53,6 +53,7 @@ class DFINECriterion(nn.Module):
         vfl_class_counts=None,
         vfl_class_weight_power=0.25,
         vfl_class_weight_max=2.0,
+        rank_gcl_gamma=2.0,
         use_ccp_loss=False,
         ccp_feature_dim=256,
         ccp_loss_weight=0.05,
@@ -124,6 +125,12 @@ class DFINECriterion(nn.Module):
         # must not become part of checkpoint compatibility. Keeping the buffer
         # non-persistent allows pre-HC-VFL baseline checkpoints to load strictly.
         self.register_buffer("vfl_class_weights", class_weights, persistent=False)
+
+        # Rank-DETR GIoU-aware Classification Loss (GCL).  This is kept as a
+        # separate loss rather than silently changing VFL, so existing configs
+        # and checkpoints preserve their original training behavior.
+        self.rank_gcl_gamma = float(rank_gcl_gamma)
+        assert self.rank_gcl_gamma >= 0
 
         # Class-Confusion-aware Prototype (CCP) loss.  The prototype bank is
         # updated from matched decoder queries with EMA; it is deliberately a
@@ -252,6 +259,62 @@ class DFINECriterion(nn.Module):
         )
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
         return {"loss_vfl": loss}
+
+    def loss_labels_rank_gcl(self, outputs, targets, indices, num_boxes):
+        """Rank-DETR GIoU-aware classification loss.
+
+        Matched queries use normalized GIoU, ``(GIoU + 1) / 2``, as their
+        soft classification target.  Unmatched queries and non-target class
+        channels retain a zero target.  The focal factor ``|target-score|^gamma``
+        teaches classification confidence to follow localization quality and
+        suppresses high-confidence negatives.  Box quality is detached so this
+        loss only optimizes the classification branch.
+        """
+        assert "pred_boxes" in outputs
+        assert "pred_logits" in outputs
+
+        src_logits = outputs["pred_logits"]
+        idx = self._get_src_permutation_idx(indices)
+        src_boxes = outputs["pred_boxes"][idx]
+        target_boxes = torch.cat(
+            [target["boxes"][target_idx] for target, (_, target_idx) in zip(targets, indices)],
+            dim=0,
+        )
+
+        if src_boxes.numel() > 0:
+            matched_giou = torch.diag(
+                generalized_box_iou(
+                    box_cxcywh_to_xyxy(src_boxes),
+                    box_cxcywh_to_xyxy(target_boxes),
+                )
+            ).detach()
+            matched_quality = ((matched_giou + 1.0) * 0.5).clamp_(0.0, 1.0)
+        else:
+            matched_quality = src_logits.new_zeros((0,))
+
+        target_classes_o = torch.cat(
+            [target["labels"][target_idx] for target, (_, target_idx) in zip(targets, indices)]
+        )
+        target_classes = torch.full(
+            src_logits.shape[:2],
+            self.num_classes,
+            dtype=torch.int64,
+            device=src_logits.device,
+        )
+        target_classes[idx] = target_classes_o
+        target = F.one_hot(target_classes, num_classes=self.num_classes + 1)[..., :-1]
+
+        target_score_o = torch.zeros_like(target_classes, dtype=src_logits.dtype)
+        target_score_o[idx] = matched_quality.to(target_score_o.dtype)
+        target_score = target_score_o.unsqueeze(-1) * target
+
+        pred_score = src_logits.sigmoid()
+        focal_weight = (target_score - pred_score).abs().pow(self.rank_gcl_gamma)
+        loss = F.binary_cross_entropy_with_logits(
+            src_logits, target_score, reduction="none"
+        ) * focal_weight
+        loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
+        return {"loss_rank_gcl": loss}
 
     def loss_class_confusion_prototype(self, outputs, targets, indices):
         """Separate matched query features with an EMA class-prototype bank.
@@ -566,6 +629,7 @@ class DFINECriterion(nn.Module):
             "boxes": self.loss_boxes,
             "focal": self.loss_labels_focal,
             "vfl": self.loss_labels_vfl,
+            "rank_gcl": self.loss_labels_rank_gcl,
             "local": self.loss_local,
         }
         assert loss in loss_map, f"do you really want to compute {loss} loss?"
