@@ -54,6 +54,9 @@ class DFINECriterion(nn.Module):
         vfl_class_weight_power=0.25,
         vfl_class_weight_max=2.0,
         rank_gcl_gamma=2.0,
+        align_quality_alpha=0.25,
+        align_gamma=2.0,
+        align_min_quality=0.01,
         use_ccp_loss=False,
         ccp_feature_dim=256,
         ccp_loss_weight=0.05,
@@ -131,6 +134,16 @@ class DFINECriterion(nn.Module):
         # and checkpoints preserve their original training behavior.
         self.rank_gcl_gamma = float(rank_gcl_gamma)
         assert self.rank_gcl_gamma >= 0
+
+        # Align-DETR classification loss.  Keep its hyper-parameters separate
+        # from the baseline focal/VFL settings so this remains an isolated,
+        # configuration-controlled ablation.
+        self.align_quality_alpha = float(align_quality_alpha)
+        self.align_gamma = float(align_gamma)
+        self.align_min_quality = float(align_min_quality)
+        assert 0 <= self.align_quality_alpha <= 1
+        assert self.align_gamma >= 0
+        assert 0 <= self.align_min_quality <= 1
 
         # Class-Confusion-aware Prototype (CCP) loss.  The prototype bank is
         # updated from matched decoder queries with EMA; it is deliberately a
@@ -315,6 +328,63 @@ class DFINECriterion(nn.Module):
         ) * focal_weight
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
         return {"loss_rank_gcl": loss}
+
+    def loss_labels_align(self, outputs, targets, indices, num_boxes):
+        """Align-DETR IoU-aware classification loss (one-to-one ablation).
+
+        The matched-class target combines the current class confidence ``p``
+        and box IoU ``u`` as ``p**alpha * u**(1-alpha)``.  The target is
+        detached, while unmatched class channels retain the focal negative
+        weight ``p**gamma``.  This follows the official Align-DETR loss while
+        deliberately leaving D-FINE matching and regression unchanged.
+        """
+        assert "pred_boxes" in outputs
+        assert "pred_logits" in outputs
+
+        src_logits = outputs["pred_logits"]
+        pred_score = src_logits.sigmoid()
+        idx = self._get_src_permutation_idx(indices)
+        target_classes_o = torch.cat(
+            [target["labels"][target_idx] for target, (_, target_idx) in zip(targets, indices)]
+        )
+
+        positive_weight = torch.zeros_like(src_logits)
+        negative_weight = pred_score.pow(self.align_gamma)
+
+        if target_classes_o.numel() > 0:
+            src_boxes = outputs["pred_boxes"][idx]
+            target_boxes = torch.cat(
+                [
+                    target["boxes"][target_idx]
+                    for target, (_, target_idx) in zip(targets, indices)
+                ],
+                dim=0,
+            )
+            matched_iou = torch.diag(
+                box_iou(
+                    box_cxcywh_to_xyxy(src_boxes),
+                    box_cxcywh_to_xyxy(target_boxes),
+                )[0]
+            ).clamp_(0.0, 1.0)
+
+            positive_idx = (idx[0], idx[1], target_classes_o)
+            matched_score = pred_score[positive_idx]
+            quality_target = (
+                matched_score.pow(self.align_quality_alpha)
+                * matched_iou.pow(1.0 - self.align_quality_alpha)
+            ).clamp_min_(self.align_min_quality).detach()
+
+            positive_weight[positive_idx] = quality_target
+            negative_weight[positive_idx] = 1.0 - quality_target
+
+        # This is the numerically stable equivalent of the official
+        # ``-t*log(p) - w_neg*log(1-p)`` implementation.
+        loss = -(
+            positive_weight * F.logsigmoid(src_logits)
+            + negative_weight * F.logsigmoid(-src_logits)
+        )
+        loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
+        return {"loss_align": loss}
 
     def loss_class_confusion_prototype(self, outputs, targets, indices):
         """Separate matched query features with an EMA class-prototype bank.
@@ -630,6 +700,7 @@ class DFINECriterion(nn.Module):
             "focal": self.loss_labels_focal,
             "vfl": self.loss_labels_vfl,
             "rank_gcl": self.loss_labels_rank_gcl,
+            "align": self.loss_labels_align,
             "local": self.loss_local,
         }
         assert loss in loss_map, f"do you really want to compute {loss} loss?"

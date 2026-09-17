@@ -1,0 +1,15 @@
+# Align-DETR Align Loss classification-only single-variable ablation.
+# Dataset, architecture, matching, regression, augmentation, and inference are
+# inherited unchanged from the D-FINE-M five-class 132-epoch baseline.
+
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+DFINECriterion:
+  # Replace baseline VFL only.  The paper defaults are alpha=0.25 and gamma=2.
+  # Mixed/many-to-one matching is intentionally excluded from this experiment.
+  losses: ['align', 'boxes', 'local']
+  weight_dict: {loss_align: 1, loss_bbox: 5, loss_giou: 2, loss_fgl: 0.15, loss_ddf: 1.5}
+  align_quality_alpha: 0.25
+  align_gamma: 2.0
+  align_min_quality: 0.01
