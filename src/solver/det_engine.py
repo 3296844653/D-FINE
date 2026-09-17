@@ -45,8 +45,8 @@ def summarize_per_category(coco_eval):
         category_id = category["id"]
         category_name = category["name"]
 
-        # precision shape: [IoU, Recall, Category, Area, MaxDets].
-        # Area index 0 is "all" and the last MaxDets entry is normally 100.
+
+
         class_precision = precision[:, :, category_index, 0, -1]
         valid = class_precision[class_precision > -1]
         ap = float(valid.mean()) if valid.size else None

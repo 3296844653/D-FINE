@@ -1,0 +1,10 @@
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+DFINETransformer:
+  return_query_features: true
+
+DFINECriterion:
+  use_opl: true
+  opl_gamma: 0.5
+  opl_loss_weight: 0.1

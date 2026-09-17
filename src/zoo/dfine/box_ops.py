@@ -15,9 +15,9 @@ https://github.com/facebookresearch/detr/blob/main/util/box_ops.py
 """
 
 
-import torch # 进行张量计算
-from torch import Tensor # 主要用于类型标注
-from torchvision.ops.boxes import box_area # 导入 torchvision 已经实现好的边界框面积计算函数 要求输入框格式为： [x_min, y_min, x_max, y_max] 面积计算方式为：area=(xmax−xmin)(ymax−ymin)
+import torch
+from torch import Tensor
+from torchvision.ops.boxes import box_area
 
 """
 边界框的两种表示方法
@@ -35,7 +35,7 @@ from torchvision.ops.boxes import box_area # 导入 torchvision 已经实现好�
     中心点为 (50, 40)
     宽度为 20
     高度为 10
-    
+
 2. xyxy 格式
     [x0, y0, x1, y1]
 也可以写成：
@@ -110,7 +110,7 @@ def box_cxcywh_to_xyxy(x):
     ]
     return torch.stack(b, dim=-1)
 
-# 把边界框从:[x0, y0, x1, y1] 转换成： [cx, cy, w, h] 它与前一个函数正好相反
+
 def box_xyxy_to_cxcywh(x: Tensor) -> Tensor:
     x0, y0, x1, y1 = x.unbind(-1)
     b = [(x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0), (y1 - y0)]
@@ -118,26 +118,26 @@ def box_xyxy_to_cxcywh(x: Tensor) -> Tensor:
 
 
 # modified from torchvision to also return the union
-# 计算两组边界框之间的两两 IoU，同时返回并集面积
+
 def box_iou(boxes1: Tensor, boxes2: Tensor):
     area1 = box_area(boxes1)
     area2 = box_area(boxes2)
 
-    # 计算交集区域的左上角
+
     lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])  # [N,M,2]
-    # 计算交集区域的右下角
+
     rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])  # [N,M,2]
 
     wh = (rb - lt).clamp(min=0)  # [N,M,2]
-    # 计算交集面积
+
     inter = wh[:, :, 0] * wh[:, :, 1]  # [N,M]
-    # 计算并集面积
+
     union = area1[:, None] + area2 - inter
 
     iou = inter / union
     return iou, union
 
-# 广义 IoU 计算
+
 def generalized_box_iou(boxes1, boxes2):
     """
     Generalized IoU from https://giou.stanford.edu/
@@ -149,23 +149,23 @@ def generalized_box_iou(boxes1, boxes2):
     """
     # degenerate boxes gives inf / nan results
     # so do an early check
-    # 检查框是否有效
+
     assert (boxes1[:, 2:] >= boxes1[:, :2]).all()
     assert (boxes2[:, 2:] >= boxes2[:, :2]).all()
     iou, union = box_iou(boxes1, boxes2)
 
-    # 计算最小闭合包围盒的左上角
+
     lt = torch.min(boxes1[:, None, :2], boxes2[:, :2])
-    # 计算最小闭合包围盒的右下角
+
     rb = torch.max(boxes1[:, None, 2:], boxes2[:, 2:])
 
     wh = (rb - lt).clamp(min=0)  # [N,M,2]
-    # 计算最小闭合包围盒的面积
+
     area = wh[:, :, 0] * wh[:, :, 1]
 
     return iou - (area - union) / area
 
-# 将掩码转换为边界框
+
 def masks_to_boxes(masks):
     """Compute the bounding boxes around the provided masks
 
@@ -173,26 +173,26 @@ def masks_to_boxes(masks):
 
     Returns a [N, 4] tensors, with the boxes in xyxy format
     """
-    # 如果掩码为空，返回空张量
+
     if masks.numel() == 0:
         return torch.zeros((0, 4), device=masks.device)
-    
-    # 提取掩码的高和宽
+
+
     h, w = masks.shape[-2:]
 
-    # 创建坐标网格
+
     y = torch.arange(0, h, dtype=torch.float)
     x = torch.arange(0, w, dtype=torch.float)
     y, x = torch.meshgrid(y, x)
-    
-    # 计算掩码的坐标值
+
+
     x_mask = masks * x.unsqueeze(0)
-    # 计算掩码的最大坐标
+
     x_max = x_mask.flatten(1).max(-1)[0]
-    # 计算掩码的最小坐标
+
     x_min = x_mask.masked_fill(~(masks.bool()), 1e8).flatten(1).min(-1)[0]
 
-    # 计算掩码的坐标值
+
     y_mask = masks * y.unsqueeze(0)
     y_max = y_mask.flatten(1).max(-1)[0]
     y_min = y_mask.masked_fill(~(masks.bool()), 1e8).flatten(1).min(-1)[0]

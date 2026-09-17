@@ -31,8 +31,8 @@ optimizer:
   weight_decay: 0.000125
 
 
-# Increase to search for the optimal ema
-epochs: 100 # 72 + 2n
+
+epochs: 100
 train_dataloader:
   dataset:
     transforms:

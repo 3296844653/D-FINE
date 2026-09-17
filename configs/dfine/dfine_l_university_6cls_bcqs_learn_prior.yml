@@ -1,5 +1,5 @@
-# BCQS bounded-prior learnable-weight experiment.
-# Starts from the verified 0.25 BCQS strength and learns within [0.15, 0.35].
+
+
 
 __include__:
   - dfine_l_university_6cls.yml

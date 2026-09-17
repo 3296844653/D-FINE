@@ -1,13 +1,13 @@
-# Rank-DETR GIoU-aware Classification Loss single-variable ablation.
-# The dataset, model architecture, optimizer, augmentation, and inference
-# pipeline are inherited unchanged from the five-class D-FINE-M baseline.
+
+
+
 
 __include__:
   - dfine_m_university_5cls_132.yml
 
 DFINECriterion:
-  # Replace baseline VFL only; box regression and D-FINE local losses remain
-  # unchanged. Rank-DETR uses gamma=2 for the focal modulation term.
+
+
   losses: ['rank_gcl', 'boxes', 'local']
   weight_dict: {loss_rank_gcl: 1, loss_bbox: 5, loss_giou: 2, loss_fgl: 0.15, loss_ddf: 1.5}
   rank_gcl_gamma: 2.0

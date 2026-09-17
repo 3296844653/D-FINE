@@ -129,9 +129,9 @@ class DetSolver(BaseSolver):
 
             # TODO
             for k in test_stats:
-                # Per-category metrics are dictionaries used for logging and
-                # analysis; they are not scalar COCO summaries for checkpoint
-                # selection or TensorBoard curves.
+
+
+
                 if k.endswith("_per_class"):
                     continue
                 if self.writer and dist_utils.is_main_process():

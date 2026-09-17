@@ -1,5 +1,5 @@
-# BCQS + IQS combination experiment.
-# Use after IQS-only validation.
+
+
 
 __include__:
   - dfine_l_university_6cls.yml
@@ -7,11 +7,11 @@ __include__:
 output_dir: ./output/dfine_l_university_6cls_bcqs_iqs
 
 DFINETransformer:
-  # Current best context branch setting.
+
   use_bcqs: True
   bcqs_kernel_size: 3
   bcqs_score_weight: 0.25
 
-  # Conservative quality branch setting for combination.
+
   use_iqs: True
   iqs_score_weight: 0.10

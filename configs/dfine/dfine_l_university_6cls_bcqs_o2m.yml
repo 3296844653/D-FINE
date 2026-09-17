@@ -1,5 +1,5 @@
-# BCQS + O2M auxiliary matching experiment.
-# Use this after O2M-only validation to test complementarity with the current best BCQS.
+
+
 
 __include__:
   - dfine_l_university_6cls.yml

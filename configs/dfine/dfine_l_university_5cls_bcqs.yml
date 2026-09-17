@@ -1,15 +1,15 @@
-# BCQS-only ablation on the five-class D-FINE-L baseline.
-# All dataset and training settings are inherited from the baseline config.
+
+
 
 __include__:
   - dfine_l_university_5cls.yml
 
 
 DFINETransformer:
-  # Enable behavior-context scoring before encoder top-k query selection.
+
   use_bcqs: True
   bcqs_kernel_size: 3
   bcqs_score_weight: 0.25
 
-  # Keep PAQ disabled so this run measures BCQS alone.
+
   use_paq_query: False

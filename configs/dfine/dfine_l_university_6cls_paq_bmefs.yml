@@ -1,9 +1,9 @@
-# PaQ + BMEFS combination experiment config.
-# Keeps the original baseline, PaQ-only, and BMEFS-only configs unchanged.
-#
-# BMEFS enhances HybridEncoder multi-scale features.
-# Strict PaQ generates decoder initial query content from latent patterns.
-# The two modules are placed at different stages for combination ablation.
+
+
+
+
+
+
 
 __include__:
   - dfine_l_university_6cls.yml
@@ -12,18 +12,18 @@ output_dir: ./output/dfine_l_university_6cls_paq_bmefs
 
 
 HybridEncoder:
-  # BMEFS: behavior-aware multiplexed expanded feature set.
+
   use_bmefs: True
-  # BMEFS weight: same as the verified BMEFS-only setting.
+
   bmefs_init: 0.01
   bmefs_reduction: 4
   bmefs_cross_scale: True
 
 
 DFINETransformer:
-  # Strict PaQ: pattern-based dynamic query generation.
+
   use_paq_query: True
   paq_num_patterns: 50
 
-  # Keep BCQS disabled so this run measures PaQ + BMEFS without query-selection interference.
+
   use_bcqs: False

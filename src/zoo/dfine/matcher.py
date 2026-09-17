@@ -166,8 +166,8 @@ class HungarianMatcher(nn.Module):
                 matches_per_image[image_idx].append((row_ind, col_ind))
 
                 if row_ind.numel() > 0:
-                    # O2M should add more positive queries per target while avoiding
-                    # assigning the exact same prediction again in later rounds.
+
+
                     cost[row_ind, :] = 1e6
 
         return [

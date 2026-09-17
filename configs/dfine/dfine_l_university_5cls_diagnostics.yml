@@ -1,4 +1,4 @@
-# Export diagnostic artifacts for a five-class D-FINE-L checkpoint.
+
 
 __include__:
   - dfine_l_university_5cls.yml

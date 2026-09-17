@@ -7,14 +7,14 @@ __include__:
 
 
 output_dir: ./output/dfine_l_university_6cls_hf_p2
-epochs: 80                  
-num_classes: 6               
+epochs: 80
+num_classes: 6
 remap_mscoco_category: False
 
 
-# HF-D-FINE style P2 high-resolution feature injection.
-# Keep P2/P3/P4/P5 from HGNetv2, inject P2 inside the encoder,
-# and still return P3/P4/P5 to the D-FINE decoder for stable cost.
+
+
+
 HGNetv2:
   name: 'B4'
   return_idx: [0, 1, 2, 3]
@@ -27,7 +27,7 @@ HybridEncoder:
   feat_strides: [4, 8, 16, 32]
   hidden_dim: 256
 
-  # Follow HF-D-FINE: keep self-attention on the deepest semantic level.
+
   use_encoder_idx: [3]
   num_encoder_layers: 1
   nhead: 8
@@ -49,7 +49,7 @@ train_dataloader:
     ann_file: dataset/0.671k_university_yolo_Dataset/annotations/instances_train.json
 
   collate_fn:
-    stop_epoch: 72           
+    stop_epoch: 72
 
 val_dataloader:
   total_batch_size: 8

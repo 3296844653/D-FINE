@@ -254,8 +254,8 @@ class Validator:
         path_to_save.mkdir(parents=True, exist_ok=True)
         prefix = f"{filename_prefix}_" if filename_prefix else ""
 
-        # Threshold sweeps below recompute validator state. Preserve the matrix
-        # and per-class counts produced at the requested diagnostic threshold.
+
+
         original_conf_matrix = self.conf_matrix.copy() if self.conf_matrix is not None else None
         original_metrics_per_class = self.metrics_per_class
         original_class_to_idx = self.class_to_idx

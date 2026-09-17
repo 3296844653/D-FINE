@@ -1,5 +1,5 @@
-# Decoupled BCQS-PaQ serial fusion experiment.
-# BCQS re-ranks top-k candidates; PaQ refines the selected encoder queries.
+
+
 
 __include__:
   - dfine_l_university_6cls.yml
@@ -7,19 +7,19 @@ __include__:
 output_dir: ./output/dfine_l_university_6cls_paq_bcqs_m150_gate003
 
 DFINETransformer:
-  # Disable standalone modules so this run measures the unified query module only.
+
   use_paq_query: False
   use_bcqs: False
 
-  # Decoupled serial fusion: BCQS only re-ranks top-k candidates; PaQ keeps
-  # exactly the standalone residual-query formulation.
+
+
   use_paq_bcqs_fusion: True
   paq_bcqs_num_patterns: 150
   paq_bcqs_kernel_size: 3
-  # First reproduce the independently verified module strengths.  Adaptive
-  # weighting should only be tested after this fixed combination is stable.
+
+
   bcqs_learn_score_weight: False
   paq_bcqs_score_weight: 0.25
-  # Original PaQ learnable gate parameter initialization.  The actual initial
-  # residual coefficient is sigmoid(0.03) ~= 0.5075.
+
+
   paq_bcqs_gate_init: 0.03

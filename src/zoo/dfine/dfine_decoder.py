@@ -99,9 +99,9 @@ class PaQDynamicQuery(nn.Module):
     def _reset_parameters(self):
         init.xavier_uniform_(self.patterns)
         if self.mode == "adaptive_residual":
-            # Start with uniform pattern mixing and a neutral per-query gate.
-            # The configured small global scale keeps the enabled model close
-            # to baseline while allowing gradients to reach PaQ at step 1.
+
+
+
             init.constant_(self.weight_generator.layers[-1].weight, 0)
             init.constant_(self.weight_generator.layers[-1].bias, 0)
             init.constant_(self.residual_gate[-1].weight, 0)
@@ -210,7 +210,7 @@ class SiblingBehaviorDecoupledHead(nn.Module):
         return self.fine_head.bias
 
     def _reset_group_branch(self):
-        # Start from the original fine classification head and learn group guidance gradually.
+
         init.constant_(self.group_head.weight, 0)
         init.constant_(self.group_head.bias, 0)
 
@@ -261,7 +261,7 @@ class BehaviorContextQueryScorer(nn.Module):
                 batch_size, channels, height, width
             )
 
-            # BCQS: use lightweight local context to highlight behavior-discriminative regions.
+
             local_context = self.blocks[level](level_feature).flatten(2).transpose(1, 2)
             context_gate = self.gate(torch.cat([level_memory, local_context], dim=-1))
             context_features.append(level_memory + context_gate * local_context)
@@ -330,13 +330,13 @@ class BehaviorContextQueryEnhancer(nn.Module):
             batch_size, num_queries, 1, 1, 2
         )
         sample_grid = centers + unit_grid * sizes * scale
-        # grid_sample expects coordinates in [-1, 1]. Out-of-image context is
-        # handled by border padding instead of introducing artificial zeros.
+
+
         sample_grid = sample_grid.mul(2.0).sub(1.0)
 
-        # Pack all query grids into the output-height dimension. This samples
-        # every proposal in one call without repeating the full feature map Q
-        # times, which would otherwise be prohibitively memory intensive.
+
+
+
         packed_grid = sample_grid.reshape(
             batch_size, num_queries * self.roi_size, self.roi_size, 2
         )
@@ -400,8 +400,8 @@ class BCQSGuidedPaQDynamicQuery(nn.Module):
         init.constant_(self.weight_generator.layers[-1].bias, 0)
 
     def forward(self, content, guide):
-        # ``guide`` is the BCQS-selected encoder query.  It is detached by the
-        # caller, exactly as in the verified standalone residual PaQ path.
+
+
         weights = F.softmax(self.weight_generator(guide), dim=-1)
         patterns = self.patterns.to(device=content.device, dtype=content.dtype)
         dynamic_content = torch.matmul(weights.to(dtype=content.dtype), patterns)
@@ -1216,7 +1216,7 @@ class TransformerDecoder(nn.Module):
             pred_corners = bbox_head[i](head_output + output_detach) + pred_corners_undetach
             distance = integral(pred_corners, project)
             if self.use_afdr:
-                # AFDR: adapt each query's four edge offsets while starting as exact FDR.
+
                 afdr_scale = 1.0 + self.afdr_range * torch.tanh(self.afdr_heads[i](head_output))
                 distance = distance * afdr_scale
             inter_ref_bbox = distance2bbox(ref_points_initial, distance, reg_scale)
@@ -1232,9 +1232,9 @@ class TransformerDecoder(nn.Module):
                 dec_out_bboxes.append(inter_ref_bbox)
                 dec_out_pred_corners.append(pred_corners)
                 dec_out_refs.append(ref_points_initial)
-                # Keep only the final reference when explicitly requested by
-                # a training-only auxiliary loss. Baseline and inference runs
-                # retain their original memory and output behavior.
+
+
+
                 if self.training and self.return_query_features:
                     final_query_features = cls_head_output
 
@@ -1394,8 +1394,8 @@ class DFINETransformer(nn.Module):
         assert not (self.use_bcqs and self.use_paq_bcqs_fusion), (
             "use_bcqs is already included in use_paq_bcqs_fusion"
         )
-        # The unified module must retain the verified BCQS top-k re-scoring
-        # path, not merely consume context after baseline query selection.
+
+
         self.enable_bcqs = self.use_bcqs or self.use_paq_bcqs_fusion
         self.active_bcqs_kernel_size = (
             paq_bcqs_kernel_size if self.use_paq_bcqs_fusion else bcqs_kernel_size
@@ -1465,7 +1465,7 @@ class DFINETransformer(nn.Module):
         # backbone feature projection
         self._build_input_proj_layer(feat_channels)
 
-        # SBFE: optional feature enhancement before flattening multi-scale memory.
+
         if self.use_sbfe:
             self.sbfe = StudentBehaviorFeatureEnhancer(
                 hidden_dim,
@@ -1477,7 +1477,7 @@ class DFINETransformer(nn.Module):
         else:
             self.sbfe = None
 
-        # BQFE: optional query-candidate feature enhancement after encoder projection.
+
         if self.use_bqfe:
             self.bqfe = BehaviorQueryFeatureEnhancer(
                 hidden_dim,
@@ -1489,7 +1489,7 @@ class DFINETransformer(nn.Module):
         else:
             self.bqfe = None
 
-        # BCEA: optional local behavior-context enhancement for encoder memory.
+
         if self.use_bcea:
             self.bcea = BehaviorContextEnhancementAttention(
                 hidden_dim,
@@ -1620,12 +1620,12 @@ class DFINETransformer(nn.Module):
         else:
             self.enc_score_head = nn.Linear(hidden_dim, num_classes)
 
-        # BCQS: optional context branch for behavior-aware encoder query scoring.
+
         if self.enable_bcqs:
             self.bcqs = BehaviorContextQueryScorer(
                 hidden_dim, num_levels, self.active_bcqs_kernel_size
             )
-            # BCQS: use one objectness-like score for query selection only, avoiding class-logit noise.
+
             self.bcqs_score_head = nn.Linear(hidden_dim, 1)
             self.bcqs_score_gate = MLP(2 * hidden_dim, hidden_dim, 1, 2, act=activation)
         else:
@@ -1633,13 +1633,13 @@ class DFINETransformer(nn.Module):
             self.bcqs_score_head = None
             self.bcqs_score_gate = None
 
-        # IQS: class-agnostic localization-quality score for encoder query ranking.
+
         if self.use_iqs:
             self.iqs_score_head = nn.Linear(hidden_dim, 1)
         else:
             self.iqs_score_head = None
 
-        # RA-BCQS: relation-aware behavior-context branch for encoder query scoring.
+
         if self.use_relation_bcqs:
             self.relation_bcqs = RelationAwareBehaviorContextQueryScorer(
                 hidden_dim, num_levels, relation_bcqs_kernel_size
@@ -1706,24 +1706,24 @@ class DFINETransformer(nn.Module):
         bias = bias_init_with_prob(0.01)
         init.constant_(self.enc_score_head.bias, bias)
         if self.enable_bcqs:
-            # BCQS: start as a no-op so the first epoch is comparable to the baseline query scorer.
+
             if self.bcqs_score_weight_mode != "learn_zero":
                 init.constant_(self.bcqs_score_head.weight, 0)
                 init.constant_(self.bcqs_score_head.bias, 0)
             init.constant_(self.bcqs_score_gate.layers[-1].weight, 0)
             if self.bcqs_score_weight_mode in ("learn_zero", "learn_prior"):
-                # Local gate starts at 1.0 after the 2*sigmoid transform; the global scalar
-                # chooses zero-start or bounded-prior BCQS strength.
+
+
                 init.constant_(self.bcqs_score_gate.layers[-1].bias, 0)
             else:
                 init.constant_(self.bcqs_score_gate.layers[-1].bias, self.bcqs_score_gate_init)
         if self.use_iqs:
-            # IQS starts as an exact no-op; existing encoder auxiliary VFL then
-            # teaches the scalar branch a quality/objectness correction.
+
+
             init.constant_(self.iqs_score_head.weight, 0)
             init.constant_(self.iqs_score_head.bias, 0)
         if self.use_relation_bcqs:
-            # RA-BCQS: start as a no-op and learn relation-aware candidate re-scoring.
+
             init.constant_(self.relation_bcqs_score_head.weight, 0)
             init.constant_(self.relation_bcqs_score_head.bias, 0)
         init.constant_(self.enc_bbox_head.layers[-1].weight, 0)
@@ -1870,12 +1870,12 @@ class DFINETransformer(nn.Module):
         enc_outputs_logits: torch.Tensor = self.enc_score_head(output_memory)
         bcqs_memory = None
         if self.enable_bcqs:
-            # BCQS: re-score encoder candidates with local behavior context before top-k selection.
-            # The single-channel score is broadcast to all classes, so it affects only candidate
-            # quality ranking and keeps the original classification score structure unchanged.
-            # Keep exactly the same BCQS optimization path in standalone and
-            # fusion modes.  The fusion module does not consume bcqs_memory, so
-            # decoder gradients cannot interfere with this ranking branch.
+
+
+
+
+
+
             bcqs_memory = self.bcqs(output_memory, spatial_shapes)
             bcqs_logits = self.bcqs_score_head(bcqs_memory)
             bcqs_score_gate = torch.sigmoid(
@@ -1897,7 +1897,7 @@ class DFINETransformer(nn.Module):
                 )
             enc_outputs_logits = enc_outputs_logits + bcqs_score_gate * bcqs_logits
         if self.use_relation_bcqs:
-            # RA-BCQS: add local-neighbor, scene-level, and spatial relation cues before top-k.
+
             relation_bcqs_memory = self.relation_bcqs(output_memory, spatial_shapes)
             relation_bcqs_logits = self.relation_bcqs_score_head(relation_bcqs_memory)
             enc_outputs_logits = (
@@ -1905,9 +1905,9 @@ class DFINETransformer(nn.Module):
                 + self.relation_bcqs_score_weight * relation_bcqs_logits
             )
         if self.use_iqs:
-            # IQS: add a class-agnostic quality prior before top-k query selection.
-            # The one-channel score is broadcast across classes, preserving the
-            # class-logit structure while biasing candidates toward high-quality boxes.
+
+
+
             iqs_logits = self.iqs_score_head(output_memory)
             enc_outputs_logits = enc_outputs_logits + self.iqs_score_weight * iqs_logits
 
@@ -1932,17 +1932,17 @@ class DFINETransformer(nn.Module):
             content = enc_topk_memory.detach()
 
         if self.use_paq_bcqs_fusion:
-            # BCQS determines which queries enter the decoder.  PaQ keeps its
-            # verified standalone residual form and uses only the selected
-            # encoder query as its detached guide.
+
+
+
             content = self.paq_bcqs_query(content, enc_topk_memory.detach())
         elif self.use_paq_query:
             content = self.paq_query(enc_topk_memory.detach())
 
         if self.use_bcqe:
-            # Use the same detached proposal geometry as the decoder reference
-            # points, while allowing the context branch to learn from encoder
-            # features. BCQE never changes which candidates enter the decoder.
+
+
+
             content = self.bcqe(
                 content,
                 output_memory,

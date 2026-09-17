@@ -1,15 +1,15 @@
-
-
-
-
 __include__:
   - dfine_m_university_5cls_132.yml
 
 DFINECriterion:
-
-
   losses: ['align', 'boxes', 'local']
-  weight_dict: {loss_align: 1, loss_bbox: 5, loss_giou: 2, loss_fgl: 0.15, loss_ddf: 1.5}
-  align_quality_alpha: 0.25
+  weight_dict:
+    loss_align: 1
+    loss_bbox: 5
+    loss_giou: 2
+    loss_fgl: 0.15
+    loss_ddf: 1.5
+
+  align_quality_alpha: 0.10
   align_gamma: 2.0
   align_min_quality: 0.01

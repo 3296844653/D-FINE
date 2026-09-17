@@ -1,12 +1,11 @@
 
 
 
-
 __include__:
   - dfine_m_university_5cls_132.yml
 
 DFINECriterion:
   use_class_aware_vfl: true
   vfl_class_counts: [6216, 2365, 5506, 762, 807]
-  vfl_class_weight_power: 0.25
+  vfl_class_weight_power: 0.15
   vfl_class_weight_max: 2.0

@@ -1,0 +1,14 @@
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+DFINECriterion:
+  losses: ['eqlv2_vfl', 'boxes', 'local']
+  weight_dict:
+    loss_eqlv2_vfl: 1
+    loss_bbox: 5
+    loss_giou: 2
+    loss_fgl: 0.15
+    loss_ddf: 1.5
+  eqlv2_gamma: 12.0
+  eqlv2_mu: 0.8
+  eqlv2_alpha: 4.0

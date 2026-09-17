@@ -25,10 +25,10 @@ class DFINECriterion(nn.Module):
     """This class computes the loss for D-FINE."""
 
     __share__ = [
-        "num_classes", 
+        "num_classes",
     ]
     __inject__ = [
-        "matcher", 
+        "matcher",
     ]
 
     def __init__(
@@ -57,6 +57,12 @@ class DFINECriterion(nn.Module):
         align_quality_alpha=0.25,
         align_gamma=2.0,
         align_min_quality=0.01,
+        eqlv2_gamma=12.0,
+        eqlv2_mu=0.8,
+        eqlv2_alpha=4.0,
+        use_opl=False,
+        opl_gamma=0.5,
+        opl_loss_weight=0.1,
         use_ccp_loss=False,
         ccp_feature_dim=256,
         ccp_loss_weight=0.05,
@@ -124,20 +130,20 @@ class DFINECriterion(nn.Module):
             class_weights = class_weights.clamp(max=float(vfl_class_weight_max))
         else:
             class_weights = torch.ones(num_classes, dtype=torch.float32)
-        # These weights are deterministically derived from the YAML config and
-        # must not become part of checkpoint compatibility. Keeping the buffer
-        # non-persistent allows pre-HC-VFL baseline checkpoints to load strictly.
+
+
+
         self.register_buffer("vfl_class_weights", class_weights, persistent=False)
 
-        # Rank-DETR GIoU-aware Classification Loss (GCL).  This is kept as a
-        # separate loss rather than silently changing VFL, so existing configs
-        # and checkpoints preserve their original training behavior.
+
+
+
         self.rank_gcl_gamma = float(rank_gcl_gamma)
         assert self.rank_gcl_gamma >= 0
 
-        # Align-DETR classification loss.  Keep its hyper-parameters separate
-        # from the baseline focal/VFL settings so this remains an isolated,
-        # configuration-controlled ablation.
+
+
+
         self.align_quality_alpha = float(align_quality_alpha)
         self.align_gamma = float(align_gamma)
         self.align_min_quality = float(align_min_quality)
@@ -145,9 +151,25 @@ class DFINECriterion(nn.Module):
         assert self.align_gamma >= 0
         assert 0 <= self.align_min_quality <= 1
 
-        # Class-Confusion-aware Prototype (CCP) loss.  The prototype bank is
-        # updated from matched decoder queries with EMA; it is deliberately a
-        # non-persistent buffer so old checkpoints remain strictly loadable.
+        self.eqlv2_gamma = float(eqlv2_gamma)
+        self.eqlv2_mu = float(eqlv2_mu)
+        self.eqlv2_alpha = float(eqlv2_alpha)
+        assert self.eqlv2_gamma > 0
+        assert 0 <= self.eqlv2_mu <= 1
+        assert self.eqlv2_alpha >= 0
+        self.register_buffer("eqlv2_pos_grad", torch.zeros(num_classes))
+        self.register_buffer("eqlv2_neg_grad", torch.zeros(num_classes))
+        self.register_buffer("eqlv2_pos_neg", torch.full((num_classes,), 100.0))
+
+        self.use_opl = bool(use_opl)
+        self.opl_gamma = float(opl_gamma)
+        self.opl_loss_weight = float(opl_loss_weight)
+        assert self.opl_gamma >= 0
+        assert self.opl_loss_weight >= 0
+
+
+
+
         self.use_ccp_loss = bool(use_ccp_loss)
         self.ccp_feature_dim = int(ccp_feature_dim)
         self.ccp_loss_weight = float(ccp_loss_weight)
@@ -170,10 +192,10 @@ class DFINECriterion(nn.Module):
             persistent=False,
         )
 
-        # Localization-Aware Hard Negative Suppression (LA-HNS) is a
-        # training-only auxiliary objective for unmatched final-layer queries.
-        # It focuses on predictions that are confident despite having poor
-        # overlap with every ground-truth box.
+
+
+
+
         self.use_lahns = bool(use_lahns)
         self.lahns_loss_weight = float(lahns_loss_weight)
         self.lahns_score_threshold = float(lahns_score_threshold)
@@ -196,8 +218,8 @@ class DFINECriterion(nn.Module):
         unexpected_keys,
         error_msgs,
     ):
-        # Early HC-VFL checkpoints may contain the formerly persistent buffer.
-        # Discard it and always rebuild the weights from the active YAML config.
+
+
         state_dict.pop(prefix + "vfl_class_weights", None)
         state_dict.pop(prefix + "ccp_prototypes", None)
         state_dict.pop(prefix + "ccp_prototype_counts", None)
@@ -213,34 +235,34 @@ class DFINECriterion(nn.Module):
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
         assert "pred_logits" in outputs
-        src_logits = outputs["pred_logits"] # 取分类预测
-        idx = self._get_src_permutation_idx(indices) # 把每张图片单独的 matcher 下标转成可直接索引 [B,Q,...] 张量的形式
-        target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)]) # 逐张图片取出与预测成功匹配的 GT 类别，然后拼接
+        src_logits = outputs["pred_logits"]
+        idx = self._get_src_permutation_idx(indices)
+        target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
         target_classes = torch.full(
             src_logits.shape[:2], self.num_classes, dtype=torch.int64, device=src_logits.device
-        ) # 创建 [B,Q] 的类别标签矩阵，初始值全部为 num_classes 这里的 num_classes 充当临时背景类编号
-        target_classes[idx] = target_classes_o # 把匹配成功 query 的背景编号替换为真实类别 未匹配 query 仍然是背景类
-        target = F.one_hot(target_classes, num_classes=self.num_classes + 1)[..., :-1] # 前景 query：对应类别位置为 1 背景 query：所有类别位置均为 0
+        )
+        target_classes[idx] = target_classes_o
+        target = F.one_hot(target_classes, num_classes=self.num_classes + 1)[..., :-1]
         loss = torchvision.ops.sigmoid_focal_loss(
             src_logits, target, self.alpha, self.gamma, reduction="none"
-        ) # 容易分类的样本权重较低 困难样本权重较高
+        )
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
 
         return {"loss_focal": loss}
 
-    # 正样本的监督分数是预测框和 GT 的 IoU
+
     def loss_labels_vfl(self, outputs, targets, indices, num_boxes, values=None):
         assert "pred_boxes" in outputs
-        idx = self._get_src_permutation_idx(indices) # 生成匹配预测的批量索引
-        if values is None: # 如果调用者没有预先提供 IoU，就在这里计算
-            src_boxes = outputs["pred_boxes"][idx] # 取出匹配成功的预测框
-            target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0) # 取出一一对应的 GT 框
+        idx = self._get_src_permutation_idx(indices)
+        if values is None:
+            src_boxes = outputs["pred_boxes"][idx]
+            target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
             ious, _ = box_iou(box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes))
             ious = torch.diag(ious).detach()
         else:
             ious = values
 
-        src_logits = outputs["pred_logits"] 
+        src_logits = outputs["pred_logits"]
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
         target_classes = torch.full(
             src_logits.shape[:2], self.num_classes, dtype=torch.int64, device=src_logits.device
@@ -248,26 +270,26 @@ class DFINECriterion(nn.Module):
         target_classes[idx] = target_classes_o
         target = F.one_hot(target_classes, num_classes=self.num_classes + 1)[..., :-1]
 
-        target_score_o = torch.zeros_like(target_classes, dtype=src_logits.dtype) # 创建 [B,Q] 的质量分数矩阵，初始为 0
-        target_score_o[idx] = ious.to(target_score_o.dtype) # 匹配 query 的质量分数设置为 IoU
+        target_score_o = torch.zeros_like(target_classes, dtype=src_logits.dtype)
+        target_score_o[idx] = ious.to(target_score_o.dtype)
         target_score = target_score_o.unsqueeze(-1) * target
 
-        pred_score = F.sigmoid(src_logits).detach() # 把 logits 转为预测概率，但切断梯度。这里只把预测概率用于计算权重
+        pred_score = F.sigmoid(src_logits).detach()
         negative_weight = self.alpha * pred_score.pow(self.gamma) * (1 - target)
         if self.use_class_aware_vfl and src_logits.shape[-1] == self.vfl_class_weights.numel():
-            # Only reweight matched positive targets. Reweighting every channel
-            # would also amplify the many negatives of rare classes and can
-            # increase false positives in dense classroom scenes.
+
+
+
             positive_class_weight = self.vfl_class_weights.to(
                 device=src_logits.device, dtype=src_logits.dtype
             ).view(1, 1, -1)
             positive_weight = target_score * positive_class_weight
         else:
-            # Also covers a possible class-agnostic encoder auxiliary head.
+
             positive_weight = target_score
         weight = negative_weight + positive_weight
 
-        loss = F.binary_cross_entropy_with_logits( # 使用软标签 target_score 计算带权 BCE
+        loss = F.binary_cross_entropy_with_logits(
             src_logits, target_score, weight=weight, reduction="none"
         )
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
@@ -329,6 +351,79 @@ class DFINECriterion(nn.Module):
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
         return {"loss_rank_gcl": loss}
 
+    def loss_labels_eqlv2_vfl(self, outputs, targets, indices, num_boxes, values=None):
+        assert "pred_boxes" in outputs
+        assert "pred_logits" in outputs
+
+        src_logits = outputs["pred_logits"]
+        idx = self._get_src_permutation_idx(indices)
+        if values is None:
+            src_boxes = outputs["pred_boxes"][idx]
+            target_boxes = torch.cat(
+                [target["boxes"][target_idx] for target, (_, target_idx) in zip(targets, indices)],
+                dim=0,
+            )
+            if src_boxes.numel() > 0:
+                ious = torch.diag(
+                    box_iou(
+                        box_cxcywh_to_xyxy(src_boxes),
+                        box_cxcywh_to_xyxy(target_boxes),
+                    )[0]
+                ).detach()
+            else:
+                ious = src_logits.new_zeros((0,))
+        else:
+            ious = values
+
+        target_classes_o = torch.cat(
+            [target["labels"][target_idx] for target, (_, target_idx) in zip(targets, indices)]
+        )
+        target_classes = torch.full(
+            src_logits.shape[:2],
+            self.num_classes,
+            dtype=torch.int64,
+            device=src_logits.device,
+        )
+        target_classes[idx] = target_classes_o
+        target = F.one_hot(target_classes, num_classes=self.num_classes + 1)[..., :-1]
+
+        target_score_o = torch.zeros_like(target_classes, dtype=src_logits.dtype)
+        target_score_o[idx] = ious.to(target_score_o.dtype)
+        target_score = target_score_o.unsqueeze(-1) * target
+
+        pred_score = src_logits.sigmoid().detach()
+        vfl_weight = self.alpha * pred_score.pow(self.gamma) * (1 - target) + target_score
+
+        neg_weight = torch.sigmoid(
+            self.eqlv2_gamma * (self.eqlv2_pos_neg - self.eqlv2_mu)
+        ).to(device=src_logits.device, dtype=src_logits.dtype)
+        pos_weight = 1.0 + self.eqlv2_alpha * (1.0 - neg_weight)
+        eqlv2_weight = (
+            pos_weight.view(1, 1, -1) * target
+            + neg_weight.view(1, 1, -1) * (1 - target)
+        )
+        weight = vfl_weight * eqlv2_weight
+
+        loss = F.binary_cross_entropy_with_logits(
+            src_logits, target_score, weight=weight, reduction="none"
+        )
+        loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
+
+        with torch.no_grad():
+            grad = (pred_score - target_score).abs() * weight
+            pos_grad = (grad * target).sum(dim=(0, 1)).float()
+            neg_grad = (grad * (1 - target)).sum(dim=(0, 1)).float()
+            if is_dist_available_and_initialized():
+                torch.distributed.all_reduce(pos_grad)
+                torch.distributed.all_reduce(neg_grad)
+            self.eqlv2_pos_grad.add_(pos_grad)
+            self.eqlv2_neg_grad.add_(neg_grad)
+            self.eqlv2_pos_neg.copy_(
+                self.eqlv2_pos_grad / self.eqlv2_neg_grad.clamp_min(1e-10)
+            )
+
+        return {"loss_eqlv2_vfl": loss}
+
     def loss_labels_align(self, outputs, targets, indices, num_boxes):
         """Align-DETR IoU-aware classification loss (one-to-one ablation).
 
@@ -372,13 +467,13 @@ class DFINECriterion(nn.Module):
             quality_target = (
                 matched_score.pow(self.align_quality_alpha)
                 * matched_iou.pow(1.0 - self.align_quality_alpha)
-            ).clamp_min_(self.align_min_quality).detach()
+            ).clamp_min_(self.align_min_quality).detach().to(dtype=src_logits.dtype)
 
             positive_weight[positive_idx] = quality_target
             negative_weight[positive_idx] = 1.0 - quality_target
 
-        # This is the numerically stable equivalent of the official
-        # ``-t*log(p) - w_neg*log(1-p)`` implementation.
+
+
         loss = -(
             positive_weight * F.logsigmoid(src_logits)
             + negative_weight * F.logsigmoid(-src_logits)
@@ -410,7 +505,7 @@ class DFINECriterion(nn.Module):
                 f"CCP expected feature dim {self.ccp_feature_dim}, got {features.shape[-1]}"
             )
 
-        # Compute in fp32 even under AMP; gradients still flow to decoder features.
+
         features = F.normalize(features.float(), dim=-1)
         with torch.no_grad():
             class_sums = features.detach().new_zeros(
@@ -429,8 +524,8 @@ class DFINECriterion(nn.Module):
             batch_prototypes = class_sums / class_counts.clamp_min(1).unsqueeze(-1)
             batch_prototypes = F.normalize(batch_prototypes, dim=-1)
 
-            # New classes use their current batch center immediately.  Seen
-            # classes use the history available before this optimizer step.
+
+
             prototypes = self.ccp_prototypes.detach().clone().to(features)
             seen = self.ccp_prototype_counts > 0
             new_classes = present & ~seen
@@ -466,6 +561,38 @@ class DFINECriterion(nn.Module):
             self.ccp_prototype_counts.add_(class_counts.to(self.ccp_prototype_counts))
 
         return loss * self.ccp_loss_weight
+
+    def loss_orthogonal_projection(self, outputs, targets, indices):
+        query_features = outputs.get("query_features")
+        if query_features is None:
+            return None
+
+        idx = self._get_src_permutation_idx(indices)
+        features = query_features[idx]
+        labels = torch.cat(
+            [target["labels"][target_idx] for target, (_, target_idx) in zip(targets, indices)]
+        )
+        if features.shape[0] < 2:
+            return query_features.sum() * 0.0
+
+        features = F.normalize(features.float(), p=2, dim=1)
+        labels = labels.view(-1, 1)
+        same_class = labels.eq(labels.transpose(0, 1))
+        identity = torch.eye(
+            same_class.shape[0], device=same_class.device, dtype=torch.bool
+        )
+        positive_mask = same_class.masked_fill(identity, False).to(features.dtype)
+        negative_mask = (~same_class).to(features.dtype)
+        similarities = features @ features.transpose(0, 1)
+
+        positive_mean = (positive_mask * similarities).sum() / (
+            positive_mask.sum() + 1e-6
+        )
+        negative_mean = (negative_mask * similarities).sum() / (
+            negative_mask.sum() + 1e-6
+        )
+        loss = (1.0 - positive_mean) + self.opl_gamma * negative_mean
+        return loss * self.opl_loss_weight
 
     def loss_localization_aware_hard_negatives(self, outputs, targets, indices):
         """Suppress confident unmatched queries in proportion to localization error.
@@ -531,7 +658,7 @@ class DFINECriterion(nn.Module):
             return total_loss
         return total_loss * (self.lahns_loss_weight / selected_count)
 
-    # 边框损失
+
     def loss_boxes(self, outputs, targets, indices, num_boxes, boxes_weight=None):
         """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
         targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
@@ -543,7 +670,7 @@ class DFINECriterion(nn.Module):
         target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
         losses = {}
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction="none")
-        losses["loss_bbox"] = loss_bbox.sum() / num_boxes # 所有坐标误差求和，再除以归一化框数
+        losses["loss_bbox"] = loss_bbox.sum() / num_boxes
 
         loss_giou = 1 - torch.diag(
             generalized_box_iou(box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes))
@@ -562,7 +689,7 @@ class DFINECriterion(nn.Module):
             idx = self._get_src_permutation_idx(indices)
             target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
 
-            pred_corners = outputs["pred_corners"][idx].reshape(-1, (self.reg_max + 1)) # 每个框拆成左、上、右、下四条边，每条边预测一个离散概率分布
+            pred_corners = outputs["pred_corners"][idx].reshape(-1, (self.reg_max + 1))
             ref_points = outputs["ref_points"][idx].detach()
             with torch.no_grad():
                 if self.fgl_targets_dn is None and "is_dn" in outputs:
@@ -699,6 +826,7 @@ class DFINECriterion(nn.Module):
             "boxes": self.loss_boxes,
             "focal": self.loss_labels_focal,
             "vfl": self.loss_labels_vfl,
+            "eqlv2_vfl": self.loss_labels_eqlv2_vfl,
             "rank_gcl": self.loss_labels_rank_gcl,
             "align": self.loss_labels_align,
             "local": self.loss_local,
@@ -765,6 +893,11 @@ class DFINECriterion(nn.Module):
             loss_ccp = self.loss_class_confusion_prototype(outputs, targets, indices)
             if loss_ccp is not None:
                 losses["loss_ccp"] = loss_ccp
+
+        if self.use_opl:
+            loss_opl = self.loss_orthogonal_projection(outputs, targets, indices)
+            if loss_opl is not None:
+                losses["loss_opl"] = loss_opl
 
         if self.use_lahns:
             losses["loss_lahns"] = self.loss_localization_aware_hard_negatives(
@@ -923,7 +1056,7 @@ class DFINECriterion(nn.Module):
 
         if loss in ("boxes",):
             meta = {"boxes_weight": iou}
-        elif loss in ("vfl",):
+        elif loss in ("vfl", "eqlv2_vfl"):
             meta = {"values": iou}
         else:
             meta = {}

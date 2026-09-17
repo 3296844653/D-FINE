@@ -240,6 +240,47 @@ class CSPLayer(nn.Module):
         return self.conv3(x_1 + x_2)
 
 
+class TripletZPool(nn.Module):
+    def forward(self, x):
+        return torch.cat(
+            (torch.max(x, dim=1, keepdim=True).values, torch.mean(x, dim=1, keepdim=True)),
+            dim=1,
+        )
+
+
+class TripletAttentionGate(nn.Module):
+    def __init__(self, kernel_size=7):
+        super().__init__()
+        assert kernel_size > 0 and kernel_size % 2 == 1
+        self.compress = TripletZPool()
+        self.conv = nn.Sequential(
+            nn.Conv2d(2, 1, kernel_size, padding=kernel_size // 2, bias=False),
+            nn.BatchNorm2d(1, eps=1e-5, momentum=0.01),
+        )
+
+    def forward(self, x):
+        return x * torch.sigmoid(self.conv(self.compress(x)))
+
+
+class TripletAttention(nn.Module):
+    def __init__(self, kernel_size=7, no_spatial=False):
+        super().__init__()
+        self.cw = TripletAttentionGate(kernel_size)
+        self.hc = TripletAttentionGate(kernel_size)
+        self.no_spatial = bool(no_spatial)
+        if not self.no_spatial:
+            self.hw = TripletAttentionGate(kernel_size)
+
+    def forward(self, x):
+        x_perm1 = x.permute(0, 2, 1, 3).contiguous()
+        x_out1 = self.cw(x_perm1).permute(0, 2, 1, 3).contiguous()
+        x_perm2 = x.permute(0, 3, 2, 1).contiguous()
+        x_out2 = self.hc(x_perm2).permute(0, 3, 2, 1).contiguous()
+        if self.no_spatial:
+            return 0.5 * (x_out1 + x_out2)
+        return (self.hw(x) + x_out1 + x_out2) / 3.0
+
+
 class SimAMFeatureEnhancer(nn.Module):
     """SimAM and local-global adaptive residual SimAM for multi-scale features.
 
@@ -282,7 +323,7 @@ class SimAMFeatureEnhancer(nn.Module):
         self.activation = nn.Sigmoid()
 
         if self.mode == "local_global_adaptive_residual":
-            # beta=0 selects the verified global SimAM path exactly.
+
             self.local_mix = nn.Parameter(torch.zeros(self.num_levels))
         else:
             self.local_mix = None
@@ -643,6 +684,10 @@ class HybridEncoder(nn.Module):
         use_mbde_p3=False,
         mbde_p3_init=0.0,
         mbde_p3_reduction=4,
+        use_triplet_attention=False,
+        triplet_attention_kernel_size=7,
+        triplet_attention_levels=None,
+        triplet_attention_no_spatial=False,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -664,6 +709,12 @@ class HybridEncoder(nn.Module):
         self.use_bmefs = use_bmefs
         self.use_simam = use_simam
         self.use_mbde_p3 = use_mbde_p3
+        self.use_triplet_attention = bool(use_triplet_attention)
+        if triplet_attention_levels is None:
+            triplet_attention_levels = list(range(len(in_channels)))
+        self.triplet_attention_levels = tuple(int(level) for level in triplet_attention_levels)
+        assert len(set(self.triplet_attention_levels)) == len(self.triplet_attention_levels)
+        assert all(0 <= level < len(in_channels) for level in self.triplet_attention_levels)
         if self.use_hf_gate:
             self.hf_gate = nn.Parameter(torch.tensor(float(hf_gate_init)))
         else:
@@ -745,7 +796,7 @@ class HybridEncoder(nn.Module):
                 # CSPLayer(hidden_dim * 2, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion, bottletype=VGGBlock)
             )
 
-        # BMEFS: optional behavior-aware multi-scale expanded feature set after PAN.
+
         if self.use_simam:
             self.simam = SimAMFeatureEnhancer(
                 e_lambda=simam_e_lambda,
@@ -757,7 +808,7 @@ class HybridEncoder(nn.Module):
         else:
             self.simam = None
 
-        # BMEFS: optional behavior-aware multi-scale expanded feature set after SimAM.
+
         if self.use_bmefs:
             self.bmefs = BehaviorMultiplexedExpandedFeatureSet(
                 hidden_dim=hidden_dim,
@@ -770,7 +821,7 @@ class HybridEncoder(nn.Module):
         else:
             self.bmefs = None
 
-        # MBDE-P3 is deliberately limited to the final stride-8 PAN feature.
+
         if self.use_mbde_p3:
             self.mbde_p3 = MultiScaleBehaviorDetailEnhancer(
                 hidden_dim=hidden_dim,
@@ -780,6 +831,19 @@ class HybridEncoder(nn.Module):
             )
         else:
             self.mbde_p3 = None
+
+        if self.use_triplet_attention:
+            self.triplet_attention = nn.ModuleDict(
+                {
+                    str(level): TripletAttention(
+                        kernel_size=triplet_attention_kernel_size,
+                        no_spatial=triplet_attention_no_spatial,
+                    )
+                    for level in self.triplet_attention_levels
+                }
+            )
+        else:
+            self.triplet_attention = None
 
         self._reset_parameters()
 
@@ -861,6 +925,14 @@ class HybridEncoder(nn.Module):
             downsample_feat = self.downsample_convs[idx](feat_low)
             out = self.pan_blocks[idx](torch.concat([downsample_feat, feat_height], dim=1))
             outs.append(out)
+
+        if self.use_triplet_attention:
+            outs = [
+                self.triplet_attention[str(level)](feat)
+                if level in self.triplet_attention_levels
+                else feat
+                for level, feat in enumerate(outs)
+            ]
 
         if self.use_mbde_p3:
             outs[0] = self.mbde_p3(outs[0])

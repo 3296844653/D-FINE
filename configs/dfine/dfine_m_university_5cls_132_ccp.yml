@@ -1,5 +1,5 @@
-# Class-confusion-aware prototype loss ablation.
-# The baseline model and inference graph remain unchanged.
+
+
 
 __include__:
   - dfine_m_university_5cls_132.yml

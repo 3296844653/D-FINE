@@ -1,5 +1,5 @@
-# MBDE-P3-only ablation on the five-class D-FINE-L baseline.
-# Enhance only the final stride-8 P3 feature after HybridEncoder PAN fusion.
+
+
 
 __include__:
   - dfine_l_university_5cls.yml
@@ -10,7 +10,7 @@ HybridEncoder:
   mbde_p3_init: 0.0
   mbde_p3_reduction: 4
 
-  # Keep other optional feature enhancements disabled for a clean ablation.
+
   use_simam: False
   use_bmefs: False
   use_hf_gate: False

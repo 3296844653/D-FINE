@@ -1,6 +1,6 @@
-# Stable baseline protocol for module selection.
-# Keeps the current baseline architecture/data setup, and only adjusts the
-# late fine-tuning schedule plus denoising noise strength.
+
+
+
 
 __include__:
   - dfine_l_university_6cls.yml

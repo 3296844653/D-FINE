@@ -1,14 +1,14 @@
-# PAQ-only ablation on the five-class D-FINE-L baseline.
-# All dataset and training settings are inherited from the baseline config.
+
+
 
 __include__:
   - dfine_l_university_5cls.yml
 
 
 DFINETransformer:
-  # Replace the default decoder content queries with PAQ dynamic queries.
+
   use_paq_query: True
   paq_num_patterns: 50
 
-  # Keep all related query modules disabled to isolate the PAQ contribution.
+
   use_bcqs: False
