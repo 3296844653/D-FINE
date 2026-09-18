@@ -1,0 +1,8 @@
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+# Exp-3: one classification-only deformable cross-attention refinement block
+# on the final decoder layer. Box regression/FDR remains unchanged.
+DFINETransformer:
+  use_cls_refine: true
+  cls_refine_residual_init: 0.0

@@ -974,6 +974,50 @@ class Gate(nn.Module):
         return self.norm(gate1 * x1 + gate2 * x2)
 
 
+class ClassificationRefineLayer(nn.Module):
+    """One lightweight, classification-only deformable cross-attention block.
+
+    The residual scale is initialized to zero, so enabling the module starts
+    from exactly the baseline classification features. Reference boxes are
+    detached by the decoder before they reach this branch.
+    """
+
+    def __init__(
+        self,
+        hidden_dim,
+        num_heads,
+        num_levels,
+        num_points,
+        cross_attn_method="default",
+        residual_init=0.0,
+    ):
+        super().__init__()
+        self.cross_attn = MSDeformableAttention(
+            hidden_dim,
+            num_heads,
+            num_levels,
+            num_points,
+            method=cross_attn_method,
+        )
+        self.delta_norm = nn.LayerNorm(hidden_dim)
+        self.gate = nn.Linear(2 * hidden_dim, hidden_dim)
+        self.residual_scale = nn.Parameter(torch.tensor(float(residual_init)))
+        init.constant_(self.gate.weight, 0)
+        init.constant_(self.gate.bias, 0)
+
+    def forward(self, content, reference_points, value, spatial_shapes, query_pos_embed):
+        delta = self.cross_attn(
+            content + query_pos_embed,
+            reference_points.detach().unsqueeze(2),
+            value,
+            spatial_shapes,
+        )
+        delta = self.delta_norm(delta)
+        gate = torch.sigmoid(self.gate(torch.cat([content, delta], dim=-1)))
+        scale = torch.tanh(self.residual_scale).to(dtype=content.dtype)
+        return content + scale * gate.to(dtype=content.dtype) * delta.to(dtype=content.dtype)
+
+
 class Integral(nn.Module):
     """
     A static layer that calculates integral results from a distribution.
@@ -1052,6 +1096,11 @@ class TransformerDecoder(nn.Module):
         sbdh_group_ids=None,
         sbdh_group_weight=0.25,
         return_query_features=False,
+        use_cls_refine=False,
+        cls_refine_num_levels=3,
+        cls_refine_num_points=4,
+        cls_refine_cross_attn_method="default",
+        cls_refine_residual_init=0.0,
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -1065,6 +1114,7 @@ class TransformerDecoder(nn.Module):
         self.use_bra = use_bra
         self.use_baqa = use_baqa
         self.return_query_features = bool(return_query_features)
+        self.use_cls_refine = bool(use_cls_refine)
         self.layers = nn.ModuleList(
             [copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)]
             + [copy.deepcopy(decoder_layer_wide) for _ in range(num_layers - self.eval_idx - 1)]
@@ -1072,6 +1122,20 @@ class TransformerDecoder(nn.Module):
         self.lqe_layers = nn.ModuleList(
             [copy.deepcopy(LQE(4, 64, 2, reg_max)) for _ in range(num_layers)]
         )
+        if self.use_cls_refine:
+            # Do not let initialization of this optional branch advance the
+            # global RNG and silently change baseline head initialization.
+            with torch.random.fork_rng(devices=[]):
+                self.cls_refine = ClassificationRefineLayer(
+                    hidden_dim,
+                    num_head,
+                    cls_refine_num_levels,
+                    cls_refine_num_points,
+                    cls_refine_cross_attn_method,
+                    cls_refine_residual_init,
+                )
+        else:
+            self.cls_refine = None
         if self.use_afdr:
             scaled_dim = round(layer_scale * hidden_dim)
             self.afdr_heads = nn.ModuleList(
@@ -1174,6 +1238,7 @@ class TransformerDecoder(nn.Module):
         dec_out_pred_corners = []
         dec_out_refs = []
         final_query_features = None
+        final_teacher_logits = None
         if not hasattr(self, "project"):
             project = weighting_function(self.reg_max, up, reg_scale)
         else:
@@ -1222,12 +1287,32 @@ class TransformerDecoder(nn.Module):
             inter_ref_bbox = distance2bbox(ref_points_initial, distance, reg_scale)
 
             if self.training or i == self.eval_idx:
-                cls_head_output = (
+                base_cls_head_output = (
                     self.baqa_layers[i](head_output) if self.use_baqa else head_output
                 )
-                scores = score_head[i](cls_head_output)
-                # Lqe does not affect the performance here.
-                scores = self.lqe_layers[i](scores, pred_corners)
+                base_scores = score_head[i](base_cls_head_output)
+                base_scores = self.lqe_layers[i](base_scores, pred_corners)
+                cls_head_output = base_cls_head_output
+                if self.use_cls_refine and i == self.eval_idx:
+                    cls_ref_points = inter_ref_bbox.detach()
+                    cls_query_pos = query_pos_head(cls_ref_points).clamp(min=-10, max=10)
+                    cls_head_output = self.cls_refine(
+                        cls_head_output,
+                        cls_ref_points,
+                        value,
+                        spatial_shapes,
+                        cls_query_pos,
+                    )
+                    scores = score_head[i](cls_head_output)
+                    scores = self.lqe_layers[i](scores, pred_corners)
+                    # GO-LSD keeps using the unrefined classification quality
+                    # so the classification ablation cannot alter localization
+                    # distillation weights.
+                    final_teacher_logits = base_scores
+                else:
+                    scores = base_scores
+                    if i == self.eval_idx:
+                        final_teacher_logits = base_scores
                 dec_out_logits.append(scores)
                 dec_out_bboxes.append(inter_ref_bbox)
                 dec_out_pred_corners.append(pred_corners)
@@ -1251,6 +1336,7 @@ class TransformerDecoder(nn.Module):
             torch.stack(dec_out_pred_corners),
             torch.stack(dec_out_refs),
             final_query_features,
+            final_teacher_logits,
             pre_bboxes,
             pre_scores,
         )
@@ -1337,6 +1423,8 @@ class DFINETransformer(nn.Module):
         sbdh_group_ids=None,
         sbdh_group_weight=0.25,
         return_query_features=False,
+        use_cls_refine=False,
+        cls_refine_residual_init=0.0,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -1406,6 +1494,7 @@ class DFINETransformer(nn.Module):
         self.use_baqa = use_baqa
         self.use_sbdh = use_sbdh
         self.return_query_features = bool(return_query_features)
+        self.use_cls_refine = bool(use_cls_refine)
 
         if self.enable_bcqs:
             active_score_weight = min(
@@ -1549,6 +1638,11 @@ class DFINETransformer(nn.Module):
             sbdh_group_ids=sbdh_group_ids,
             sbdh_group_weight=sbdh_group_weight,
             return_query_features=self.return_query_features,
+            use_cls_refine=self.use_cls_refine,
+            cls_refine_num_levels=num_levels,
+            cls_refine_num_points=num_points,
+            cls_refine_cross_attn_method=cross_attn_method,
+            cls_refine_residual_init=cls_refine_residual_init,
         )
         # denoising
         self.num_denoising = num_denoising
@@ -2026,6 +2120,7 @@ class DFINETransformer(nn.Module):
             out_corners,
             out_refs,
             out_query_features,
+            out_teacher_logits,
             pre_bboxes,
             pre_logits,
         ) = self.decoder(
@@ -2056,6 +2151,9 @@ class DFINETransformer(nn.Module):
                 _, out_query_features = torch.split(
                     out_query_features, dn_meta["dn_num_split"], dim=1
                 )
+            dn_teacher_logits, out_teacher_logits = torch.split(
+                out_teacher_logits, dn_meta["dn_num_split"], dim=1
+            )
 
         if self.training:
             out = {
@@ -2078,7 +2176,7 @@ class DFINETransformer(nn.Module):
                 out_corners[:-1],
                 out_refs[:-1],
                 out_corners[-1],
-                out_logits[-1],
+                out_teacher_logits,
             )
             out["enc_aux_outputs"] = self._set_aux_loss(enc_topk_logits_list, enc_topk_bboxes_list)
             out["pre_outputs"] = {"pred_logits": pre_logits, "pred_boxes": pre_bboxes}
@@ -2091,7 +2189,7 @@ class DFINETransformer(nn.Module):
                     dn_out_corners,
                     dn_out_refs,
                     dn_out_corners[-1],
-                    dn_out_logits[-1],
+                    dn_teacher_logits,
                 )
                 out["dn_pre_outputs"] = {"pred_logits": dn_pre_logits, "pred_boxes": dn_pre_bboxes}
                 out["dn_meta"] = dn_meta

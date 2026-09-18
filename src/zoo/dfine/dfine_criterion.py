@@ -60,6 +60,10 @@ class DFINECriterion(nn.Module):
         eqlv2_gamma=12.0,
         eqlv2_mu=0.8,
         eqlv2_alpha=4.0,
+        eqlv2_update_main_only=True,
+        use_supcon=False,
+        supcon_loss_weight=0.05,
+        supcon_temperature=0.1,
         use_opl=False,
         opl_gamma=0.5,
         opl_loss_weight=0.1,
@@ -154,12 +158,19 @@ class DFINECriterion(nn.Module):
         self.eqlv2_gamma = float(eqlv2_gamma)
         self.eqlv2_mu = float(eqlv2_mu)
         self.eqlv2_alpha = float(eqlv2_alpha)
+        self.eqlv2_update_main_only = bool(eqlv2_update_main_only)
         assert self.eqlv2_gamma > 0
         assert 0 <= self.eqlv2_mu <= 1
         assert self.eqlv2_alpha >= 0
         self.register_buffer("eqlv2_pos_grad", torch.zeros(num_classes))
         self.register_buffer("eqlv2_neg_grad", torch.zeros(num_classes))
         self.register_buffer("eqlv2_pos_neg", torch.full((num_classes,), 100.0))
+
+        self.use_supcon = bool(use_supcon)
+        self.supcon_loss_weight = float(supcon_loss_weight)
+        self.supcon_temperature = float(supcon_temperature)
+        assert self.supcon_loss_weight >= 0
+        assert self.supcon_temperature > 0
 
         self.use_opl = bool(use_opl)
         self.opl_gamma = float(opl_gamma)
@@ -351,7 +362,9 @@ class DFINECriterion(nn.Module):
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
         return {"loss_rank_gcl": loss}
 
-    def loss_labels_eqlv2_vfl(self, outputs, targets, indices, num_boxes, values=None):
+    def loss_labels_eqlv2_vfl(
+        self, outputs, targets, indices, num_boxes, values=None, update_stats=None
+    ):
         assert "pred_boxes" in outputs
         assert "pred_logits" in outputs
 
@@ -409,20 +422,67 @@ class DFINECriterion(nn.Module):
         )
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
 
-        with torch.no_grad():
-            grad = (pred_score - target_score).abs() * weight
-            pos_grad = (grad * target).sum(dim=(0, 1)).float()
-            neg_grad = (grad * (1 - target)).sum(dim=(0, 1)).float()
-            if is_dist_available_and_initialized():
-                torch.distributed.all_reduce(pos_grad)
-                torch.distributed.all_reduce(neg_grad)
-            self.eqlv2_pos_grad.add_(pos_grad)
-            self.eqlv2_neg_grad.add_(neg_grad)
-            self.eqlv2_pos_neg.copy_(
-                self.eqlv2_pos_grad / self.eqlv2_neg_grad.clamp_min(1e-10)
-            )
+        if update_stats is None:
+            update_stats = not self.eqlv2_update_main_only
+
+        if update_stats:
+            # Collect the final decoder output only by default. Reusing all
+            # auxiliary and denoising heads would count one image many times
+            # and make the dynamic class weights depend on decoder topology.
+            # For weighted BCE, |sigmoid(logit) - target| * weight is the
+            # per-logit gradient magnitude up to a class-independent scalar.
+            with torch.no_grad():
+                grad = (pred_score - target_score).abs() * weight
+                pos_grad = (grad * target).sum(dim=(0, 1)).float()
+                neg_grad = (grad * (1 - target)).sum(dim=(0, 1)).float()
+                if is_dist_available_and_initialized():
+                    torch.distributed.all_reduce(pos_grad)
+                    torch.distributed.all_reduce(neg_grad)
+                self.eqlv2_pos_grad.add_(pos_grad)
+                self.eqlv2_neg_grad.add_(neg_grad)
+                self.eqlv2_pos_neg.copy_(
+                    self.eqlv2_pos_grad / self.eqlv2_neg_grad.clamp_min(1e-10)
+                )
 
         return {"loss_eqlv2_vfl": loss}
+
+    def loss_matched_query_supcon(self, outputs, targets, indices):
+        """Supervised contrastive loss on final-layer Hungarian-matched queries.
+
+        Background and unmatched queries are deliberately excluded. Anchors
+        without another same-class sample in the current batch are skipped.
+        """
+        query_features = outputs.get("query_features")
+        if query_features is None:
+            return None
+
+        idx = self._get_src_permutation_idx(indices)
+        features = query_features[idx]
+        labels = torch.cat(
+            [target["labels"][target_idx] for target, (_, target_idx) in zip(targets, indices)]
+        )
+        if features.shape[0] < 2:
+            return query_features.sum() * 0.0
+
+        features = F.normalize(features.float(), dim=-1)
+        logits = features @ features.transpose(0, 1)
+        logits = logits / self.supcon_temperature
+        logits = logits - logits.max(dim=1, keepdim=True).values.detach()
+
+        num_samples = features.shape[0]
+        self_mask = torch.eye(num_samples, dtype=torch.bool, device=features.device)
+        positive_mask = labels[:, None].eq(labels[None, :]) & ~self_mask
+        valid_anchor = positive_mask.any(dim=1)
+        if not valid_anchor.any():
+            return query_features.sum() * 0.0
+
+        exp_logits = torch.exp(logits).masked_fill(self_mask, 0.0)
+        log_prob = logits - torch.log(exp_logits.sum(dim=1, keepdim=True).clamp_min(1e-12))
+        mean_positive_log_prob = (
+            (log_prob * positive_mask.to(log_prob.dtype)).sum(dim=1)
+            / positive_mask.sum(dim=1).clamp_min(1)
+        )
+        return -mean_positive_log_prob[valid_anchor].mean() * self.supcon_loss_weight
 
     def loss_labels_align(self, outputs, targets, indices, num_boxes):
         """Align-DETR IoU-aware classification loss (one-to-one ablation).
@@ -885,9 +945,16 @@ class DFINECriterion(nn.Module):
             indices_in = indices_go if loss in ["boxes", "local"] else indices
             num_boxes_in = num_boxes_go if loss in ["boxes", "local"] else num_boxes
             meta = self.get_loss_meta_info(loss, outputs, targets, indices_in)
+            if loss == "eqlv2_vfl":
+                meta["update_stats"] = True
             l_dict = self.get_loss(loss, outputs, targets, indices_in, num_boxes_in, **meta)
             l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
             losses.update(l_dict)
+
+        if self.use_supcon:
+            loss_supcon = self.loss_matched_query_supcon(outputs, targets, indices)
+            if loss_supcon is not None:
+                losses["loss_supcon"] = loss_supcon
 
         if self.use_ccp_loss:
             loss_ccp = self.loss_class_confusion_prototype(outputs, targets, indices)

@@ -1,0 +1,5 @@
+__include__:
+  - dfine_m_university_5cls_132_eqlv2.yml
+
+# Exp-2: EQLv2-style per-class gradient balancing adapted to the existing VFL
+# IoU soft targets. No other experiment switch is enabled by this file.

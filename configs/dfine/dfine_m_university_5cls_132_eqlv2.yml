@@ -12,3 +12,7 @@ DFINECriterion:
   eqlv2_gamma: 12.0
   eqlv2_mu: 0.8
   eqlv2_alpha: 4.0
+  # Update the dynamic gradient statistics once per iteration from the final
+  # decoder output. Auxiliary, encoder and denoising heads use the same current
+  # weights but do not repeatedly alter the statistics.
+  eqlv2_update_main_only: true
