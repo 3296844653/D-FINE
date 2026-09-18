@@ -1,0 +1,9 @@
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+DFINECriterion:
+  matcher:
+    weight_dict:
+      cost_class: 3
+      cost_bbox: 5
+      cost_giou: 2
