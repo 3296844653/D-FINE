@@ -1,0 +1,10 @@
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+# Exp-1 (single variable): A2QTrans AQS adapted from token selection to
+# confidence-quantized D-FINE query classification refinement.
+DFINETransformer:
+  use_aqs_refine: true
+  aqs_threshold: 0.50
+  aqs_temperature: 0.10
+  aqs_residual_init: 0.05

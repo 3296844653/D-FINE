@@ -974,6 +974,130 @@ class Gate(nn.Module):
         return self.norm(gate1 * x1 + gate2 * x2)
 
 
+class AdaptiveQuerySelectionRefiner(nn.Module):
+    """D-FINE adaptation of A2QTrans' adaptive quantization selection (AQS).
+
+    A2QTrans quantizes transformer-token importance with a learned threshold.
+    Detection has no CLS token, so this adapter quantizes per-query foreground
+    confidence and uses the selected queries to form a classification context.
+    Query count and the box-regression stream are left unchanged.
+    """
+
+    def __init__(self, hidden_dim, threshold=0.5, temperature=0.1, residual_init=0.05):
+        super().__init__()
+        assert 0.0 < threshold < 1.0
+        assert temperature > 0.0
+        self.threshold_logit = nn.Parameter(
+            torch.tensor(math.log(threshold / (1.0 - threshold)))
+        )
+        self.temperature = float(temperature)
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.fuse = nn.Sequential(
+            nn.Linear(2 * hidden_dim, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        self.residual_scale = nn.Parameter(torch.tensor(float(residual_init)))
+        init.constant_(self.fuse[-1].weight, 0)
+        init.constant_(self.fuse[-1].bias, 0)
+
+    def forward(self, query, logits):
+        importance = logits.sigmoid().amax(dim=-1)
+        threshold = self.threshold_logit.sigmoid().to(dtype=importance.dtype)
+        soft_gate = torch.sigmoid((importance - threshold) / self.temperature)
+        hard_gate = (soft_gate >= 0.5).to(dtype=soft_gate.dtype)
+        # Straight-through estimator: hard selection in forward, smooth gradient.
+        gate = hard_gate.detach() - soft_gate.detach() + soft_gate
+        denom = gate.sum(dim=1, keepdim=True).clamp_min(1.0)
+        context = (query * gate.unsqueeze(-1)).sum(dim=1, keepdim=True)
+        context = context / denom.unsqueeze(-1)
+        context = context.expand(-1, query.shape[1], -1)
+        delta = self.fuse(torch.cat([self.norm(query), context], dim=-1))
+        scale = torch.tanh(self.residual_scale).to(dtype=query.dtype)
+        return query + scale * gate.unsqueeze(-1).to(dtype=query.dtype) * delta
+
+
+class ContextGenerationRefiner(nn.Module):
+    """D-FINE query adaptation of H3Former's context generation module (CGM).
+
+    The paper uses average, maximum and attention-weighted multi-stage token
+    contexts. Here the three statistics are computed over final decoder queries,
+    with foreground confidence providing the attention weights.
+    """
+
+    def __init__(self, hidden_dim, residual_init=0.05):
+        super().__init__()
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.avg_proj = nn.Linear(hidden_dim, hidden_dim)
+        self.max_proj = nn.Linear(hidden_dim, hidden_dim)
+        self.attn_proj = nn.Linear(hidden_dim, hidden_dim)
+        self.fuse = nn.Sequential(
+            nn.Linear(4 * hidden_dim, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        self.residual_scale = nn.Parameter(torch.tensor(float(residual_init)))
+        init.constant_(self.fuse[-1].weight, 0)
+        init.constant_(self.fuse[-1].bias, 0)
+
+    def forward(self, query, logits):
+        x = self.norm(query)
+        confidence = logits.sigmoid().amax(dim=-1)
+        weights = F.softmax(confidence, dim=1).unsqueeze(-1)
+        avg_context = self.avg_proj(x.mean(dim=1))
+        max_context = self.max_proj(x.amax(dim=1))
+        attn_context = self.attn_proj((x * weights).sum(dim=1))
+        context = torch.cat([avg_context, max_context, attn_context], dim=-1)
+        context = context.unsqueeze(1).expand(-1, query.shape[1], -1)
+        delta = self.fuse(torch.cat([x, context], dim=-1))
+        scale = torch.tanh(self.residual_scale).to(dtype=query.dtype)
+        return query + scale * delta
+
+
+class SemanticAwareHypergraphRefiner(nn.Module):
+    """D-FINE query adaptation of H3Former's SAAM hypergraph propagation.
+
+    Decoder queries are vertices and learned semantic prototypes define soft
+    hyperedges. V->E->V propagation follows the released SAAM implementation.
+    Only the final classification feature is refined.
+    """
+
+    def __init__(
+        self,
+        hidden_dim,
+        num_hyperedges=16,
+        key_dim=32,
+        dropout=0.0,
+        residual_init=0.05,
+    ):
+        super().__init__()
+        assert num_hyperedges > 0 and key_dim > 0
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.query_proj = nn.Linear(hidden_dim, key_dim)
+        self.prototype = nn.Parameter(torch.empty(num_hyperedges, key_dim))
+        self.edge_proj = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU())
+        self.node_proj = nn.Linear(hidden_dim, hidden_dim)
+        self.dropout = nn.Dropout(float(dropout))
+        self.residual_scale = nn.Parameter(torch.tensor(float(residual_init)))
+        init.xavier_uniform_(self.prototype)
+        init.constant_(self.node_proj.weight, 0)
+        init.constant_(self.node_proj.bias, 0)
+        self.key_dim = int(key_dim)
+
+    def forward(self, query, logits=None):
+        x = self.norm(query)
+        q = self.query_proj(x)
+        prototype = self.prototype.to(device=q.device, dtype=q.dtype)
+        incidence = torch.matmul(q, prototype.transpose(0, 1)) / math.sqrt(self.key_dim)
+        incidence = F.softmax(self.dropout(incidence), dim=1)
+        hyperedges = torch.bmm(incidence.transpose(1, 2), x)
+        hyperedges = self.edge_proj(hyperedges)
+        update = torch.bmm(incidence, hyperedges)
+        update = self.node_proj(update)
+        scale = torch.tanh(self.residual_scale).to(dtype=query.dtype)
+        return query + scale * update.to(dtype=query.dtype)
+
+
 class ClassificationRefineLayer(nn.Module):
     """One lightweight, classification-only deformable cross-attention block.
 
@@ -1101,6 +1225,17 @@ class TransformerDecoder(nn.Module):
         cls_refine_num_points=4,
         cls_refine_cross_attn_method="default",
         cls_refine_residual_init=0.0,
+        use_aqs_refine=False,
+        aqs_threshold=0.5,
+        aqs_temperature=0.1,
+        aqs_residual_init=0.05,
+        use_cgm_refine=False,
+        cgm_residual_init=0.05,
+        use_saam_refine=False,
+        saam_num_hyperedges=16,
+        saam_key_dim=32,
+        saam_dropout=0.0,
+        saam_residual_init=0.05,
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -1115,6 +1250,12 @@ class TransformerDecoder(nn.Module):
         self.use_baqa = use_baqa
         self.return_query_features = bool(return_query_features)
         self.use_cls_refine = bool(use_cls_refine)
+        self.use_aqs_refine = bool(use_aqs_refine)
+        self.use_cgm_refine = bool(use_cgm_refine)
+        self.use_saam_refine = bool(use_saam_refine)
+        assert sum(
+            [self.use_cls_refine, self.use_aqs_refine, self.use_cgm_refine, self.use_saam_refine]
+        ) <= 1, "classification refinement experiments are mutually exclusive"
         self.layers = nn.ModuleList(
             [copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)]
             + [copy.deepcopy(decoder_layer_wide) for _ in range(num_layers - self.eval_idx - 1)]
@@ -1136,6 +1277,25 @@ class TransformerDecoder(nn.Module):
                 )
         else:
             self.cls_refine = None
+        with torch.random.fork_rng(devices=[]):
+            if self.use_aqs_refine:
+                self.query_cls_refiner = AdaptiveQuerySelectionRefiner(
+                    hidden_dim, aqs_threshold, aqs_temperature, aqs_residual_init
+                )
+            elif self.use_cgm_refine:
+                self.query_cls_refiner = ContextGenerationRefiner(
+                    hidden_dim, cgm_residual_init
+                )
+            elif self.use_saam_refine:
+                self.query_cls_refiner = SemanticAwareHypergraphRefiner(
+                    hidden_dim,
+                    saam_num_hyperedges,
+                    saam_key_dim,
+                    saam_dropout,
+                    saam_residual_init,
+                )
+            else:
+                self.query_cls_refiner = None
         if self.use_afdr:
             scaled_dim = round(layer_scale * hidden_dim)
             self.afdr_heads = nn.ModuleList(
@@ -1211,6 +1371,25 @@ class TransformerDecoder(nn.Module):
         )
         if self.use_baqa:
             self.baqa_layers = self.baqa_layers[: self.eval_idx + 1]
+
+    def _apply_query_cls_refiner(self, query, logits, dn_meta):
+        """Refine denoising and matching queries without cross-group leakage."""
+        if self.query_cls_refiner is None:
+            return query
+        if self.training and dn_meta is not None:
+            split_sizes = dn_meta.get("dn_num_split")
+            if split_sizes is None or sum(split_sizes) != query.shape[1]:
+                raise ValueError(
+                    "dn_meta['dn_num_split'] must exactly partition decoder queries"
+                )
+            query_groups = torch.split(query, split_sizes, dim=1)
+            logit_groups = torch.split(logits, split_sizes, dim=1)
+            refined_groups = [
+                self.query_cls_refiner(group_query, group_logits)
+                for group_query, group_logits in zip(query_groups, logit_groups)
+            ]
+            return torch.cat(refined_groups, dim=1)
+        return self.query_cls_refiner(query, logits)
 
     def forward(
         self,
@@ -1308,6 +1487,13 @@ class TransformerDecoder(nn.Module):
                     # GO-LSD keeps using the unrefined classification quality
                     # so the classification ablation cannot alter localization
                     # distillation weights.
+                    final_teacher_logits = base_scores
+                elif self.query_cls_refiner is not None and i == self.eval_idx:
+                    cls_head_output = self._apply_query_cls_refiner(
+                        base_cls_head_output, base_scores, dn_meta
+                    )
+                    scores = score_head[i](cls_head_output)
+                    scores = self.lqe_layers[i](scores, pred_corners)
                     final_teacher_logits = base_scores
                 else:
                     scores = base_scores
@@ -1425,6 +1611,17 @@ class DFINETransformer(nn.Module):
         return_query_features=False,
         use_cls_refine=False,
         cls_refine_residual_init=0.0,
+        use_aqs_refine=False,
+        aqs_threshold=0.5,
+        aqs_temperature=0.1,
+        aqs_residual_init=0.05,
+        use_cgm_refine=False,
+        cgm_residual_init=0.05,
+        use_saam_refine=False,
+        saam_num_hyperedges=16,
+        saam_key_dim=32,
+        saam_dropout=0.0,
+        saam_residual_init=0.05,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -1495,6 +1692,12 @@ class DFINETransformer(nn.Module):
         self.use_sbdh = use_sbdh
         self.return_query_features = bool(return_query_features)
         self.use_cls_refine = bool(use_cls_refine)
+        self.use_aqs_refine = bool(use_aqs_refine)
+        self.use_cgm_refine = bool(use_cgm_refine)
+        self.use_saam_refine = bool(use_saam_refine)
+        assert sum(
+            [self.use_cls_refine, self.use_aqs_refine, self.use_cgm_refine, self.use_saam_refine]
+        ) <= 1, "classification refinement experiments are mutually exclusive"
 
         if self.enable_bcqs:
             active_score_weight = min(
@@ -1643,6 +1846,17 @@ class DFINETransformer(nn.Module):
             cls_refine_num_points=num_points,
             cls_refine_cross_attn_method=cross_attn_method,
             cls_refine_residual_init=cls_refine_residual_init,
+            use_aqs_refine=self.use_aqs_refine,
+            aqs_threshold=aqs_threshold,
+            aqs_temperature=aqs_temperature,
+            aqs_residual_init=aqs_residual_init,
+            use_cgm_refine=self.use_cgm_refine,
+            cgm_residual_init=cgm_residual_init,
+            use_saam_refine=self.use_saam_refine,
+            saam_num_hyperedges=saam_num_hyperedges,
+            saam_key_dim=saam_key_dim,
+            saam_dropout=saam_dropout,
+            saam_residual_init=saam_residual_init,
         )
         # denoising
         self.num_denoising = num_denoising

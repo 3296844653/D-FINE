@@ -1,0 +1,8 @@
+__include__:
+  - dfine_m_university_5cls_132.yml
+
+# Exp-2 (single variable): H3Former CGM adapted to aggregate average, maximum
+# and confidence-weighted context from final D-FINE decoder queries.
+DFINETransformer:
+  use_cgm_refine: true
+  cgm_residual_init: 0.05
