@@ -42,6 +42,9 @@ class DFINECriterion(nn.Module):
         reg_max=32,
         boxes_weight_format=None,
         share_matched_indices=False,
+        use_class_margin=False,
+        class_margin=0.2,
+        class_margin_weight=0.1,
     ):
         """Create the criterion.
         Parameters:
@@ -65,6 +68,13 @@ class DFINECriterion(nn.Module):
         self.own_targets, self.own_targets_dn = None, None
         self.reg_max = reg_max
         self.num_pos, self.num_neg = None, None
+        # Optional final-layer ranking constraint for matched detection queries.
+        # It complements VFL's absolute IoU-aware targets without replacing VFL.
+        self.use_class_margin = use_class_margin
+        self.class_margin = class_margin
+        self.class_margin_weight = class_margin_weight
+        if class_margin < 0 or class_margin_weight < 0:
+            raise ValueError("Class margin and its weight must be non-negative")
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
         assert "pred_logits" in outputs
@@ -114,6 +124,26 @@ class DFINECriterion(nn.Module):
         )
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
         return {"loss_vfl": loss}
+
+    def loss_labels_class_margin(self, outputs, targets, indices, num_boxes):
+        """Penalize a matched query only when a wrong class rivals its GT class.
+
+        Hungarian matching and VFL remain unchanged. This loss is applied only
+        to the final decoder output, not auxiliary, denoising, or encoder heads.
+        """
+        src_logits = outputs["pred_logits"]
+        if self.num_classes < 2 or not any(len(src) for src, _ in indices):
+            return src_logits.sum() * 0
+
+        idx = self._get_src_permutation_idx(indices)
+        matched_logits = src_logits[idx].float()
+        gt_classes = torch.cat(
+            [target["labels"][gt] for target, (_, gt) in zip(targets, indices)]
+        ).to(matched_logits.device)
+        correct_logits = matched_logits.gather(1, gt_classes[:, None]).squeeze(1)
+        wrong_mask = F.one_hot(gt_classes, num_classes=self.num_classes).bool()
+        highest_wrong_logits = matched_logits.masked_fill(wrong_mask, -torch.inf).max(dim=1).values
+        return F.relu(highest_wrong_logits - correct_logits + self.class_margin).sum() / num_boxes
 
     def loss_boxes(self, outputs, targets, indices, num_boxes, boxes_weight=None):
         """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
@@ -334,6 +364,11 @@ class DFINECriterion(nn.Module):
             l_dict = self.get_loss(loss, outputs, targets, indices_in, num_boxes_in, **meta)
             l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
             losses.update(l_dict)
+
+        if self.use_class_margin:
+            losses["loss_class_margin"] = self.class_margin_weight * self.loss_labels_class_margin(
+                outputs_without_aux, targets, indices, num_boxes
+            )
 
         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
         if "aux_outputs" in outputs:

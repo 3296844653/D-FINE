@@ -1,0 +1,9 @@
+# Single-variable training experiment: matched-query class ranking on final decoder output.
+# Architecture, matching, VFL, bbox losses, postprocessing and training schedule are inherited.
+__include__:
+  - dfine_s_university_5cls.yml
+
+DFINECriterion:
+  use_class_margin: true
+  class_margin: 0.2
+  class_margin_weight: 0.1
