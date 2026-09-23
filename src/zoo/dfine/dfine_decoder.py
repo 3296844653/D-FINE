@@ -46,709 +46,6 @@ class MLP(nn.Module):
         return x
 
 
-class PaQDynamicQuery(nn.Module):
-    """PaQ-RT-DETR pattern-based dynamic query generator.
-
-    ``replace`` preserves the original PaQ behavior and returns only the
-    pattern-composed query. ``adaptive_residual`` retains the selected encoder
-    query and injects a normalized dynamic pattern through a per-query gate and
-    a small learnable global scale.
-    """
-
-    def __init__(
-        self,
-        hidden_dim=256,
-        num_patterns=50,
-        act="relu",
-        mode="replace",
-        residual_init=0.05,
-        gate_reduction=4,
-    ):
-        super().__init__()
-        assert mode in ("replace", "adaptive_residual"), (
-            "paq_query_mode must be 'replace' or 'adaptive_residual'"
-        )
-        assert 0.0 < float(residual_init) < 1.0, (
-            "paq_residual_init must be between 0 and 1"
-        )
-        assert int(gate_reduction) > 0, "paq_gate_reduction must be positive"
-
-        self.mode = mode
-        self.patterns = nn.Parameter(torch.empty(num_patterns, hidden_dim))
-        self.weight_generator = MLP(hidden_dim, hidden_dim, num_patterns, 2, act=act)
-
-        if self.mode == "adaptive_residual":
-            gate_hidden_dim = max(hidden_dim // int(gate_reduction), 16)
-            self.dynamic_norm = nn.LayerNorm(hidden_dim)
-            self.residual_gate = nn.Sequential(
-                nn.Linear(2 * hidden_dim, gate_hidden_dim),
-                nn.SiLU(),
-                nn.Linear(gate_hidden_dim, 1),
-            )
-            residual_init = float(residual_init)
-            self.residual_scale_logit = nn.Parameter(
-                torch.tensor(math.log(residual_init / (1.0 - residual_init)))
-            )
-        else:
-            self.dynamic_norm = None
-            self.residual_gate = None
-            self.residual_scale_logit = None
-
-        self._reset_parameters()
-
-    def _reset_parameters(self):
-        init.xavier_uniform_(self.patterns)
-        if self.mode == "adaptive_residual":
-
-
-
-            init.constant_(self.weight_generator.layers[-1].weight, 0)
-            init.constant_(self.weight_generator.layers[-1].bias, 0)
-            init.constant_(self.residual_gate[-1].weight, 0)
-            init.constant_(self.residual_gate[-1].bias, 0)
-
-    def forward(self, topk_memory: torch.Tensor) -> torch.Tensor:
-        weights = F.softmax(self.weight_generator(topk_memory), dim=-1)
-        patterns = self.patterns.to(device=topk_memory.device, dtype=topk_memory.dtype)
-        dynamic_query = torch.matmul(weights.to(dtype=topk_memory.dtype), patterns)
-
-        if self.mode == "replace":
-            return dynamic_query
-
-        dynamic_query = self.dynamic_norm(dynamic_query)
-        residual_gate = torch.sigmoid(
-            self.residual_gate(torch.cat([topk_memory, dynamic_query], dim=-1))
-        ).to(dtype=topk_memory.dtype)
-        residual_scale = torch.sigmoid(self.residual_scale_logit).to(
-            dtype=topk_memory.dtype
-        )
-        return topk_memory + residual_scale * residual_gate * dynamic_query
-
-
-class BehaviorAgentQueryAttention(nn.Module):
-    """BAQA: agent-token attention for behavior-discriminative query classification."""
-
-    def __init__(
-        self,
-        hidden_dim=256,
-        num_agents=6,
-        num_heads=8,
-        dropout=0.0,
-        init_scale=0.01,
-    ):
-        super().__init__()
-        assert hidden_dim % num_heads == 0, "hidden_dim must be divisible by num_heads"
-        self.agents = nn.Parameter(torch.empty(num_agents, hidden_dim))
-        self.query_norm = nn.LayerNorm(hidden_dim)
-        self.agent_norm = nn.LayerNorm(hidden_dim)
-        self.agent_attn = nn.MultiheadAttention(
-            hidden_dim, num_heads, dropout=dropout, batch_first=True
-        )
-        self.query_attn = nn.MultiheadAttention(
-            hidden_dim, num_heads, dropout=dropout, batch_first=True
-        )
-        self.out_proj = nn.Sequential(
-            nn.Linear(hidden_dim * 2, hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-        )
-        self.gamma = nn.Parameter(torch.full((1,), float(init_scale)))
-        self._reset_parameters()
-
-    def _reset_parameters(self):
-        init.xavier_uniform_(self.agents)
-        for module in (self.agent_attn, self.query_attn):
-            init.xavier_uniform_(module.in_proj_weight)
-            init.constant_(module.in_proj_bias, 0)
-            init.xavier_uniform_(module.out_proj.weight)
-            init.constant_(module.out_proj.bias, 0)
-        init.constant_(self.out_proj[-1].weight, 0)
-        init.constant_(self.out_proj[-1].bias, 0)
-
-    def forward(self, query: torch.Tensor) -> torch.Tensor:
-        batch_size = query.shape[0]
-        agents = self.agents.to(device=query.device, dtype=query.dtype)
-        agents = agents.unsqueeze(0).expand(batch_size, -1, -1)
-
-        query_context = self.query_norm(query)
-        agent_context, _ = self.agent_attn(
-            self.agent_norm(agents), query_context, query, need_weights=False
-        )
-        agents = agents + agent_context
-        attended_query, _ = self.query_attn(
-            query_context, self.agent_norm(agents), agents, need_weights=False
-        )
-        delta = self.out_proj(torch.cat([query, attended_query], dim=-1))
-        return query + self.gamma.to(dtype=query.dtype) * delta
-
-
-class SiblingBehaviorDecoupledHead(nn.Module):
-    """SBDH: merge-then-split style classification head for similar behaviors."""
-
-    def __init__(
-        self,
-        hidden_dim=256,
-        num_classes=6,
-        group_ids=None,
-        group_weight=0.25,
-    ):
-        super().__init__()
-        if group_ids is None:
-            group_ids = list(range(num_classes))
-        assert len(group_ids) == num_classes, "sbdh_group_ids length must equal num_classes"
-        assert min(group_ids) >= 0, "sbdh_group_ids must be non-negative"
-
-        num_groups = max(group_ids) + 1
-        self.fine_head = nn.Linear(hidden_dim, num_classes)
-        self.group_head = nn.Linear(hidden_dim, num_groups)
-        self.group_weight = float(group_weight)
-        self.register_buffer("class_to_group", torch.tensor(group_ids, dtype=torch.long))
-        self._reset_group_branch()
-
-    @property
-    def bias(self):
-        return self.fine_head.bias
-
-    def _reset_group_branch(self):
-
-        init.constant_(self.group_head.weight, 0)
-        init.constant_(self.group_head.bias, 0)
-
-    def forward(self, x):
-        fine_logits = self.fine_head(x)
-        group_logits = self.group_head(x)
-        group_logits = group_logits.index_select(-1, self.class_to_group)
-        return fine_logits + self.group_weight * group_logits
-
-
-class BehaviorContextQueryScorer(nn.Module):
-    """BCQS: extracts local behavior-context cues for encoder top-k query selection."""
-
-    def __init__(self, hidden_dim=256, num_levels=3, kernel_size=3):
-        super().__init__()
-        padding = kernel_size // 2
-        self.blocks = nn.ModuleList(
-            [
-                nn.Sequential(
-                    nn.Conv2d(
-                        hidden_dim,
-                        hidden_dim,
-                        kernel_size,
-                        padding=padding,
-                        groups=hidden_dim,
-                        bias=False,
-                    ),
-                    nn.BatchNorm2d(hidden_dim),
-                    nn.SiLU(),
-                    nn.Conv2d(hidden_dim, hidden_dim, 1, bias=False),
-                    nn.BatchNorm2d(hidden_dim),
-                    nn.SiLU(),
-                )
-                for _ in range(num_levels)
-            ]
-        )
-        self.gate = nn.Sequential(nn.Linear(hidden_dim * 2, hidden_dim), nn.Sigmoid())
-
-    def forward(self, memory, spatial_shapes):
-        batch_size, _, channels = memory.shape
-        context_features = []
-        start = 0
-
-        for level, (height, width) in enumerate(spatial_shapes):
-            length = height * width
-            level_memory = memory[:, start : start + length, :]
-            level_feature = level_memory.transpose(1, 2).reshape(
-                batch_size, channels, height, width
-            )
-
-
-            local_context = self.blocks[level](level_feature).flatten(2).transpose(1, 2)
-            context_gate = self.gate(torch.cat([level_memory, local_context], dim=-1))
-            context_features.append(level_memory + context_gate * local_context)
-            start += length
-
-        return torch.cat(context_features, dim=1)
-
-
-class BehaviorContextQueryEnhancer(nn.Module):
-    """BCQE: enhance selected content queries with box-aligned behavior context.
-
-    Unlike BCQS, this module does not change encoder candidate scores or top-k
-    selection.  It samples an instance region and a slightly enlarged context
-    region for every selected proposal, then injects the fused context through
-    a zero-start residual gate.  Therefore enabling BCQE is exactly equivalent
-    to the baseline at initialization.
-    """
-
-    def __init__(
-        self,
-        hidden_dim=256,
-        roi_size=3,
-        expand_ratio=1.25,
-        context_level=0,
-        act="relu",
-    ):
-        super().__init__()
-        assert roi_size > 0, "bcqe_roi_size must be positive"
-        assert expand_ratio >= 1.0, "bcqe_expand_ratio must be >= 1"
-        assert context_level >= 0, "bcqe_context_level must be non-negative"
-
-        self.roi_size = int(roi_size)
-        self.expand_ratio = float(expand_ratio)
-        self.context_level = int(context_level)
-        self.context_proj = MLP(2 * hidden_dim, hidden_dim, hidden_dim, 2, act=act)
-        self.context_gate = MLP(2 * hidden_dim, hidden_dim, hidden_dim, 2, act=act)
-        self.residual_scale = nn.Parameter(torch.tensor(0.0))
-
-    def _get_level_feature(self, memory, spatial_shapes):
-        assert self.context_level < len(spatial_shapes), (
-            f"bcqe_context_level={self.context_level} exceeds "
-            f"the available {len(spatial_shapes)} feature levels"
-        )
-        start = sum(h * w for h, w in spatial_shapes[: self.context_level])
-        height, width = spatial_shapes[self.context_level]
-        length = height * width
-        level_memory = memory[:, start : start + length]
-        return level_memory.transpose(1, 2).reshape(
-            memory.shape[0], memory.shape[-1], height, width
-        )
-
-    def _sample_regions(self, feature, boxes, scale):
-        """Sample normalized cxcywh boxes into fixed-size query-aligned grids."""
-        batch_size, num_queries = boxes.shape[:2]
-        dtype, device = boxes.dtype, boxes.device
-        offsets = torch.linspace(
-            -0.5, 0.5, self.roi_size, dtype=dtype, device=device
-        )
-        grid_y, grid_x = torch.meshgrid(offsets, offsets, indexing="ij")
-        unit_grid = torch.stack([grid_x, grid_y], dim=-1).view(
-            1, 1, self.roi_size, self.roi_size, 2
-        )
-
-        centers = boxes[..., :2].view(batch_size, num_queries, 1, 1, 2)
-        sizes = boxes[..., 2:].clamp_min(1e-4).view(
-            batch_size, num_queries, 1, 1, 2
-        )
-        sample_grid = centers + unit_grid * sizes * scale
-
-
-        sample_grid = sample_grid.mul(2.0).sub(1.0)
-
-
-
-
-        packed_grid = sample_grid.reshape(
-            batch_size, num_queries * self.roi_size, self.roi_size, 2
-        )
-        sampled = F.grid_sample(
-            feature,
-            packed_grid,
-            mode="bilinear",
-            padding_mode="border",
-            align_corners=False,
-        )
-        sampled = sampled.view(
-            batch_size,
-            feature.shape[1],
-            num_queries,
-            self.roi_size,
-            self.roi_size,
-        )
-        return sampled.mean(dim=(-1, -2)).transpose(1, 2)
-
-    def forward(self, content, memory, spatial_shapes, boxes):
-        feature = self._get_level_feature(memory, spatial_shapes)
-        center_context = self._sample_regions(feature, boxes, 1.0)
-        expanded_context = self._sample_regions(
-            feature, boxes, self.expand_ratio
-        )
-        context = self.context_proj(
-            torch.cat([center_context, expanded_context], dim=-1)
-        )
-        gate = torch.sigmoid(self.context_gate(torch.cat([content, context], dim=-1)))
-        scale = torch.tanh(self.residual_scale).to(dtype=content.dtype)
-        return content + scale * gate * context.to(dtype=content.dtype)
-
-
-class BCQSGuidedPaQDynamicQuery(nn.Module):
-    """Apply the original residual PaQ after BCQS-guided top-k selection.
-
-    BCQS owns candidate re-scoring in ``DFINETransformer``.  This module never
-    consumes BCQS features directly, which keeps decoder gradients from
-    changing the context branch that is responsible for query ranking.  The
-    PaQ path intentionally preserves the standalone residual formulation:
-    LayerNorm(content + sigmoid(gate) * dynamic_content).
-    """
-
-    def __init__(
-        self,
-        hidden_dim=256,
-        num_patterns=150,
-        gate_init=0.03,
-        act="relu",
-    ):
-        super().__init__()
-        self.patterns = nn.Parameter(torch.empty(num_patterns, hidden_dim))
-        self.weight_generator = MLP(hidden_dim, hidden_dim, num_patterns, 2, act=act)
-        self.norm = nn.LayerNorm(hidden_dim)
-        self.gate = nn.Parameter(torch.tensor(float(gate_init)))
-        self._reset_parameters()
-
-    def _reset_parameters(self):
-        init.xavier_uniform_(self.patterns)
-        init.constant_(self.weight_generator.layers[-1].weight, 0)
-        init.constant_(self.weight_generator.layers[-1].bias, 0)
-
-    def forward(self, content, guide):
-
-
-        weights = F.softmax(self.weight_generator(guide), dim=-1)
-        patterns = self.patterns.to(device=content.device, dtype=content.dtype)
-        dynamic_content = torch.matmul(weights.to(dtype=content.dtype), patterns)
-        gate = torch.sigmoid(self.gate).to(dtype=content.dtype)
-        return self.norm(content + gate * dynamic_content)
-
-
-class RelationAwareBehaviorContextQueryScorer(nn.Module):
-    """RA-BCQS: scores query candidates with local, global, and spatial relation cues."""
-
-    def __init__(self, hidden_dim=256, num_levels=3, kernel_size=3):
-        super().__init__()
-        padding = kernel_size // 2
-        self.local_blocks = nn.ModuleList(
-            [
-                nn.Sequential(
-                    nn.Conv2d(
-                        hidden_dim,
-                        hidden_dim,
-                        kernel_size,
-                        padding=padding,
-                        groups=hidden_dim,
-                        bias=False,
-                    ),
-                    nn.BatchNorm2d(hidden_dim),
-                    nn.SiLU(),
-                    nn.Conv2d(hidden_dim, hidden_dim, 1, bias=False),
-                    nn.BatchNorm2d(hidden_dim),
-                    nn.SiLU(),
-                )
-                for _ in range(num_levels)
-            ]
-        )
-        self.coord_proj = nn.Sequential(
-            nn.Linear(4, hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-        )
-        self.relation_proj = nn.Sequential(
-            nn.Linear(hidden_dim * 4, hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-        )
-        self.relation_gate = nn.Sequential(
-            nn.Linear(hidden_dim * 4, hidden_dim),
-            nn.Sigmoid(),
-        )
-
-    def _build_coord_context(self, height, width, batch_size, dtype, device):
-        y, x = torch.meshgrid(
-            torch.arange(height, device=device, dtype=dtype),
-            torch.arange(width, device=device, dtype=dtype),
-            indexing="ij",
-        )
-        coord = torch.stack(
-            [
-                (x + 0.5) / width,
-                (y + 0.5) / height,
-                torch.full_like(x, 1.0 / width),
-                torch.full_like(y, 1.0 / height),
-            ],
-            dim=-1,
-        ).reshape(1, height * width, 4)
-        return self.coord_proj(coord).expand(batch_size, -1, -1)
-
-    def forward(self, memory, spatial_shapes):
-        batch_size, _, channels = memory.shape
-        relation_features = []
-        start = 0
-
-        for level, (height, width) in enumerate(spatial_shapes):
-            height, width = int(height), int(width)
-            length = height * width
-            level_memory = memory[:, start : start + length, :]
-            level_feature = level_memory.transpose(1, 2).reshape(
-                batch_size, channels, height, width
-            )
-
-            local_context = (
-                self.local_blocks[level](level_feature).flatten(2).transpose(1, 2)
-            )
-            global_context = level_memory.mean(dim=1, keepdim=True).expand(
-                -1, length, -1
-            )
-            coord_context = self._build_coord_context(
-                height,
-                width,
-                batch_size,
-                level_memory.dtype,
-                level_memory.device,
-            )
-
-            relation_input = torch.cat(
-                [level_memory, local_context, global_context, coord_context], dim=-1
-            )
-            relation_delta = self.relation_proj(relation_input)
-            relation_gate = self.relation_gate(relation_input)
-            relation_features.append(level_memory + relation_gate * relation_delta)
-            start += length
-
-        return torch.cat(relation_features, dim=1)
-
-
-class BehaviorContextEnhancementAttention(nn.Module):
-    """BCEA: enhances encoder memory with local behavior-context residuals."""
-
-    def __init__(self, hidden_dim=256, num_levels=3, kernel_size=3, init_scale=0.01):
-        super().__init__()
-        padding = kernel_size // 2
-        self.blocks = nn.ModuleList(
-            [
-                nn.Sequential(
-                    nn.Conv2d(
-                        hidden_dim,
-                        hidden_dim,
-                        kernel_size,
-                        padding=padding,
-                        groups=hidden_dim,
-                        bias=False,
-                    ),
-                    nn.BatchNorm2d(hidden_dim),
-                    nn.SiLU(),
-                    nn.Conv2d(hidden_dim, hidden_dim, 1, bias=False),
-                    nn.BatchNorm2d(hidden_dim),
-                    nn.SiLU(),
-                )
-                for _ in range(num_levels)
-            ]
-        )
-        self.gate = nn.Sequential(nn.Linear(hidden_dim * 2, hidden_dim), nn.Sigmoid())
-        self.gamma = nn.Parameter(torch.full((num_levels,), float(init_scale)))
-
-    def forward(self, memory, spatial_shapes):
-        batch_size, _, channels = memory.shape
-        enhanced_memory = []
-        start = 0
-
-        for level, (height, width) in enumerate(spatial_shapes):
-            length = height * width
-            level_memory = memory[:, start : start + length, :]
-            level_feature = level_memory.transpose(1, 2).reshape(
-                batch_size, channels, height, width
-            )
-
-            local_context = self.blocks[level](level_feature).flatten(2).transpose(1, 2)
-            context_gate = self.gate(torch.cat([level_memory, local_context], dim=-1))
-            scale = self.gamma[level].to(dtype=level_memory.dtype)
-            enhanced_memory.append(level_memory + scale * context_gate * local_context)
-            start += length
-
-        return torch.cat(enhanced_memory, dim=1)
-
-
-class StudentBehaviorFeatureEnhancer(nn.Module):
-    """SBFE: lightweight residual enhancement for behavior-related multi-scale features."""
-
-    def __init__(
-        self,
-        hidden_dim=256,
-        num_levels=3,
-        kernel_size=3,
-        reduction=4,
-        init_scale=0.01,
-    ):
-        super().__init__()
-        padding = kernel_size // 2
-        reduced_dim = max(hidden_dim // reduction, 16)
-
-        self.local_blocks = nn.ModuleList(
-            [
-                nn.Sequential(
-                    nn.Conv2d(
-                        hidden_dim,
-                        hidden_dim,
-                        kernel_size,
-                        padding=padding,
-                        groups=hidden_dim,
-                        bias=False,
-                    ),
-                    nn.BatchNorm2d(hidden_dim),
-                    nn.SiLU(),
-                    nn.Conv2d(hidden_dim, hidden_dim, 1, bias=False),
-                    nn.BatchNorm2d(hidden_dim),
-                    nn.SiLU(),
-                )
-                for _ in range(num_levels)
-            ]
-        )
-        self.channel_gates = nn.ModuleList(
-            [
-                nn.Sequential(
-                    nn.Conv2d(hidden_dim, reduced_dim, 1),
-                    nn.SiLU(),
-                    nn.Conv2d(reduced_dim, hidden_dim, 1),
-                    nn.Sigmoid(),
-                )
-                for _ in range(num_levels)
-            ]
-        )
-        self.spatial_gates = nn.ModuleList(
-            [
-                nn.Sequential(
-                    nn.Conv2d(2, 1, kernel_size, padding=padding),
-                    nn.Sigmoid(),
-                )
-                for _ in range(num_levels)
-            ]
-        )
-        self.gamma = nn.Parameter(torch.full((num_levels,), float(init_scale)))
-
-    def forward(self, feats):
-        enhanced_feats = []
-        for level, feat in enumerate(feats):
-            local_feat = self.local_blocks[level](feat)
-            channel_gate = self.channel_gates[level](F.adaptive_avg_pool2d(local_feat, 1))
-
-            spatial_avg = local_feat.mean(dim=1, keepdim=True)
-            spatial_max = local_feat.amax(dim=1, keepdim=True)
-            spatial_gate = self.spatial_gates[level](torch.cat([spatial_avg, spatial_max], dim=1))
-
-            enhanced = local_feat * channel_gate * spatial_gate
-            scale = self.gamma[level].to(dtype=feat.dtype)
-            enhanced_feats.append(feat + scale * enhanced)
-
-        return enhanced_feats
-
-
-class BehaviorQueryFeatureEnhancer(nn.Module):
-    """BQFE: enhances encoder memory before query scoring and initialization."""
-
-    def __init__(
-        self,
-        hidden_dim=256,
-        num_levels=3,
-        kernel_size=3,
-        reduction=4,
-        init_scale=0.01,
-    ):
-        super().__init__()
-        padding = kernel_size // 2
-        reduced_dim = max(hidden_dim // reduction, 16)
-
-        self.local_blocks = nn.ModuleList(
-            [
-                nn.Sequential(
-                    nn.Conv2d(
-                        hidden_dim,
-                        hidden_dim,
-                        kernel_size,
-                        padding=padding,
-                        groups=hidden_dim,
-                        bias=False,
-                    ),
-                    nn.BatchNorm2d(hidden_dim),
-                    nn.SiLU(),
-                    nn.Conv2d(hidden_dim, hidden_dim, 1, bias=False),
-                    nn.BatchNorm2d(hidden_dim),
-                    nn.SiLU(),
-                )
-                for _ in range(num_levels)
-            ]
-        )
-        self.channel_gates = nn.ModuleList(
-            [
-                nn.Sequential(
-                    nn.Conv2d(hidden_dim, reduced_dim, 1),
-                    nn.SiLU(),
-                    nn.Conv2d(reduced_dim, hidden_dim, 1),
-                    nn.Sigmoid(),
-                )
-                for _ in range(num_levels)
-            ]
-        )
-        self.spatial_gates = nn.ModuleList(
-            [
-                nn.Sequential(
-                    nn.Conv2d(2, 1, kernel_size, padding=padding),
-                    nn.Sigmoid(),
-                )
-                for _ in range(num_levels)
-            ]
-        )
-        self.gamma = nn.Parameter(torch.full((num_levels,), float(init_scale)))
-
-    def forward(self, memory, spatial_shapes):
-        batch_size, _, channels = memory.shape
-        enhanced_memory = []
-        start = 0
-
-        for level, (height, width) in enumerate(spatial_shapes):
-            length = height * width
-            level_memory = memory[:, start : start + length, :]
-            level_feature = level_memory.transpose(1, 2).reshape(
-                batch_size, channels, height, width
-            )
-
-            local_feature = self.local_blocks[level](level_feature)
-            channel_gate = self.channel_gates[level](
-                F.adaptive_avg_pool2d(local_feature, 1)
-            )
-
-            spatial_avg = local_feature.mean(dim=1, keepdim=True)
-            spatial_max = local_feature.amax(dim=1, keepdim=True)
-            spatial_gate = self.spatial_gates[level](
-                torch.cat([spatial_avg, spatial_max], dim=1)
-            )
-
-            enhanced_feature = local_feature * channel_gate * spatial_gate
-            scale = self.gamma[level].to(dtype=level_feature.dtype)
-            level_feature = level_feature + scale * enhanced_feature
-            enhanced_memory.append(level_feature.flatten(2).transpose(1, 2))
-            start += length
-
-        return torch.cat(enhanced_memory, dim=1)
-
-
-class BehaviorRegionEnhancer(nn.Module):
-    """BRA: decoder-stage enhancement conditioned on query features and reference boxes."""
-
-    def __init__(self, hidden_dim=256, reduction=4, init_scale=0.01):
-        super().__init__()
-        reduced_dim = max(hidden_dim // reduction, 16)
-        self.query_proj = nn.Sequential(
-            nn.Linear(hidden_dim, reduced_dim),
-            nn.SiLU(),
-            nn.Linear(reduced_dim, hidden_dim),
-        )
-        self.region_proj = nn.Sequential(
-            nn.Linear(4, reduced_dim),
-            nn.SiLU(),
-            nn.Linear(reduced_dim, hidden_dim),
-        )
-        self.gate = nn.Sequential(nn.Linear(hidden_dim * 2, hidden_dim), nn.Sigmoid())
-        self.out_proj = nn.Linear(hidden_dim, hidden_dim)
-        self.gamma = nn.Parameter(torch.tensor(float(init_scale)))
-
-        init.constant_(self.out_proj.weight, 0)
-        init.constant_(self.out_proj.bias, 0)
-
-    def forward(self, query, ref_boxes):
-        region_feat = self.region_proj(ref_boxes.detach())
-        query_feat = self.query_proj(query)
-        gate = self.gate(torch.cat([query, region_feat], dim=-1))
-        enhanced = self.out_proj(gate * query_feat + (1.0 - gate) * region_feat)
-        return query + self.gamma.to(dtype=query.dtype) * enhanced
-
-
 class MSDeformableAttention(nn.Module):
     def __init__(
         self,
@@ -974,174 +271,6 @@ class Gate(nn.Module):
         return self.norm(gate1 * x1 + gate2 * x2)
 
 
-class AdaptiveQuerySelectionRefiner(nn.Module):
-    """D-FINE adaptation of A2QTrans' adaptive quantization selection (AQS).
-
-    A2QTrans quantizes transformer-token importance with a learned threshold.
-    Detection has no CLS token, so this adapter quantizes per-query foreground
-    confidence and uses the selected queries to form a classification context.
-    Query count and the box-regression stream are left unchanged.
-    """
-
-    def __init__(self, hidden_dim, threshold=0.5, temperature=0.1, residual_init=0.05):
-        super().__init__()
-        assert 0.0 < threshold < 1.0
-        assert temperature > 0.0
-        self.threshold_logit = nn.Parameter(
-            torch.tensor(math.log(threshold / (1.0 - threshold)))
-        )
-        self.temperature = float(temperature)
-        self.norm = nn.LayerNorm(hidden_dim)
-        self.fuse = nn.Sequential(
-            nn.Linear(2 * hidden_dim, hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-        )
-        self.residual_scale = nn.Parameter(torch.tensor(float(residual_init)))
-        init.constant_(self.fuse[-1].weight, 0)
-        init.constant_(self.fuse[-1].bias, 0)
-
-    def forward(self, query, logits):
-        importance = logits.sigmoid().amax(dim=-1)
-        threshold = self.threshold_logit.sigmoid().to(dtype=importance.dtype)
-        soft_gate = torch.sigmoid((importance - threshold) / self.temperature)
-        hard_gate = (soft_gate >= 0.5).to(dtype=soft_gate.dtype)
-        # Straight-through estimator: hard selection in forward, smooth gradient.
-        gate = hard_gate.detach() - soft_gate.detach() + soft_gate
-        denom = gate.sum(dim=1, keepdim=True).clamp_min(1.0)
-        context = (query * gate.unsqueeze(-1)).sum(dim=1, keepdim=True)
-        context = context / denom.unsqueeze(-1)
-        context = context.expand(-1, query.shape[1], -1)
-        delta = self.fuse(torch.cat([self.norm(query), context], dim=-1))
-        scale = torch.tanh(self.residual_scale).to(dtype=query.dtype)
-        return query + scale * gate.unsqueeze(-1).to(dtype=query.dtype) * delta
-
-
-class ContextGenerationRefiner(nn.Module):
-    """D-FINE query adaptation of H3Former's context generation module (CGM).
-
-    The paper uses average, maximum and attention-weighted multi-stage token
-    contexts. Here the three statistics are computed over final decoder queries,
-    with foreground confidence providing the attention weights.
-    """
-
-    def __init__(self, hidden_dim, residual_init=0.05):
-        super().__init__()
-        self.norm = nn.LayerNorm(hidden_dim)
-        self.avg_proj = nn.Linear(hidden_dim, hidden_dim)
-        self.max_proj = nn.Linear(hidden_dim, hidden_dim)
-        self.attn_proj = nn.Linear(hidden_dim, hidden_dim)
-        self.fuse = nn.Sequential(
-            nn.Linear(4 * hidden_dim, hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-        )
-        self.residual_scale = nn.Parameter(torch.tensor(float(residual_init)))
-        init.constant_(self.fuse[-1].weight, 0)
-        init.constant_(self.fuse[-1].bias, 0)
-
-    def forward(self, query, logits):
-        x = self.norm(query)
-        confidence = logits.sigmoid().amax(dim=-1)
-        weights = F.softmax(confidence, dim=1).unsqueeze(-1)
-        avg_context = self.avg_proj(x.mean(dim=1))
-        max_context = self.max_proj(x.amax(dim=1))
-        attn_context = self.attn_proj((x * weights).sum(dim=1))
-        context = torch.cat([avg_context, max_context, attn_context], dim=-1)
-        context = context.unsqueeze(1).expand(-1, query.shape[1], -1)
-        delta = self.fuse(torch.cat([x, context], dim=-1))
-        scale = torch.tanh(self.residual_scale).to(dtype=query.dtype)
-        return query + scale * delta
-
-
-class SemanticAwareHypergraphRefiner(nn.Module):
-    """D-FINE query adaptation of H3Former's SAAM hypergraph propagation.
-
-    Decoder queries are vertices and learned semantic prototypes define soft
-    hyperedges. V->E->V propagation follows the released SAAM implementation.
-    Only the final classification feature is refined.
-    """
-
-    def __init__(
-        self,
-        hidden_dim,
-        num_hyperedges=16,
-        key_dim=32,
-        dropout=0.0,
-        residual_init=0.05,
-    ):
-        super().__init__()
-        assert num_hyperedges > 0 and key_dim > 0
-        self.norm = nn.LayerNorm(hidden_dim)
-        self.query_proj = nn.Linear(hidden_dim, key_dim)
-        self.prototype = nn.Parameter(torch.empty(num_hyperedges, key_dim))
-        self.edge_proj = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU())
-        self.node_proj = nn.Linear(hidden_dim, hidden_dim)
-        self.dropout = nn.Dropout(float(dropout))
-        self.residual_scale = nn.Parameter(torch.tensor(float(residual_init)))
-        init.xavier_uniform_(self.prototype)
-        init.constant_(self.node_proj.weight, 0)
-        init.constant_(self.node_proj.bias, 0)
-        self.key_dim = int(key_dim)
-
-    def forward(self, query, logits=None):
-        x = self.norm(query)
-        q = self.query_proj(x)
-        prototype = self.prototype.to(device=q.device, dtype=q.dtype)
-        incidence = torch.matmul(q, prototype.transpose(0, 1)) / math.sqrt(self.key_dim)
-        incidence = F.softmax(self.dropout(incidence), dim=1)
-        hyperedges = torch.bmm(incidence.transpose(1, 2), x)
-        hyperedges = self.edge_proj(hyperedges)
-        update = torch.bmm(incidence, hyperedges)
-        update = self.node_proj(update)
-        scale = torch.tanh(self.residual_scale).to(dtype=query.dtype)
-        return query + scale * update.to(dtype=query.dtype)
-
-
-class ClassificationRefineLayer(nn.Module):
-    """One lightweight, classification-only deformable cross-attention block.
-
-    The residual scale is initialized to zero, so enabling the module starts
-    from exactly the baseline classification features. Reference boxes are
-    detached by the decoder before they reach this branch.
-    """
-
-    def __init__(
-        self,
-        hidden_dim,
-        num_heads,
-        num_levels,
-        num_points,
-        cross_attn_method="default",
-        residual_init=0.0,
-    ):
-        super().__init__()
-        self.cross_attn = MSDeformableAttention(
-            hidden_dim,
-            num_heads,
-            num_levels,
-            num_points,
-            method=cross_attn_method,
-        )
-        self.delta_norm = nn.LayerNorm(hidden_dim)
-        self.gate = nn.Linear(2 * hidden_dim, hidden_dim)
-        self.residual_scale = nn.Parameter(torch.tensor(float(residual_init)))
-        init.constant_(self.gate.weight, 0)
-        init.constant_(self.gate.bias, 0)
-
-    def forward(self, content, reference_points, value, spatial_shapes, query_pos_embed):
-        delta = self.cross_attn(
-            content + query_pos_embed,
-            reference_points.detach().unsqueeze(2),
-            value,
-            spatial_shapes,
-        )
-        delta = self.delta_norm(delta)
-        gate = torch.sigmoid(self.gate(torch.cat([content, delta], dim=-1)))
-        scale = torch.tanh(self.residual_scale).to(dtype=content.dtype)
-        return content + scale * gate.to(dtype=content.dtype) * delta.to(dtype=content.dtype)
-
-
 class Integral(nn.Module):
     """
     A static layer that calculates integral results from a distribution.
@@ -1162,8 +291,7 @@ class Integral(nn.Module):
     def forward(self, x, project):
         shape = x.shape
         x = F.softmax(x.reshape(-1, self.reg_max + 1), dim=1)
-        project = project.to(device=x.device, dtype=x.dtype)
-        x = (x * project).sum(dim=1).reshape(-1, 4)
+        x = F.linear(x, project.to(x.device)).reshape(-1, 4)
         return x.reshape(list(shape[:-1]) + [-1])
 
 
@@ -1183,84 +311,6 @@ class LQE(nn.Module):
         stat = torch.cat([prob_topk, prob_topk.mean(dim=-1, keepdim=True)], dim=-1)
         quality_score = self.reg_conf(stat.reshape(B, L, -1))
         return scores + quality_score
-
-
-class RegionBilinearClassifier(nn.Module):
-    """Optional final-layer classification residual from P3 region interactions.
-
-    Boxes only select sampling locations; their coordinates are detached.  The
-    zero-initialized output starts with exactly the baseline classification.
-    """
-
-    def __init__(self, hidden_dim=256, rank=32, roi_size=7, level=0, num_classes=5):
-        super().__init__()
-        if rank < 1 or roi_size < 1 or level < 0:
-            raise ValueError("rank, roi_size and level must be valid")
-        self.rank, self.roi_size, self.level = rank, roi_size, level
-        self.reduce = nn.Conv2d(hidden_dim, rank, 1)
-        self.classifier = nn.Linear(rank * rank, num_classes)
-        init.zeros_(self.classifier.weight)
-        init.zeros_(self.classifier.bias)
-
-    def forward(self, memory, spatial_shapes, boxes):
-        if self.level >= len(spatial_shapes):
-            raise ValueError("bilinear ROI level exceeds decoder feature levels")
-        start = sum(h * w for h, w in spatial_shapes[:self.level])
-        h, w = spatial_shapes[self.level]
-        feature = memory[:, start:start + h * w].transpose(1, 2).reshape(memory.shape[0], -1, h, w)
-        feature = self.reduce(feature)
-        boxes = boxes.detach()
-        batch, count = boxes.shape[:2]
-        offsets = torch.linspace(-0.5, 0.5, self.roi_size, device=boxes.device, dtype=boxes.dtype)
-        yy, xx = torch.meshgrid(offsets, offsets, indexing="ij")
-        offsets = torch.stack((xx, yy), -1).view(1, 1, self.roi_size, self.roi_size, 2)
-        grid = (boxes[..., :2].view(batch, count, 1, 1, 2)
-                + offsets * boxes[..., 2:].clamp_min(1e-4).view(batch, count, 1, 1, 2))
-        grid = grid.mul(2).sub(1).reshape(batch, count * self.roi_size, self.roi_size, 2).to(feature.dtype)
-        sampled = F.grid_sample(feature, grid, mode="bilinear", padding_mode="border", align_corners=False)
-        sampled = sampled.reshape(batch, self.rank, count, self.roi_size ** 2).permute(0, 2, 1, 3)
-        second_order = torch.matmul(sampled.float(), sampled.float().transpose(-1, -2)) / (self.roi_size ** 2)
-        descriptor = second_order.flatten(-2)
-        descriptor = F.normalize(descriptor.sign() * descriptor.abs().clamp_min(1e-12).sqrt(), dim=-1)
-        return self.classifier(descriptor.to(dtype=feature.dtype))
-
-
-class DuplicateRelationHead(nn.Module):
-    """Score each final matching query against its most overlapping neighbors."""
-
-    def __init__(self, hidden_dim=256, neighbors=8):
-        super().__init__()
-        if neighbors < 1:
-            raise ValueError("neighbors must be positive")
-        self.neighbors = neighbors
-        self.keep = nn.Sequential(nn.Linear(hidden_dim * 2 + 2, 128), nn.ReLU(), nn.Linear(128, 1))
-        init.zeros_(self.keep[-1].weight)
-        init.zeros_(self.keep[-1].bias)
-
-    def forward(self, query, boxes, logits):
-        batch, count, channels = query.shape
-        if count < 2:
-            return query.new_zeros((batch, count, 1))
-        boxes = boxes.detach().float()
-        xy1 = boxes[..., :2] - boxes[..., 2:] / 2
-        xy2 = boxes[..., :2] + boxes[..., 2:] / 2
-        intersection = (torch.minimum(xy2[:, :, None], xy2[:, None])
-                        - torch.maximum(xy1[:, :, None], xy1[:, None])).clamp_min(0).prod(-1)
-        areas = boxes[..., 2:].prod(-1)
-        overlap = intersection / (areas[:, :, None] + areas[:, None] - intersection).clamp_min(1e-7)
-        diagonal = torch.eye(count, dtype=torch.bool, device=query.device).unsqueeze(0)
-        overlap = overlap.masked_fill(diagonal, -1)
-        values, neighbors = overlap.topk(min(self.neighbors, count - 1), dim=-1)
-        batch_ids = torch.arange(batch, device=query.device)[:, None, None]
-        neighbor_query = query[batch_ids, neighbors]
-        neighbor_score = logits.detach().sigmoid().amax(-1)[batch_ids, neighbors]
-        weights = values.clamp_min(0)
-        weights = (weights / weights.sum(-1, keepdim=True).clamp_min(1e-6)).to(query.dtype)
-        context = (neighbor_query * weights.unsqueeze(-1)).sum(-2)
-        strongest = (neighbor_score * weights).sum(-1, keepdim=True)
-        evidence = torch.cat((query, context, values[..., :1].clamp_min(0).to(query.dtype),
-                              strongest.to(query.dtype)), -1)
-        return self.keep(evidence)
 
 
 class TransformerDecoder(nn.Module):
@@ -1284,58 +334,14 @@ class TransformerDecoder(nn.Module):
         up,
         eval_idx=-1,
         layer_scale=2,
-        use_afdr=False,
-        afdr_range=0.25,
-        use_bra=False,
-        bra_reduction=4,
-        bra_init=0.01,
-        use_baqa=False,
-        baqa_num_agents=6,
-        baqa_num_heads=8,
-        baqa_dropout=0.0,
-        baqa_init=0.01,
-        use_sbdh=False,
-        sbdh_group_ids=None,
-        sbdh_group_weight=0.25,
-        return_query_features=False,
-        use_cls_refine=False,
-        cls_refine_num_levels=3,
-        cls_refine_num_points=4,
-        cls_refine_cross_attn_method="default",
-        cls_refine_residual_init=0.0,
-        use_aqs_refine=False,
-        aqs_threshold=0.5,
-        aqs_temperature=0.1,
-        aqs_residual_init=0.05,
-        use_cgm_refine=False,
-        cgm_residual_init=0.05,
-        use_saam_refine=False,
-        saam_num_hyperedges=16,
-        saam_key_dim=32,
-        saam_dropout=0.0,
-        saam_residual_init=0.05,
-        capture_query_features=False,
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
-        self.capture_query_features = bool(capture_query_features)
         self.num_layers = num_layers
         self.layer_scale = layer_scale
         self.num_head = num_head
         self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
         self.up, self.reg_scale, self.reg_max = up, reg_scale, reg_max
-        self.use_afdr = use_afdr
-        self.afdr_range = afdr_range
-        self.use_bra = use_bra
-        self.use_baqa = use_baqa
-        self.return_query_features = bool(return_query_features)
-        self.use_cls_refine = bool(use_cls_refine)
-        self.use_aqs_refine = bool(use_aqs_refine)
-        self.use_cgm_refine = bool(use_cgm_refine)
-        self.use_saam_refine = bool(use_saam_refine)
-        assert sum(
-            [self.use_cls_refine, self.use_aqs_refine, self.use_cgm_refine, self.use_saam_refine]
-        ) <= 1, "classification refinement experiments are mutually exclusive"
         self.layers = nn.ModuleList(
             [copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)]
             + [copy.deepcopy(decoder_layer_wide) for _ in range(num_layers - self.eval_idx - 1)]
@@ -1343,93 +349,6 @@ class TransformerDecoder(nn.Module):
         self.lqe_layers = nn.ModuleList(
             [copy.deepcopy(LQE(4, 64, 2, reg_max)) for _ in range(num_layers)]
         )
-        if self.use_cls_refine:
-            # Do not let initialization of this optional branch advance the
-            # global RNG and silently change baseline head initialization.
-            with torch.random.fork_rng(devices=[]):
-                self.cls_refine = ClassificationRefineLayer(
-                    hidden_dim,
-                    num_head,
-                    cls_refine_num_levels,
-                    cls_refine_num_points,
-                    cls_refine_cross_attn_method,
-                    cls_refine_residual_init,
-                )
-        else:
-            self.cls_refine = None
-        with torch.random.fork_rng(devices=[]):
-            if self.use_aqs_refine:
-                self.query_cls_refiner = AdaptiveQuerySelectionRefiner(
-                    hidden_dim, aqs_threshold, aqs_temperature, aqs_residual_init
-                )
-            elif self.use_cgm_refine:
-                self.query_cls_refiner = ContextGenerationRefiner(
-                    hidden_dim, cgm_residual_init
-                )
-            elif self.use_saam_refine:
-                self.query_cls_refiner = SemanticAwareHypergraphRefiner(
-                    hidden_dim,
-                    saam_num_hyperedges,
-                    saam_key_dim,
-                    saam_dropout,
-                    saam_residual_init,
-                )
-            else:
-                self.query_cls_refiner = None
-        if self.use_afdr:
-            scaled_dim = round(layer_scale * hidden_dim)
-            self.afdr_heads = nn.ModuleList(
-                [MLP(hidden_dim, hidden_dim, 4, 2) for _ in range(self.eval_idx + 1)]
-                + [
-                    MLP(scaled_dim, scaled_dim, 4, 2)
-                    for _ in range(num_layers - self.eval_idx - 1)
-                ]
-            )
-            for head in self.afdr_heads:
-                init.constant_(head.layers[-1].weight, 0)
-                init.constant_(head.layers[-1].bias, 0)
-        else:
-            self.afdr_heads = None
-        if self.use_bra:
-            scaled_dim = round(layer_scale * hidden_dim)
-            self.bra_layers = nn.ModuleList(
-                [
-                    BehaviorRegionEnhancer(hidden_dim, bra_reduction, bra_init)
-                    for _ in range(self.eval_idx + 1)
-                ]
-                + [
-                    BehaviorRegionEnhancer(scaled_dim, bra_reduction, bra_init)
-                    for _ in range(num_layers - self.eval_idx - 1)
-                ]
-            )
-        else:
-            self.bra_layers = None
-        if self.use_baqa:
-            scaled_dim = round(layer_scale * hidden_dim)
-            self.baqa_layers = nn.ModuleList(
-                [
-                    BehaviorAgentQueryAttention(
-                        hidden_dim,
-                        baqa_num_agents,
-                        baqa_num_heads,
-                        baqa_dropout,
-                        baqa_init,
-                    )
-                    for _ in range(self.eval_idx + 1)
-                ]
-                + [
-                    BehaviorAgentQueryAttention(
-                        scaled_dim,
-                        baqa_num_agents,
-                        baqa_num_heads,
-                        baqa_dropout,
-                        baqa_init,
-                    )
-                    for _ in range(num_layers - self.eval_idx - 1)
-                ]
-            )
-        else:
-            self.baqa_layers = None
 
     def value_op(self, memory, value_proj, value_scale, memory_mask, memory_spatial_shapes):
         """
@@ -1449,27 +368,6 @@ class TransformerDecoder(nn.Module):
         self.lqe_layers = nn.ModuleList(
             [nn.Identity()] * (self.eval_idx) + [self.lqe_layers[self.eval_idx]]
         )
-        if self.use_baqa:
-            self.baqa_layers = self.baqa_layers[: self.eval_idx + 1]
-
-    def _apply_query_cls_refiner(self, query, logits, dn_meta):
-        """Refine denoising and matching queries without cross-group leakage."""
-        if self.query_cls_refiner is None:
-            return query
-        if self.training and dn_meta is not None:
-            split_sizes = dn_meta.get("dn_num_split")
-            if split_sizes is None or sum(split_sizes) != query.shape[1]:
-                raise ValueError(
-                    "dn_meta['dn_num_split'] must exactly partition decoder queries"
-                )
-            query_groups = torch.split(query, split_sizes, dim=1)
-            logit_groups = torch.split(logits, split_sizes, dim=1)
-            refined_groups = [
-                self.query_cls_refiner(group_query, group_logits)
-                for group_query, group_logits in zip(query_groups, logit_groups)
-            ]
-            return torch.cat(refined_groups, dim=1)
-        return self.query_cls_refiner(query, logits)
 
     def forward(
         self,
@@ -1496,8 +394,6 @@ class TransformerDecoder(nn.Module):
         dec_out_logits = []
         dec_out_pred_corners = []
         dec_out_refs = []
-        final_query_features = None
-        final_teacher_logits = None
         if not hasattr(self, "project"):
             project = weighting_function(self.reg_max, up, reg_scale)
         else:
@@ -1521,73 +417,27 @@ class TransformerDecoder(nn.Module):
             output = layer(
                 output, ref_points_input, value, spatial_shapes, attn_mask, query_pos_embed
             )
-            head_output = (
-                self.bra_layers[i](output, ref_points_detach) if self.use_bra else output
-            )
 
             if i == 0:
                 # Initial bounding box predictions with inverse sigmoid refinement
-                pre_bboxes = F.sigmoid(
-                    pre_bbox_head(head_output) + inverse_sigmoid(ref_points_detach)
-                )
-                cls_head_output = (
-                    self.baqa_layers[i](head_output) if self.use_baqa else head_output
-                )
-                pre_scores = score_head[0](cls_head_output)
+                pre_bboxes = F.sigmoid(pre_bbox_head(output) + inverse_sigmoid(ref_points_detach))
+                pre_scores = score_head[0](output)
                 ref_points_initial = pre_bboxes.detach()
 
             # Refine bounding box corners using FDR, integrating previous layer's corrections
-            pred_corners = bbox_head[i](head_output + output_detach) + pred_corners_undetach
-            distance = integral(pred_corners, project)
-            if self.use_afdr:
-
-                afdr_scale = 1.0 + self.afdr_range * torch.tanh(self.afdr_heads[i](head_output))
-                distance = distance * afdr_scale
-            inter_ref_bbox = distance2bbox(ref_points_initial, distance, reg_scale)
+            pred_corners = bbox_head[i](output + output_detach) + pred_corners_undetach
+            inter_ref_bbox = distance2bbox(
+                ref_points_initial, integral(pred_corners, project), reg_scale
+            )
 
             if self.training or i == self.eval_idx:
-                base_cls_head_output = (
-                    self.baqa_layers[i](head_output) if self.use_baqa else head_output
-                )
-                base_scores = score_head[i](base_cls_head_output)
-                base_scores = self.lqe_layers[i](base_scores, pred_corners)
-                cls_head_output = base_cls_head_output
-                if self.use_cls_refine and i == self.eval_idx:
-                    cls_ref_points = inter_ref_bbox.detach()
-                    cls_query_pos = query_pos_head(cls_ref_points).clamp(min=-10, max=10)
-                    cls_head_output = self.cls_refine(
-                        cls_head_output,
-                        cls_ref_points,
-                        value,
-                        spatial_shapes,
-                        cls_query_pos,
-                    )
-                    scores = score_head[i](cls_head_output)
-                    scores = self.lqe_layers[i](scores, pred_corners)
-                    # GO-LSD keeps using the unrefined classification quality
-                    # so the classification ablation cannot alter localization
-                    # distillation weights.
-                    final_teacher_logits = base_scores
-                elif self.query_cls_refiner is not None and i == self.eval_idx:
-                    cls_head_output = self._apply_query_cls_refiner(
-                        base_cls_head_output, base_scores, dn_meta
-                    )
-                    scores = score_head[i](cls_head_output)
-                    scores = self.lqe_layers[i](scores, pred_corners)
-                    final_teacher_logits = base_scores
-                else:
-                    scores = base_scores
-                    if i == self.eval_idx:
-                        final_teacher_logits = base_scores
+                scores = score_head[i](output)
+                # Lqe does not affect the performance here.
+                scores = self.lqe_layers[i](scores, pred_corners)
                 dec_out_logits.append(scores)
                 dec_out_bboxes.append(inter_ref_bbox)
                 dec_out_pred_corners.append(pred_corners)
                 dec_out_refs.append(ref_points_initial)
-
-
-
-                if (self.training and self.return_query_features) or self.capture_query_features:
-                    final_query_features = cls_head_output
 
                 if not self.training:
                     break
@@ -1601,8 +451,6 @@ class TransformerDecoder(nn.Module):
             torch.stack(dec_out_logits),
             torch.stack(dec_out_pred_corners),
             torch.stack(dec_out_refs),
-            final_query_features,
-            final_teacher_logits,
             pre_bboxes,
             pre_scores,
         )
@@ -1639,74 +487,6 @@ class DFINETransformer(nn.Module):
         reg_max=32,
         reg_scale=4.0,
         layer_scale=1,
-        use_bcqs=False,
-        bcqs_kernel_size=3,
-        bcqs_score_weight=0.5,
-        bcqs_learn_score_weight=False,
-        bcqs_score_weight_min=0.15,
-        bcqs_score_weight_max=0.35,
-        use_iqs=False,
-        iqs_score_weight=0.25,
-        use_relation_bcqs=False,
-        relation_bcqs_kernel_size=3,
-        relation_bcqs_score_weight=0.25,
-        use_bcea=False,
-        bcea_kernel_size=3,
-        bcea_init=0.01,
-        use_afdr=False,
-        afdr_range=0.25,
-        use_sbfe=False,
-        sbfe_kernel_size=3,
-        sbfe_reduction=4,
-        sbfe_init=0.01,
-        use_bqfe=False,
-        bqfe_kernel_size=3,
-        bqfe_reduction=4,
-        bqfe_init=0.01,
-        use_bra=False,
-        bra_reduction=4,
-        bra_init=0.01,
-        use_paq_query=False,
-        paq_num_patterns=50,
-        paq_query_mode="replace",
-        paq_residual_init=0.05,
-        paq_gate_reduction=4,
-        use_bcqe=False,
-        bcqe_roi_size=3,
-        bcqe_expand_ratio=1.25,
-        bcqe_context_level=0,
-        use_paq_bcqs_fusion=False,
-        paq_bcqs_num_patterns=150,
-        paq_bcqs_kernel_size=3,
-        paq_bcqs_score_weight=0.25,
-        paq_bcqs_gate_init=0.03,
-        use_baqa=False,
-        baqa_num_agents=6,
-        baqa_num_heads=8,
-        baqa_dropout=0.0,
-        baqa_init=0.01,
-        use_sbdh=False,
-        sbdh_group_ids=None,
-        sbdh_group_weight=0.25,
-        return_query_features=False,
-        use_cls_refine=False,
-        cls_refine_residual_init=0.0,
-        use_aqs_refine=False,
-        aqs_threshold=0.5,
-        aqs_temperature=0.1,
-        aqs_residual_init=0.05,
-        use_cgm_refine=False,
-        cgm_residual_init=0.05,
-        use_saam_refine=False,
-        saam_num_hyperedges=16,
-        saam_key_dim=32,
-        saam_dropout=0.0,
-        saam_residual_init=0.05,
-        use_region_bilinear_cls=False,
-        region_bilinear_rank=32,
-        region_bilinear_roi_size=7,
-        use_duplicate_relation=False,
-        duplicate_neighbors=8,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -1722,10 +502,6 @@ class DFINETransformer(nn.Module):
         self.num_levels = num_levels
         self.num_classes = num_classes
         self.num_queries = num_queries
-        self.use_region_bilinear_cls = bool(use_region_bilinear_cls)
-        self.use_duplicate_relation = bool(use_duplicate_relation)
-        if self.use_region_bilinear_cls and self.use_duplicate_relation:
-            raise ValueError("Run region bilinear and duplicate relation as separate ablations")
         self.eps = eps
         self.num_layers = num_layers
         self.eval_spatial_size = eval_spatial_size
@@ -1736,150 +512,9 @@ class DFINETransformer(nn.Module):
         assert cross_attn_method in ("default", "discrete"), ""
         self.cross_attn_method = cross_attn_method
         self.query_select_method = query_select_method
-        self.use_bcqs = use_bcqs
-        if isinstance(bcqs_learn_score_weight, str):
-            bcqs_score_weight_mode = bcqs_learn_score_weight.lower()
-            if bcqs_score_weight_mode in ("false", "fixed", "none"):
-                bcqs_score_weight_mode = "fixed"
-            elif bcqs_score_weight_mode in ("true", "prior", "learn_prior", "bounded"):
-                bcqs_score_weight_mode = "learn_prior"
-            elif bcqs_score_weight_mode in ("zero", "learn_zero"):
-                bcqs_score_weight_mode = "learn_zero"
-            elif bcqs_score_weight_mode in ("adaptive", "local", "dynamic", "self_adaptive"):
-                bcqs_score_weight_mode = "adaptive"
-            else:
-                raise ValueError(f"Unsupported bcqs_learn_score_weight: {bcqs_learn_score_weight}")
-        else:
-            bcqs_score_weight_mode = "learn_prior" if bcqs_learn_score_weight else "fixed"
-        self.bcqs_score_weight_mode = bcqs_score_weight_mode
-        self.bcqs_learn_score_weight = self.bcqs_score_weight_mode != "fixed"
-        self.use_iqs = use_iqs
-        self.use_relation_bcqs = use_relation_bcqs
-        self.use_bcea = use_bcea
-        self.use_sbfe = use_sbfe
-        self.use_bqfe = use_bqfe
-        self.use_paq_query = use_paq_query
-        self.paq_query_mode = paq_query_mode
-        self.use_bcqe = use_bcqe
-        self.use_paq_bcqs_fusion = use_paq_bcqs_fusion
-        assert not (self.use_paq_query and self.use_paq_bcqs_fusion), (
-            "use_paq_query and use_paq_bcqs_fusion are mutually exclusive"
-        )
-        assert not (self.use_bcqs and self.use_paq_bcqs_fusion), (
-            "use_bcqs is already included in use_paq_bcqs_fusion"
-        )
-
-
-        self.enable_bcqs = self.use_bcqs or self.use_paq_bcqs_fusion
-        self.active_bcqs_kernel_size = (
-            paq_bcqs_kernel_size if self.use_paq_bcqs_fusion else bcqs_kernel_size
-        )
-        self.active_bcqs_score_weight = (
-            paq_bcqs_score_weight if self.use_paq_bcqs_fusion else bcqs_score_weight
-        )
-        self.use_baqa = use_baqa
-        self.use_sbdh = use_sbdh
-        self.return_query_features = bool(return_query_features)
-        self.use_cls_refine = bool(use_cls_refine)
-        self.use_aqs_refine = bool(use_aqs_refine)
-        self.use_cgm_refine = bool(use_cgm_refine)
-        self.use_saam_refine = bool(use_saam_refine)
-        assert sum(
-            [self.use_cls_refine, self.use_aqs_refine, self.use_cgm_refine, self.use_saam_refine]
-        ) <= 1, "classification refinement experiments are mutually exclusive"
-
-        if self.enable_bcqs:
-            active_score_weight = min(
-                max(float(self.active_bcqs_score_weight), 1e-4), 1.0 - 1e-4
-            )
-            self.bcqs_score_gate_init = math.log(
-                active_score_weight / (1.0 - active_score_weight)
-            )
-            if self.bcqs_score_weight_mode == "learn_zero":
-                self.bcqs_score_weight_param = nn.Parameter(torch.tensor(0.0))
-                self.bcqs_score_weight_min = None
-                self.bcqs_score_weight_range = None
-            elif self.bcqs_score_weight_mode == "adaptive":
-                min_weight = float(bcqs_score_weight_min)
-                max_weight = float(bcqs_score_weight_max)
-                assert 0.0 <= min_weight < max_weight <= 1.0, (
-                    "bcqs_score_weight_min/max must satisfy 0 <= min < max <= 1"
-                )
-                normalized_weight = (active_score_weight - min_weight) / (
-                    max_weight - min_weight
-                )
-                normalized_weight = min(max(normalized_weight, 1e-4), 1.0 - 1e-4)
-                self.bcqs_score_gate_init = math.log(
-                    normalized_weight / (1.0 - normalized_weight)
-                )
-                self.bcqs_score_weight_param = None
-                self.bcqs_score_weight_min = min_weight
-                self.bcqs_score_weight_range = max_weight - min_weight
-            elif self.bcqs_score_weight_mode == "learn_prior":
-                min_weight = float(bcqs_score_weight_min)
-                max_weight = float(bcqs_score_weight_max)
-                assert 0.0 <= min_weight < max_weight <= 1.0, (
-                    "bcqs_score_weight_min/max must satisfy 0 <= min < max <= 1"
-                )
-                normalized_weight = (active_score_weight - min_weight) / (
-                    max_weight - min_weight
-                )
-                normalized_weight = min(max(normalized_weight, 1e-4), 1.0 - 1e-4)
-                self.bcqs_score_weight_param = nn.Parameter(
-                    torch.tensor(math.log(normalized_weight / (1.0 - normalized_weight)))
-                )
-                self.bcqs_score_weight_min = min_weight
-                self.bcqs_score_weight_range = max_weight - min_weight
-            else:
-                self.bcqs_score_weight_param = None
-                self.bcqs_score_weight_min = None
-                self.bcqs_score_weight_range = None
-        else:
-            self.bcqs_score_gate_init = None
-            self.bcqs_score_weight_param = None
-            self.bcqs_score_weight_min = None
-            self.bcqs_score_weight_range = None
-
-        self.relation_bcqs_score_weight = relation_bcqs_score_weight
-        self.iqs_score_weight = float(iqs_score_weight)
 
         # backbone feature projection
         self._build_input_proj_layer(feat_channels)
-
-
-        if self.use_sbfe:
-            self.sbfe = StudentBehaviorFeatureEnhancer(
-                hidden_dim,
-                num_levels,
-                sbfe_kernel_size,
-                sbfe_reduction,
-                sbfe_init,
-            )
-        else:
-            self.sbfe = None
-
-
-        if self.use_bqfe:
-            self.bqfe = BehaviorQueryFeatureEnhancer(
-                hidden_dim,
-                num_levels,
-                bqfe_kernel_size,
-                bqfe_reduction,
-                bqfe_init,
-            )
-        else:
-            self.bqfe = None
-
-
-        if self.use_bcea:
-            self.bcea = BehaviorContextEnhancementAttention(
-                hidden_dim,
-                num_levels,
-                bcea_kernel_size,
-                bcea_init,
-            )
-        else:
-            self.bcea = None
 
         # Transformer module
         self.up = nn.Parameter(torch.tensor([0.5]), requires_grad=False)
@@ -1916,48 +551,7 @@ class DFINETransformer(nn.Module):
             self.up,
             eval_idx,
             layer_scale,
-            use_afdr,
-            afdr_range,
-            use_bra,
-            bra_reduction,
-            bra_init,
-            use_baqa,
-            baqa_num_agents,
-            baqa_num_heads,
-            baqa_dropout,
-            baqa_init,
-            use_sbdh=use_sbdh,
-            sbdh_group_ids=sbdh_group_ids,
-            sbdh_group_weight=sbdh_group_weight,
-            return_query_features=self.return_query_features,
-            use_cls_refine=self.use_cls_refine,
-            cls_refine_num_levels=num_levels,
-            cls_refine_num_points=num_points,
-            cls_refine_cross_attn_method=cross_attn_method,
-            cls_refine_residual_init=cls_refine_residual_init,
-            use_aqs_refine=self.use_aqs_refine,
-            aqs_threshold=aqs_threshold,
-            aqs_temperature=aqs_temperature,
-            aqs_residual_init=aqs_residual_init,
-            use_cgm_refine=self.use_cgm_refine,
-            cgm_residual_init=cgm_residual_init,
-            use_saam_refine=self.use_saam_refine,
-            saam_num_hyperedges=saam_num_hyperedges,
-            saam_key_dim=saam_key_dim,
-            saam_dropout=saam_dropout,
-            saam_residual_init=saam_residual_init,
-            capture_query_features=self.use_duplicate_relation,
         )
-        if self.use_region_bilinear_cls:
-            with torch.random.fork_rng(devices=[]):
-                self.region_bilinear_cls = RegionBilinearClassifier(
-                    hidden_dim, region_bilinear_rank, region_bilinear_roi_size, 0, num_classes
-                )
-        if self.use_duplicate_relation:
-            if layer_scale != 1:
-                raise ValueError("Duplicate relation requires layer_scale=1")
-            with torch.random.fork_rng(devices=[]):
-                self.duplicate_relation = DuplicateRelationHead(hidden_dim, duplicate_neighbors)
         # denoising
         self.num_denoising = num_denoising
         self.label_noise_ratio = label_noise_ratio
@@ -1973,37 +567,6 @@ class DFINETransformer(nn.Module):
         if learn_query_content:
             self.tgt_embed = nn.Embedding(num_queries, hidden_dim)
         self.query_pos_head = MLP(4, 2 * hidden_dim, hidden_dim, 2)
-
-        if self.use_paq_query:
-            self.paq_query = PaQDynamicQuery(
-                hidden_dim=hidden_dim,
-                num_patterns=paq_num_patterns,
-                act=activation,
-                mode=paq_query_mode,
-                residual_init=paq_residual_init,
-                gate_reduction=paq_gate_reduction,
-            )
-        else:
-            self.paq_query = None
-        if self.use_bcqe:
-            self.bcqe = BehaviorContextQueryEnhancer(
-                hidden_dim=hidden_dim,
-                roi_size=bcqe_roi_size,
-                expand_ratio=bcqe_expand_ratio,
-                context_level=bcqe_context_level,
-                act=activation,
-            )
-        else:
-            self.bcqe = None
-        if self.use_paq_bcqs_fusion:
-            self.paq_bcqs_query = BCQSGuidedPaQDynamicQuery(
-                hidden_dim=hidden_dim,
-                num_patterns=paq_bcqs_num_patterns,
-                gate_init=paq_bcqs_gate_init,
-                act=activation,
-            )
-        else:
-            self.paq_bcqs_query = None
 
         # if num_select_queries != self.num_queries:
         #     layer = TransformerEncoderLayer(hidden_dim, nhead, dim_feedforward, activation='gelu')
@@ -2028,52 +591,13 @@ class DFINETransformer(nn.Module):
         else:
             self.enc_score_head = nn.Linear(hidden_dim, num_classes)
 
-
-        if self.enable_bcqs:
-            self.bcqs = BehaviorContextQueryScorer(
-                hidden_dim, num_levels, self.active_bcqs_kernel_size
-            )
-
-            self.bcqs_score_head = nn.Linear(hidden_dim, 1)
-            self.bcqs_score_gate = MLP(2 * hidden_dim, hidden_dim, 1, 2, act=activation)
-        else:
-            self.bcqs = None
-            self.bcqs_score_head = None
-            self.bcqs_score_gate = None
-
-
-        if self.use_iqs:
-            self.iqs_score_head = nn.Linear(hidden_dim, 1)
-        else:
-            self.iqs_score_head = None
-
-
-        if self.use_relation_bcqs:
-            self.relation_bcqs = RelationAwareBehaviorContextQueryScorer(
-                hidden_dim, num_levels, relation_bcqs_kernel_size
-            )
-            self.relation_bcqs_score_head = nn.Linear(hidden_dim, 1)
-        else:
-            self.relation_bcqs = None
-            self.relation_bcqs_score_head = None
-
         self.enc_bbox_head = MLP(hidden_dim, hidden_dim, 4, 3)
 
         # decoder head
         self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
-        def build_score_head(dim):
-            if self.use_sbdh:
-                return SiblingBehaviorDecoupledHead(
-                    dim,
-                    num_classes,
-                    group_ids=sbdh_group_ids,
-                    group_weight=sbdh_group_weight,
-                )
-            return nn.Linear(dim, num_classes)
-
         self.dec_score_head = nn.ModuleList(
-            [build_score_head(hidden_dim) for _ in range(self.eval_idx + 1)]
-            + [build_score_head(scaled_dim) for _ in range(num_layers - self.eval_idx - 1)]
+            [nn.Linear(hidden_dim, num_classes) for _ in range(self.eval_idx + 1)]
+            + [nn.Linear(scaled_dim, num_classes) for _ in range(num_layers - self.eval_idx - 1)]
         )
         self.pre_bbox_head = MLP(hidden_dim, hidden_dim, 4, 3)
         self.dec_bbox_head = nn.ModuleList(
@@ -2113,27 +637,6 @@ class DFINETransformer(nn.Module):
     def _reset_parameters(self, feat_channels):
         bias = bias_init_with_prob(0.01)
         init.constant_(self.enc_score_head.bias, bias)
-        if self.enable_bcqs:
-
-            if self.bcqs_score_weight_mode != "learn_zero":
-                init.constant_(self.bcqs_score_head.weight, 0)
-                init.constant_(self.bcqs_score_head.bias, 0)
-            init.constant_(self.bcqs_score_gate.layers[-1].weight, 0)
-            if self.bcqs_score_weight_mode in ("learn_zero", "learn_prior"):
-
-
-                init.constant_(self.bcqs_score_gate.layers[-1].bias, 0)
-            else:
-                init.constant_(self.bcqs_score_gate.layers[-1].bias, self.bcqs_score_gate_init)
-        if self.use_iqs:
-
-
-            init.constant_(self.iqs_score_head.weight, 0)
-            init.constant_(self.iqs_score_head.bias, 0)
-        if self.use_relation_bcqs:
-
-            init.constant_(self.relation_bcqs_score_head.weight, 0)
-            init.constant_(self.relation_bcqs_score_head.bias, 0)
         init.constant_(self.enc_bbox_head.layers[-1].weight, 0)
         init.constant_(self.enc_bbox_head.layers[-1].bias, 0)
 
@@ -2211,9 +714,6 @@ class DFINETransformer(nn.Module):
                 else:
                     proj_feats.append(self.input_proj[i](proj_feats[-1]))
 
-        if self.use_sbfe:
-            proj_feats = self.sbfe(proj_feats)
-
         # get encoder inputs
         feat_flatten = []
         spatial_shapes = []
@@ -2270,57 +770,10 @@ class DFINETransformer(nn.Module):
         memory = valid_mask.to(memory.dtype) * memory
 
         output_memory: torch.Tensor = self.enc_output(memory)
-        if self.use_bqfe:
-            output_memory = self.bqfe(output_memory, spatial_shapes)
-        if self.use_bcea:
-            output_memory = self.bcea(output_memory, spatial_shapes)
-
         enc_outputs_logits: torch.Tensor = self.enc_score_head(output_memory)
-        bcqs_memory = None
-        if self.enable_bcqs:
-
-
-
-
-
-
-            bcqs_memory = self.bcqs(output_memory, spatial_shapes)
-            bcqs_logits = self.bcqs_score_head(bcqs_memory)
-            bcqs_score_gate = torch.sigmoid(
-                self.bcqs_score_gate(torch.concat([output_memory, bcqs_memory], dim=-1))
-            ).to(bcqs_logits.dtype)
-            if self.bcqs_score_weight_mode == "learn_zero":
-                bcqs_global_weight = self.bcqs_score_weight_param.to(dtype=bcqs_logits.dtype)
-                bcqs_score_gate = 2.0 * bcqs_global_weight * bcqs_score_gate
-            elif self.bcqs_score_weight_mode == "learn_prior":
-                bcqs_weight_ratio = torch.sigmoid(self.bcqs_score_weight_param)
-                bcqs_global_weight = (
-                    self.bcqs_score_weight_min + self.bcqs_score_weight_range * bcqs_weight_ratio
-                )
-                bcqs_global_weight = bcqs_global_weight.to(dtype=bcqs_logits.dtype)
-                bcqs_score_gate = 2.0 * bcqs_global_weight * bcqs_score_gate
-            elif self.bcqs_score_weight_mode == "adaptive":
-                bcqs_score_gate = (
-                    self.bcqs_score_weight_min + self.bcqs_score_weight_range * bcqs_score_gate
-                )
-            enc_outputs_logits = enc_outputs_logits + bcqs_score_gate * bcqs_logits
-        if self.use_relation_bcqs:
-
-            relation_bcqs_memory = self.relation_bcqs(output_memory, spatial_shapes)
-            relation_bcqs_logits = self.relation_bcqs_score_head(relation_bcqs_memory)
-            enc_outputs_logits = (
-                enc_outputs_logits
-                + self.relation_bcqs_score_weight * relation_bcqs_logits
-            )
-        if self.use_iqs:
-
-
-
-            iqs_logits = self.iqs_score_head(output_memory)
-            enc_outputs_logits = enc_outputs_logits + self.iqs_score_weight * iqs_logits
 
         enc_topk_bboxes_list, enc_topk_logits_list = [], []
-        enc_topk_memory, enc_topk_logits, enc_topk_anchors, _ = self._select_topk(
+        enc_topk_memory, enc_topk_logits, enc_topk_anchors = self._select_topk(
             output_memory, enc_outputs_logits, anchors, self.num_queries
         )
 
@@ -2338,25 +791,6 @@ class DFINETransformer(nn.Module):
             content = self.tgt_embed.weight.unsqueeze(0).tile([memory.shape[0], 1, 1])
         else:
             content = enc_topk_memory.detach()
-
-        if self.use_paq_bcqs_fusion:
-
-
-
-            content = self.paq_bcqs_query(content, enc_topk_memory.detach())
-        elif self.use_paq_query:
-            content = self.paq_query(enc_topk_memory.detach())
-
-        if self.use_bcqe:
-
-
-
-            content = self.bcqe(
-                content,
-                output_memory,
-                spatial_shapes,
-                F.sigmoid(enc_topk_bbox_unact).detach(),
-            )
 
         enc_topk_bbox_unact = enc_topk_bbox_unact.detach()
 
@@ -2401,7 +835,7 @@ class DFINETransformer(nn.Module):
             dim=1, index=topk_ind.unsqueeze(-1).repeat(1, 1, memory.shape[-1])
         )
 
-        return topk_memory, topk_logits, topk_anchors, topk_ind
+        return topk_memory, topk_logits, topk_anchors
 
     def forward(self, feats, targets=None):
         # input projection and embedding
@@ -2417,7 +851,7 @@ class DFINETransformer(nn.Module):
                     self.denoising_class_embed,
                     num_denoising=self.num_denoising,
                     label_noise_ratio=self.label_noise_ratio,
-                    box_noise_scale=self.box_noise_scale,
+                    box_noise_scale=1.0,
                 )
             )
         else:
@@ -2428,16 +862,7 @@ class DFINETransformer(nn.Module):
         )
 
         # decoder
-        (
-            out_bboxes,
-            out_logits,
-            out_corners,
-            out_refs,
-            out_query_features,
-            out_teacher_logits,
-            pre_bboxes,
-            pre_logits,
-        ) = self.decoder(
+        out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_logits = self.decoder(
             init_ref_contents,
             init_ref_points_unact,
             memory,
@@ -2461,47 +886,18 @@ class DFINETransformer(nn.Module):
 
             dn_out_corners, out_corners = torch.split(out_corners, dn_meta["dn_num_split"], dim=2)
             dn_out_refs, out_refs = torch.split(out_refs, dn_meta["dn_num_split"], dim=2)
-            if out_query_features is not None:
-                _, out_query_features = torch.split(
-                    out_query_features, dn_meta["dn_num_split"], dim=1
-                )
-            dn_teacher_logits, out_teacher_logits = torch.split(
-                out_teacher_logits, dn_meta["dn_num_split"], dim=1
-            )
-
-        final_logits = out_logits[-1]
-        duplicate_keep_logits = None
-        if self.use_region_bilinear_cls:
-            final_logits = final_logits + self.region_bilinear_cls(
-                memory, spatial_shapes, out_bboxes[-1]
-            )
-        if self.use_duplicate_relation:
-            if out_query_features is None:
-                raise RuntimeError("Duplicate relation requires final decoder query features")
-            duplicate_keep_logits = self.duplicate_relation(
-                out_query_features, out_bboxes[-1], final_logits
-            )
-            # Zero-initialized keep head gives log(sigmoid(0))-log(0.5)=0.
-            # A low learned keep score suppresses all class scores of a query.
-            final_logits = final_logits + F.logsigmoid(duplicate_keep_logits) - math.log(0.5)
 
         if self.training:
             out = {
-                "pred_logits": final_logits,
+                "pred_logits": out_logits[-1],
                 "pred_boxes": out_bboxes[-1],
                 "pred_corners": out_corners[-1],
                 "ref_points": out_refs[-1],
                 "up": self.up,
                 "reg_scale": self.reg_scale,
             }
-            if out_query_features is not None:
-                out["query_features"] = out_query_features
         else:
-            out = {"pred_logits": final_logits, "pred_boxes": out_bboxes[-1]}
-
-        if self.use_duplicate_relation and self.training:
-            out["duplicate_keep_logits"] = duplicate_keep_logits
-            out["pre_duplicate_logits"] = out_logits[-1]
+            out = {"pred_logits": out_logits[-1], "pred_boxes": out_bboxes[-1]}
 
         if self.training and self.aux_loss:
             out["aux_outputs"] = self._set_aux_loss2(
@@ -2510,7 +906,7 @@ class DFINETransformer(nn.Module):
                 out_corners[:-1],
                 out_refs[:-1],
                 out_corners[-1],
-                out_teacher_logits,
+                out_logits[-1],
             )
             out["enc_aux_outputs"] = self._set_aux_loss(enc_topk_logits_list, enc_topk_bboxes_list)
             out["pre_outputs"] = {"pred_logits": pre_logits, "pred_boxes": pre_bboxes}
@@ -2523,7 +919,7 @@ class DFINETransformer(nn.Module):
                     dn_out_corners,
                     dn_out_refs,
                     dn_out_corners[-1],
-                    dn_teacher_logits,
+                    dn_out_logits[-1],
                 )
                 out["dn_pre_outputs"] = {"pred_logits": dn_pre_logits, "pred_boxes": dn_pre_bboxes}
                 out["dn_meta"] = dn_meta

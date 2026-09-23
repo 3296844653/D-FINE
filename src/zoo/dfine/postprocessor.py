@@ -13,8 +13,6 @@ from ...core import register
 __all__ = ["DFINEPostProcessor"]
 
 
-
-
 def mod(a, b):
     out = a - a // b * b
     return out
@@ -25,52 +23,33 @@ class DFINEPostProcessor(nn.Module):
     __share__ = ["num_classes", "use_focal_loss", "num_top_queries", "remap_mscoco_category"]
 
     def __init__(
-        self, num_classes=80, use_focal_loss=True, num_top_queries=300, remap_mscoco_category=False,
-        single_label_per_query=False,
+        self, num_classes=80, use_focal_loss=True, num_top_queries=300, remap_mscoco_category=False
     ) -> None:
         super().__init__()
         self.use_focal_loss = use_focal_loss
         self.num_top_queries = num_top_queries
         self.num_classes = int(num_classes)
         self.remap_mscoco_category = remap_mscoco_category
-        # Inference-only ablation: retain one sigmoid class per query instead
-        # of selecting multiple query/class pairs for the same box.
-        # Default False preserves the original flattened top-k behavior.
-        self.single_label_per_query = single_label_per_query
         self.deploy_mode = False
 
     def extra_repr(self) -> str:
-        return f"use_focal_loss={self.use_focal_loss}, num_classes={self.num_classes}, num_top_queries={self.num_top_queries}, single_label_per_query={self.single_label_per_query}"
+        return f"use_focal_loss={self.use_focal_loss}, num_classes={self.num_classes}, num_top_queries={self.num_top_queries}"
 
     # def forward(self, outputs, orig_target_sizes):
     def forward(self, outputs, orig_target_sizes: torch.Tensor):
         logits, boxes = outputs["pred_logits"], outputs["pred_boxes"]
         # orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
 
-
         bbox_pred = torchvision.ops.box_convert(boxes, in_fmt="cxcywh", out_fmt="xyxy")
-
         bbox_pred *= orig_target_sizes.repeat(1, 2).unsqueeze(1)
 
         if self.use_focal_loss:
             scores = F.sigmoid(logits)
-
-
-            if self.single_label_per_query:
-                # Keep the original sigmoid probabilities (no softmax or NMS).
-                # Each selected query index occurs at most once. Different
-                # queries can still predict overlapping or identical boxes.
-                scores, labels = scores.max(dim=-1)
-                keep = min(self.num_top_queries, scores.shape[1])
-                scores, index = torch.topk(scores, keep, dim=-1)
-                labels = labels.gather(dim=1, index=index)
-            else:
-                scores, index = torch.topk(scores.flatten(1), self.num_top_queries, dim=-1)
-                # TODO for older tensorrt
-                # labels = index % self.num_classes
-                labels = mod(index, self.num_classes)
-                index = index // self.num_classes
-
+            scores, index = torch.topk(scores.flatten(1), self.num_top_queries, dim=-1)
+            # TODO for older tensorrt
+            # labels = index % self.num_classes
+            labels = mod(index, self.num_classes)
+            index = index // self.num_classes
             boxes = bbox_pred.gather(
                 dim=1, index=index.unsqueeze(-1).repeat(1, 1, bbox_pred.shape[-1])
             )

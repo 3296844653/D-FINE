@@ -8,7 +8,6 @@ Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 import math
 import sys
-from pathlib import Path
 from typing import Dict, Iterable, List
 
 import numpy as np
@@ -22,67 +21,6 @@ from ..data.dataset import mscoco_category2label
 from ..misc import MetricLogger, SmoothedValue, dist_utils, save_samples
 from ..optim import ModelEMA, Warmup
 from .validator import Validator, scale_boxes
-
-
-def summarize_per_category(coco_eval):
-    """Print and return per-category bbox AP metrics from a COCO evaluation."""
-    precision = coco_eval.eval["precision"]
-    iou_thrs = coco_eval.params.iouThrs
-    cat_ids = coco_eval.params.catIds
-    categories = coco_eval.cocoGt.loadCats(cat_ids)
-
-    per_category = {}
-    print("\nPer-category bbox AP:")
-    print(
-        f"{'category':<20}"
-        f"{'instances':>12}"
-        f"{'AP50:95':>12}"
-        f"{'AP50':>12}"
-        f"{'AP75':>12}"
-    )
-
-    for category_index, category in enumerate(categories):
-        category_id = category["id"]
-        category_name = category["name"]
-
-
-
-        class_precision = precision[:, :, category_index, 0, -1]
-        valid = class_precision[class_precision > -1]
-        ap = float(valid.mean()) if valid.size else None
-
-        def ap_at_iou(iou):
-            indices = np.flatnonzero(np.isclose(iou_thrs, iou))
-            if not indices.size:
-                return None
-            values = class_precision[indices[0]]
-            values = values[values > -1]
-            return float(values.mean()) if values.size else None
-
-        ap50 = ap_at_iou(0.50)
-        ap75 = ap_at_iou(0.75)
-        instance_count = len(coco_eval.cocoGt.getAnnIds(catIds=[category_id]))
-
-        per_category[category_name] = {
-            "category_id": int(category_id),
-            "instances": int(instance_count),
-            "AP": ap,
-            "AP50": ap50,
-            "AP75": ap75,
-        }
-
-        def format_metric(value):
-            return "N/A" if value is None else f"{value * 100:.3f}%"
-
-        print(
-            f"{category_name:<20}"
-            f"{instance_count:>12d}"
-            f"{format_metric(ap):>12}"
-            f"{format_metric(ap50):>12}"
-            f"{format_metric(ap75):>12}"
-        )
-
-    return per_category
 
 
 def train_one_epoch(
@@ -242,11 +180,6 @@ def evaluate(
 
     output_dir = kwargs.get("output_dir", None)
     num_visualization_sample_batch = kwargs.get("num_visualization_sample_batch", 1)
-    export_diagnostics = kwargs.get("export_diagnostics", False)
-    diagnostic_conf_thresh = kwargs.get("diagnostic_conf_thresh", 0.5)
-    diagnostic_iou_thresh = kwargs.get("diagnostic_iou_thresh", 0.5)
-    diagnostic_max_images = kwargs.get("diagnostic_max_images", 50)
-    diagnostic_run_name = kwargs.get("diagnostic_run_name", "")
 
     for i, (samples, targets) in enumerate(metric_logger.log_every(data_loader, 10, header)):
         global_step = epoch * len(data_loader) + i
@@ -285,8 +218,6 @@ def evaluate(
                         (samples[idx].shape[-1], samples[idx].shape[-2]),
                     ),
                     "labels": target["labels"],
-                    "image_id": int(target["image_id"].item()),
-                    "image_path": target.get("image_path", ""),
                 }
             )
             labels = (
@@ -299,37 +230,8 @@ def evaluate(
             )
 
     # Conf matrix, F1, Precision, Recall, box IoU
-    dataset = data_loader.dataset
-    while hasattr(dataset, "dataset"):
-        dataset = dataset.dataset
-    category2name = getattr(dataset, "category2name", {})
-    if postprocessor.remap_mscoco_category:
-        class_names = {
-            mscoco_category2label[category_id]: name
-            for category_id, name in category2name.items()
-            if category_id in mscoco_category2label
-        }
-    else:
-        class_names = {int(category_id): name for category_id, name in category2name.items()}
-
-    validator = Validator(
-        gt,
-        preds,
-        conf_thresh=diagnostic_conf_thresh,
-        iou_thresh=diagnostic_iou_thresh,
-        class_names=class_names,
-    )
-    metrics = validator.compute_metrics(extended=export_diagnostics)
+    metrics = Validator(gt, preds).compute_metrics()
     print("Metrics:", metrics)
-    if export_diagnostics and output_dir is not None and dist_utils.is_main_process():
-        diagnostic_dir = Path(output_dir) / "diagnostics"
-        if epoch >= 0:
-            diagnostic_dir = diagnostic_dir / f"epoch_{epoch:03d}"
-        validator.save_diagnostics(
-            diagnostic_dir,
-            max_images_per_type=diagnostic_max_images,
-            run_name=diagnostic_run_name,
-        )
     if use_wandb:
         metrics = {f"metrics/{k}": v for k, v in metrics.items()}
         metrics["epoch"] = epoch
@@ -350,10 +252,7 @@ def evaluate(
     # stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
     if coco_evaluator is not None:
         if "bbox" in iou_types:
-            bbox_eval = coco_evaluator.coco_eval["bbox"]
-            stats["coco_eval_bbox"] = bbox_eval.stats.tolist()
-            if dist_utils.is_main_process():
-                stats["coco_eval_bbox_per_class"] = summarize_per_category(bbox_eval)
+            stats["coco_eval_bbox"] = coco_evaluator.coco_eval["bbox"].stats.tolist()
         if "segm" in iou_types:
             stats["coco_eval_masks"] = coco_evaluator.coco_eval["segm"].stats.tolist()
 

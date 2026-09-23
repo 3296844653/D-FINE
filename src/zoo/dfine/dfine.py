@@ -2,10 +2,7 @@
 Copyright (c) 2024 The D-FINE Authors. All Rights Reserved.
 """
 
-
-
 import torch.nn as nn
-
 
 from ...core import register
 
@@ -14,16 +11,13 @@ __all__ = [
 ]
 
 
-
 @register()
 class DFINE(nn.Module):
     __inject__ = [
-
         "backbone",
         "encoder",
         "decoder",
     ]
-
 
     def __init__(
         self,
@@ -31,13 +25,10 @@ class DFINE(nn.Module):
         encoder: nn.Module,
         decoder: nn.Module,
     ):
-
         super().__init__()
         self.backbone = backbone
         self.decoder = decoder
         self.encoder = encoder
-
-
 
     def forward(self, x, targets=None):
         x = self.backbone(x)
@@ -45,7 +36,6 @@ class DFINE(nn.Module):
         x = self.decoder(x, targets)
 
         return x
-
 
     def deploy(
         self,

@@ -8,23 +8,6 @@ from .box_ops import box_cxcywh_to_xyxy, box_xyxy_to_cxcywh
 from .utils import inverse_sigmoid
 
 
-"""
-这个 denoising.py 实现的是 D-FINE 训练阶段的对比去噪查询构造。核心函数是：
-    get_contrastive_denoising_training_group(...)
-它利用真实标签和真实边界框，生成带噪声的类别查询和边界框查询，然后与正常检测 Query 一起送入 Transformer 解码器。
-其目的不是清理图片噪声，而是让模型学习：
-    即使类别和边界框受到一定扰动，也能把它们恢复成正确目标。
-这种训练机制可以加快 DETR 类模型收敛，并提高 Query 学习和边界框定位的稳定性。
-"""
-
-"""
-这个函数主要完成五件事：
-    将一个 batch 中不同数量的真实目标补齐；
-    复制真实目标，构造多组正负去噪 Query；
-    对类别标签加入随机噪声；
-    对真实边界框加入随机噪声；
-    构造注意力掩码，避免不同去噪组相互泄漏答案。
-"""
 def get_contrastive_denoising_training_group(
     targets,
     num_classes,
@@ -35,34 +18,25 @@ def get_contrastive_denoising_training_group(
     box_noise_scale=1.0,
 ):
     """cnd"""
-
     if num_denoising <= 0:
         return None, None, None, None
-
 
     num_gts = [len(t["labels"]) for t in targets]
     device = targets[0]["labels"].device
 
     max_gt_num = max(num_gts)
-
     if max_gt_num == 0:
         dn_meta = {"dn_positive_idx": None, "dn_num_group": 0, "dn_num_split": [0, num_queries]}
         return None, None, None, dn_meta
 
-
     num_group = num_denoising // max_gt_num
     num_group = 1 if num_group == 0 else num_group
     # pad gt to max_num of a batch
-
     bs = len(num_gts)
 
-
     input_query_class = torch.full([bs, max_gt_num], num_classes, dtype=torch.int32, device=device)
-
     input_query_bbox = torch.zeros([bs, max_gt_num, 4], device=device)
-
     pad_gt_mask = torch.zeros([bs, max_gt_num], dtype=torch.bool, device=device)
-
 
     for i in range(bs):
         num_gt = num_gts[i]
@@ -71,25 +45,20 @@ def get_contrastive_denoising_training_group(
             input_query_bbox[i, :num_gt] = targets[i]["boxes"]
             pad_gt_mask[i, :num_gt] = 1
     # each group has positive and negative queries.
-
     input_query_class = input_query_class.tile([1, 2 * num_group])
     input_query_bbox = input_query_bbox.tile([1, 2 * num_group, 1])
     pad_gt_mask = pad_gt_mask.tile([1, 2 * num_group])
     # positive and negative mask
-
     negative_gt_mask = torch.zeros([bs, max_gt_num * 2, 1], device=device)
     negative_gt_mask[:, max_gt_num:] = 1
     negative_gt_mask = negative_gt_mask.tile([1, num_group, 1])
     positive_gt_mask = 1 - negative_gt_mask
     # contrastive denoising training positive index
     positive_gt_mask = positive_gt_mask.squeeze(-1) * pad_gt_mask
-
     dn_positive_idx = torch.nonzero(positive_gt_mask)[:, 1]
     dn_positive_idx = torch.split(dn_positive_idx, [n * num_group for n in num_gts])
     # total denoising queries
-
     num_denoising = int(max_gt_num * 2 * num_group)
-
 
     if label_noise_ratio > 0:
         mask = torch.rand_like(input_query_class, dtype=torch.float) < (label_noise_ratio * 0.5)
@@ -97,13 +66,10 @@ def get_contrastive_denoising_training_group(
         new_label = torch.randint_like(mask, 0, num_classes, dtype=input_query_class.dtype)
         input_query_class = torch.where(mask & pad_gt_mask, new_label, input_query_class)
 
-
     if box_noise_scale > 0:
         known_bbox = box_cxcywh_to_xyxy(input_query_bbox)
         diff = torch.tile(input_query_bbox[..., 2:] * 0.5, [1, 1, 2]) * box_noise_scale
-
         rand_sign = torch.randint_like(input_query_bbox, 0, 2) * 2.0 - 1.0
-
         rand_part = torch.rand_like(input_query_bbox)
         rand_part = (rand_part + 1.0) * negative_gt_mask + rand_part * (1 - negative_gt_mask)
         # shrink_mask = torch.zeros_like(rand_sign)
@@ -113,27 +79,20 @@ def get_contrastive_denoising_training_group(
         # # this is to make sure the dn bbox can be reversed to the original bbox by dfine head.
         # rand_sign = torch.where((shrink_mask * (1 - negative_gt_mask) * mask).bool(), \
         #                         rand_sign * upper_bound / (upper_bound+1) / rand_part, rand_sign)
-
         known_bbox += rand_sign * rand_part * diff
-
         known_bbox = torch.clip(known_bbox, min=0.0, max=1.0)
         input_query_bbox = box_xyxy_to_cxcywh(known_bbox)
-
         input_query_bbox[input_query_bbox < 0] *= -1
-
         input_query_bbox_unact = inverse_sigmoid(input_query_bbox)
-
 
     input_query_logits = class_embed(input_query_class)
 
     tgt_size = num_denoising + num_queries
     attn_mask = torch.full([tgt_size, tgt_size], False, dtype=torch.bool, device=device)
     # match query cannot see the reconstruction
-
     attn_mask[num_denoising:, :num_denoising] = True
 
     # reconstruct cannot see each other
-
     for i in range(num_group):
         if i == 0:
             attn_mask[
@@ -148,7 +107,6 @@ def get_contrastive_denoising_training_group(
                 max_gt_num * 2 * (i + 1) : num_denoising,
             ] = True
             attn_mask[max_gt_num * 2 * i : max_gt_num * 2 * (i + 1), : max_gt_num * 2 * i] = True
-
 
     dn_meta = {
         "dn_positive_idx": dn_positive_idx,

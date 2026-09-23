@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 
 from ...core import register
-from .box_ops import box_cxcywh_to_xyxy, box_iou, generalized_box_iou
+from .box_ops import box_cxcywh_to_xyxy, generalized_box_iou
 
 
 @register()
@@ -52,15 +52,7 @@ class HungarianMatcher(nn.Module):
         ), "all costs cant be 0"
 
     @torch.no_grad()
-    def forward(
-        self,
-        outputs: Dict[str, torch.Tensor],
-        targets,
-        return_topk=False,
-        topk_metric="cost",
-        quality_gamma=0.25,
-        quality_min_pos=1,
-    ):
+    def forward(self, outputs: Dict[str, torch.Tensor], targets, return_topk=False):
         """Performs the matching
 
         Params:
@@ -135,109 +127,34 @@ class HungarianMatcher(nn.Module):
                 "indices_o2m": self.get_top_k_matches(
                     C, sizes=sizes, k=return_topk, initial_indices=indices_pre
                 )
-                if topk_metric == "cost"
-                else self.get_quality_top_k_matches(
-                    outputs,
-                    targets,
-                    sizes=sizes,
-                    k=return_topk,
-                    gamma=quality_gamma,
-                    min_pos=quality_min_pos,
-                )
             }
 
         return {"indices": indices}  # , 'indices_o2m': C.min(-1)[1]}
 
     def get_top_k_matches(self, C, sizes, k=1, initial_indices=None):
-        cost_per_image = [c[i].clone() for i, c in enumerate(C.split(sizes, -1))]
-        matches_per_image = [[] for _ in sizes]
-
-        for round_idx in range(k):
-            for image_idx, cost in enumerate(cost_per_image):
-                if cost.numel() == 0:
-                    row_ind, col_ind = np.array([], dtype=np.int64), np.array([], dtype=np.int64)
-                elif round_idx == 0 and initial_indices is not None:
-                    row_ind, col_ind = initial_indices[image_idx]
-                else:
-                    row_ind, col_ind = linear_sum_assignment(cost.numpy())
-
-                row_ind = torch.as_tensor(row_ind, dtype=torch.int64)
-                col_ind = torch.as_tensor(col_ind, dtype=torch.int64)
-                matches_per_image[image_idx].append((row_ind, col_ind))
-
-                if row_ind.numel() > 0:
-
-
-                    cost[row_ind, :] = 1e6
-
-        return [
+        indices_list = []
+        # C_original = C.clone()
+        for i in range(k):
+            indices_k = (
+                [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
+                if i > 0
+                else initial_indices
+            )
+            indices_list.append(
+                [
+                    (torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64))
+                    for i, j in indices_k
+                ]
+            )
+            for c, idx_k in zip(C.split(sizes, -1), indices_k):
+                idx_k = np.stack(idx_k)
+                c[:, idx_k] = 1e6
+        indices_list = [
             (
-                torch.cat([match[0] for match in image_matches], dim=0),
-                torch.cat([match[1] for match in image_matches], dim=0),
+                torch.cat([indices_list[i][j][0] for i in range(k)], dim=0),
+                torch.cat([indices_list[i][j][1] for i in range(k)], dim=0),
             )
-            for image_matches in matches_per_image
+            for j in range(len(sizes))
         ]
-
-    def get_quality_top_k_matches(self, outputs, targets, sizes, k=1, gamma=0.25, min_pos=1):
-        """PaQ-DETR style quality-aware O2M assignment."""
-
-        pred_logits = outputs["pred_logits"]
-        pred_boxes = outputs["pred_boxes"]
-        bs, num_queries = pred_logits.shape[:2]
-
-        if self.use_focal_loss:
-            pred_scores = pred_logits.sigmoid()
-        else:
-            pred_scores = pred_logits.softmax(-1)
-
-        candidate_topk = max(int(k), 1)
-        min_pos = max(int(min_pos), 1)
-        pred_boxes_xyxy = box_cxcywh_to_xyxy(pred_boxes)
-        matches_per_image = []
-
-        for image_idx in range(bs):
-            num_targets = sizes[image_idx]
-            if num_targets == 0:
-                empty = torch.empty(0, dtype=torch.int64)
-                matches_per_image.append((empty, empty))
-                continue
-
-            target_labels = targets[image_idx]["labels"]
-            target_boxes_xyxy = box_cxcywh_to_xyxy(targets[image_idx]["boxes"])
-
-            cls_quality = pred_scores[image_idx][:, target_labels]
-            loc_quality = box_iou(pred_boxes_xyxy[image_idx], target_boxes_xyxy)[0].clamp(min=0)
-            quality = (loc_quality - gamma * cls_quality).detach().cpu()
-
-            topk = min(candidate_topk, num_queries)
-            quality_topk = torch.topk(quality, k=topk, dim=0).values
-            target_limits = torch.ceil(quality_topk.sum(dim=0)).to(torch.long)
-            target_limits = target_limits.clamp(min=min_pos, max=topk)
-
-            selected_rows, selected_cols = [], []
-            target_counts = torch.zeros(num_targets, dtype=torch.long)
-            used_queries = torch.zeros(num_queries, dtype=torch.bool)
-            order = torch.argsort(quality.flatten(), descending=True)
-
-            for flat_idx in order:
-                row = torch.div(flat_idx, num_targets, rounding_mode="floor").item()
-                col = (flat_idx % num_targets).item()
-                if bool(used_queries[row].item()):
-                    continue
-                if target_counts[col].item() >= target_limits[col].item():
-                    continue
-                selected_rows.append(row)
-                selected_cols.append(col)
-                used_queries[row] = True
-                target_counts[col] += 1
-                if bool(torch.all(target_counts >= target_limits).item()):
-                    break
-
-            matches_per_image.append(
-                (
-                    torch.as_tensor(selected_rows, dtype=torch.int64),
-                    torch.as_tensor(selected_cols, dtype=torch.int64),
-                )
-            )
-
-        return matches_per_image
+        # C.copy_(C_original)
+        return indices_list

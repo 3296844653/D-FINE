@@ -6,7 +6,6 @@ Copyright (c) 2024 The D-FINE Authors. All Rights Reserved.
 """
 
 import logging
-import math
 import os
 
 import torch
@@ -199,68 +198,6 @@ class EseModule(nn.Module):
         return torch.mul(identity, x)
 
 
-class AdaptiveFusionTripletAttention(nn.Module):
-    """Adaptive Fusion Triplet Attention (AFTA) from FBDNet.
-
-    The module enhances an input feature through parallel channel, spatial,
-    and edge attention branches, then combines them with three learnable
-    softmax-normalized fusion weights.
-    """
-
-    def __init__(self, channels, spatial_kernel_size=7, edge_kernel_size=3):
-        super().__init__()
-        if spatial_kernel_size % 2 != 1 or edge_kernel_size % 2 != 1:
-            raise ValueError("AFTA spatial and edge kernel sizes must be odd")
-
-        channel_kernel_size = int(abs(math.log2(channels) / 2 + 0.5))
-        if channel_kernel_size % 2 == 0:
-            channel_kernel_size += 1
-        channel_kernel_size = max(channel_kernel_size, 1)
-
-        self.channel_pool = nn.AdaptiveAvgPool2d(1)
-        self.channel_conv = nn.Conv1d(
-            1,
-            1,
-            kernel_size=channel_kernel_size,
-            padding=channel_kernel_size // 2,
-            bias=False,
-        )
-        self.spatial_conv = nn.Conv2d(
-            channels,
-            1,
-            kernel_size=spatial_kernel_size,
-            padding=spatial_kernel_size // 2,
-            bias=False,
-        )
-        self.edge_pool = nn.AvgPool2d(
-            kernel_size=edge_kernel_size,
-            stride=1,
-            padding=edge_kernel_size // 2,
-        )
-        self.edge_conv = nn.Conv2d(channels, 1, kernel_size=1, bias=False)
-        self.fusion_logits = nn.Parameter(torch.zeros(3))
-
-    def forward(self, x):
-        channel_attention = self.channel_pool(x).squeeze(-1).transpose(-1, -2)
-        channel_attention = self.channel_conv(channel_attention)
-        channel_attention = channel_attention.transpose(-1, -2).unsqueeze(-1).sigmoid()
-        channel_feature = x * channel_attention
-
-        spatial_attention = self.spatial_conv(x).sigmoid()
-        spatial_feature = x * spatial_attention
-
-        edge_feature_map = x - self.edge_pool(x)
-        edge_attention = self.edge_conv(edge_feature_map).sigmoid()
-        edge_feature = x * edge_attention
-
-        weights = self.fusion_logits.softmax(dim=0).to(dtype=x.dtype)
-        return (
-            weights[0] * channel_feature
-            + weights[1] * spatial_feature
-            + weights[2] * edge_feature
-        )
-
-
 class HG_Block(nn.Module):
     def __init__(
         self,
@@ -274,9 +211,6 @@ class HG_Block(nn.Module):
         use_lab=False,
         agg="ese",
         drop_path=0.0,
-        use_afta=False,
-        afta_spatial_kernel_size=7,
-        afta_edge_kernel_size=3,
     ):
         super().__init__()
         self.residual = residual
@@ -338,16 +272,6 @@ class HG_Block(nn.Module):
                 att,
             )
 
-        self.afta = (
-            AdaptiveFusionTripletAttention(
-                out_chs,
-                spatial_kernel_size=afta_spatial_kernel_size,
-                edge_kernel_size=afta_edge_kernel_size,
-            )
-            if use_afta
-            else nn.Identity()
-        )
-
         self.drop_path = nn.Dropout(drop_path) if drop_path else nn.Identity()
 
     def forward(self, x):
@@ -358,7 +282,6 @@ class HG_Block(nn.Module):
             output.append(x)
         x = torch.cat(output, dim=1)
         x = self.aggregation(x)
-        x = self.afta(x)
         if self.residual:
             x = self.drop_path(x) + identity
         return x
@@ -378,9 +301,6 @@ class HG_Stage(nn.Module):
         use_lab=False,
         agg="se",
         drop_path=0.0,
-        use_afta=False,
-        afta_spatial_kernel_size=7,
-        afta_edge_kernel_size=3,
     ):
         super().__init__()
         self.downsample = downsample
@@ -411,9 +331,6 @@ class HG_Stage(nn.Module):
                     use_lab=use_lab,
                     agg=agg,
                     drop_path=drop_path[i] if isinstance(drop_path, (list, tuple)) else drop_path,
-                    use_afta=use_afta,
-                    afta_spatial_kernel_size=afta_spatial_kernel_size,
-                    afta_edge_kernel_size=afta_edge_kernel_size,
                 )
             )
         self.blocks = nn.Sequential(*blocks_list)
@@ -527,13 +444,9 @@ class HGNetv2(nn.Module):
         freeze_norm=True,
         pretrained=True,
         local_model_dir="weight/hgnetv2/",
-        use_afta=False,
-        afta_spatial_kernel_size=7,
-        afta_edge_kernel_size=3,
     ):
         super().__init__()
         self.use_lab = use_lab
-        self.use_afta = bool(use_afta)
         self.return_idx = return_idx
 
         stem_channels = self.arch_configs[name]["stem_channels"]
@@ -575,9 +488,6 @@ class HGNetv2(nn.Module):
                     light_block,
                     kernel_size,
                     use_lab,
-                    use_afta=self.use_afta,
-                    afta_spatial_kernel_size=afta_spatial_kernel_size,
-                    afta_edge_kernel_size=afta_edge_kernel_size,
                 )
             )
 
@@ -623,12 +533,7 @@ class HGNetv2(nn.Module):
                 model_path = local_model_dir + "PPHGNetV2_" + name + "_stage1.pth"
                 state = torch.load(model_path, map_location="cpu")
 
-                incompatible = self.load_state_dict(state, strict=not self.use_afta)
-                if self.use_afta and safe_get_rank() == 0:
-                    print(
-                        "Loaded pretrained HGNetV2 weights with newly initialized "
-                        f"AFTA parameters ({len(incompatible.missing_keys)} missing keys)."
-                    )
+                self.load_state_dict(state)
                 print(f"Loaded stage1 {name} HGNetV2 from URL.")
 
             except (Exception, KeyboardInterrupt) as e:

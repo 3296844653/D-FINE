@@ -53,13 +53,10 @@ class DetSolver(BaseSolver):
                 self.use_wandb
             )
             for k in test_stats:
-                if k.endswith("_per_class"):
-                    continue
-
-            best_stat["epoch"] = self.last_epoch
-            best_stat[k] = test_stats[k][0]
-            top1 = test_stats[k][0]
-            print(f"best_stat: {best_stat}")
+                best_stat["epoch"] = self.last_epoch
+                best_stat[k] = test_stats[k][0]
+                top1 = test_stats[k][0]
+                print(f"best_stat: {best_stat}")
 
         best_stat_print = best_stat.copy()
         start_time = time.time()
@@ -118,22 +115,10 @@ class DetSolver(BaseSolver):
                 epoch,
                 self.use_wandb,
                 output_dir=self.output_dir,
-                export_diagnostics=(
-                    args.export_diagnostics and epoch == args.epochs - 1
-                ),
-                diagnostic_conf_thresh=args.diagnostic_conf_thresh,
-                diagnostic_iou_thresh=args.diagnostic_iou_thresh,
-                diagnostic_max_images=args.diagnostic_max_images,
-                diagnostic_run_name=args.diagnostic_run_name,
             )
 
             # TODO
             for k in test_stats:
-
-
-
-                if k.endswith("_per_class"):
-                    continue
                 if self.writer and dist_utils.is_main_process():
                     for i, v in enumerate(test_stats[k]):
                         self.writer.add_scalar(f"Test/{k}_{i}".format(k), v, epoch)
@@ -233,12 +218,6 @@ class DetSolver(BaseSolver):
             self.device,
             epoch=-1,
             use_wandb=False,
-            output_dir=self.output_dir,
-            export_diagnostics=self.cfg.export_diagnostics,
-            diagnostic_conf_thresh=self.cfg.diagnostic_conf_thresh,
-            diagnostic_iou_thresh=self.cfg.diagnostic_iou_thresh,
-            diagnostic_max_images=self.cfg.diagnostic_max_images,
-            diagnostic_run_name=self.cfg.diagnostic_run_name,
         )
 
         if self.output_dir:
