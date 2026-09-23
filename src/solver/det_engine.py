@@ -180,6 +180,24 @@ def evaluate(
 
     output_dir = kwargs.get("output_dir", None)
     num_visualization_sample_batch = kwargs.get("num_visualization_sample_batch", 1)
+    query_writer = None
+    if kwargs.get("export_query_diagnostics", False):
+        if output_dir is None:
+            raise ValueError("Query diagnostics require --output-dir")
+        if dist_utils.get_world_size() != 1:
+            raise ValueError("Query diagnostics currently require --nproc_per_node=1")
+        # Import only when enabled; the ordinary training/evaluation path is unchanged.
+        from .query_diagnostics import QueryDiagnosticsWriter
+
+        query_writer = QueryDiagnosticsWriter(
+            output_dir=output_dir,
+            postprocessor=postprocessor,
+            conf_thresh=kwargs.get("query_diagnostic_conf_thresh", 0.5),
+            iou_thresh=kwargs.get("query_diagnostic_iou_thresh", 0.5),
+            neighbor_iou_thresh=kwargs.get("query_diagnostic_neighbor_iou_thresh", 0.8),
+            config=kwargs.get("query_diagnostic_config", {}),
+            checkpoint_path=kwargs.get("query_diagnostic_checkpoint", None),
+        )
 
     for i, (samples, targets) in enumerate(metric_logger.log_every(data_loader, 10, header)):
         global_step = epoch * len(data_loader) + i
@@ -197,6 +215,9 @@ def evaluate(
         # TODO (lyuwenyu), fix dataset converted using `convert_to_coco_api`?
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         # orig_target_sizes = torch.tensor([[samples.shape[-1], samples.shape[-2]]], device=samples.device)
+
+        if query_writer is not None:
+            query_writer.record_batch(outputs, targets, orig_target_sizes, samples.shape[-2:])
 
         results = postprocessor(outputs, orig_target_sizes)
 
@@ -228,6 +249,9 @@ def evaluate(
             preds.append(
                 {"boxes": result["boxes"], "labels": labels, "scores": result["scores"]}
             )
+
+    if query_writer is not None:
+        query_writer.finish()
 
     # Conf matrix, F1, Precision, Recall, box IoU
     metrics = Validator(gt, preds).compute_metrics()

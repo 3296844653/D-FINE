@@ -218,6 +218,13 @@ class DetSolver(BaseSolver):
             self.device,
             epoch=-1,
             use_wandb=False,
+            output_dir=self.output_dir if self.cfg.export_query_diagnostics else None,
+            export_query_diagnostics=self.cfg.export_query_diagnostics,
+            query_diagnostic_conf_thresh=self.cfg.query_diagnostic_conf_thresh,
+            query_diagnostic_iou_thresh=self.cfg.query_diagnostic_iou_thresh,
+            query_diagnostic_neighbor_iou_thresh=self.cfg.query_diagnostic_neighbor_iou_thresh,
+            query_diagnostic_config=self.cfg.yaml_cfg,
+            query_diagnostic_checkpoint=self.cfg.resume,
         )
 
         if self.output_dir:

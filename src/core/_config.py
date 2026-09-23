@@ -73,6 +73,11 @@ class BaseConfig(object):
         self.output_dir: str = None
         self.summary_dir: str = None
         self.device: str = ""
+        # Validation-only raw query export. Disabled for the baseline and training.
+        self.export_query_diagnostics: bool = False
+        self.query_diagnostic_conf_thresh: float = 0.5
+        self.query_diagnostic_iou_thresh: float = 0.5
+        self.query_diagnostic_neighbor_iou_thresh: float = 0.8
 
     @property
     def model(self) -> nn.Module:
