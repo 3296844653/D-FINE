@@ -193,7 +193,10 @@ class BaseSolver(object):
 
         if self.cfg.resume:
             print(f"Resume checkpoint from {self.cfg.resume}")
-            self.load_resume_state(self.cfg.resume)
+            self.load_resume_state(
+                self.cfg.resume,
+                skip_criterion=bool(getattr(self.cfg, "export_query_diagnostics", False)),
+            )
 
     def to(self, module, device):
         return module.to(device) if hasattr(module, "to") else module
@@ -236,12 +239,19 @@ class BaseSolver(object):
                 else:
                     print(f"Not load {k}.state_dict")
 
-    def load_resume_state(self, path: str):
+    def load_resume_state(self, path: str, skip_criterion: bool = False):
         """Load resume"""
         if path.startswith("http"):
             state = torch.hub.load_state_dict_from_url(path, map_location="cpu")
         else:
             state = torch.load(path, map_location="cpu")
+
+        if skip_criterion:
+            # Evaluation does not call criterion.forward(). Older checkpoints may
+            # contain loss-only buffers (e.g. EQLv2) absent from this source.
+            # Keep strict model/EMA loading; do not mutate the checkpoint file.
+            state = dict(state)
+            state.pop("criterion", None)
 
         # state['model'] = remove_module_prefix(state['model'])
         self.load_state_dict(state)
