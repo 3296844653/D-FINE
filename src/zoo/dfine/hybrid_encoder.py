@@ -7,6 +7,7 @@ Copyright (c) 2023 lyuwenyu. All Rights Reserved.
 """
 
 import copy
+import math
 from collections import OrderedDict
 
 import torch
@@ -102,6 +103,229 @@ class SCDown(nn.Module):
 
     def forward(self, x):
         return self.cv2(self.cv1(x))
+
+
+class DySample(nn.Module):
+    """Content-adaptive 2x upsampling used by HF-D-FINE CAF.
+
+    Adapted from the official Apache-2.0 HF-DFINE implementation:
+    https://github.com/HaveFun4ever/HF-DFINE
+    """
+
+    def __init__(self, in_channels, scale=2, style="lp", groups=4, dyscope=True):
+        super().__init__()
+        assert style in ("lp", "pl")
+        assert in_channels >= groups and in_channels % groups == 0
+        if style == "pl":
+            assert in_channels >= scale**2 and in_channels % scale**2 == 0
+
+        self.scale = int(scale)
+        self.style = style
+        self.groups = int(groups)
+        offset_in_channels = in_channels // scale**2 if style == "pl" else in_channels
+        offset_channels = 2 * groups if style == "pl" else 2 * groups * scale**2
+        self.offset = nn.Conv2d(offset_in_channels, offset_channels, 1)
+        nn.init.normal_(self.offset.weight, mean=0.0, std=0.001)
+        nn.init.constant_(self.offset.bias, 0.0)
+        if dyscope:
+            self.scope = nn.Conv2d(offset_in_channels, offset_channels, 1)
+            nn.init.constant_(self.scope.weight, 0.0)
+            nn.init.constant_(self.scope.bias, 0.0)
+        self.register_buffer("init_pos", self._init_pos())
+
+    def _init_pos(self):
+        h = torch.arange(
+            (-self.scale + 1) / 2,
+            (self.scale - 1) / 2 + 1,
+            dtype=torch.float32,
+        ) / self.scale
+        grid_y, grid_x = torch.meshgrid(h, h, indexing="ij")
+        return (
+            torch.stack((grid_x, grid_y))
+            .transpose(1, 2)
+            .repeat(1, self.groups, 1)
+            .reshape(1, -1, 1, 1)
+        )
+
+    def _sample(self, x, offset):
+        batch_size, _, height, width = offset.shape
+        offset = offset.view(batch_size, 2, -1, height, width)
+        coord_h = torch.arange(height, device=x.device, dtype=x.dtype) + 0.5
+        coord_w = torch.arange(width, device=x.device, dtype=x.dtype) + 0.5
+        grid_y, grid_x = torch.meshgrid(coord_h, coord_w, indexing="ij")
+        coords = torch.stack((grid_x, grid_y)).unsqueeze(0).unsqueeze(2)
+        normalizer = x.new_tensor([width, height]).view(1, 2, 1, 1, 1)
+        coords = 2.0 * (coords + offset) / normalizer - 1.0
+        coords = F.pixel_shuffle(
+            coords.reshape(batch_size, -1, height, width), self.scale
+        )
+        coords = coords.view(
+            batch_size, 2, -1, self.scale * height, self.scale * width
+        )
+        coords = coords.permute(0, 2, 3, 4, 1).contiguous().flatten(0, 1)
+        sampled = F.grid_sample(
+            x.reshape(batch_size * self.groups, -1, height, width),
+            coords,
+            mode="bilinear",
+            align_corners=False,
+            padding_mode="border",
+        )
+        return sampled.reshape(
+            batch_size, -1, self.scale * height, self.scale * width
+        )
+
+    def forward(self, x):
+        if self.style == "pl":
+            shuffled = F.pixel_shuffle(x, self.scale)
+            offset = self.offset(shuffled)
+            if hasattr(self, "scope"):
+                offset = offset * self.scope(shuffled).sigmoid()
+            offset = F.pixel_unshuffle(offset, self.scale) * 0.5 + self.init_pos
+        else:
+            offset = self.offset(x)
+            if hasattr(self, "scope"):
+                offset = offset * self.scope(x).sigmoid() * 0.5
+            else:
+                offset = offset * 0.25
+            offset = offset + self.init_pos
+        return self._sample(x, offset)
+
+
+class ChannelAdaptiveFusion(nn.Module):
+    """HF-D-FINE upsampling CAF for two adjacent pyramid levels."""
+
+    def __init__(
+        self,
+        high_channels,
+        low_channels,
+        output_channels,
+        gamma=2,
+        bias=1,
+        groups=4,
+        dyscope=True,
+        act="silu",
+    ):
+        super().__init__()
+        self.high_channels = int(high_channels)
+        self.low_channels = int(low_channels)
+        self.avg_high = nn.AdaptiveAvgPool2d(1)
+        self.avg_low = nn.AdaptiveAvgPool2d(1)
+
+        def kernel_size(channels):
+            size = int(abs((math.log(channels, 2) + bias) / gamma))
+            return size if size % 2 else size + 1
+
+        high_kernel = kernel_size(high_channels)
+        low_kernel = kernel_size(low_channels)
+        joint_kernel = kernel_size(high_channels + low_channels)
+        self.conv_high = nn.Conv1d(
+            1, 1, high_kernel, padding=(high_kernel - 1) // 2, bias=False
+        )
+        self.conv_low = nn.Conv1d(
+            1, 1, low_kernel, padding=(low_kernel - 1) // 2, bias=False
+        )
+        self.conv_joint = nn.Conv1d(
+            1, 1, joint_kernel, padding=(joint_kernel - 1) // 2, bias=False
+        )
+        self.upsample = DySample(low_channels, groups=groups, dyscope=dyscope)
+        self.align = (
+            ConvNormLayer_fuse(low_channels, high_channels, 1, 1, act=act)
+            if low_channels != high_channels
+            else nn.Identity()
+        )
+        self.output = (
+            ConvNormLayer_fuse(high_channels, output_channels, 1, 1, act=act)
+            if high_channels != output_channels
+            else nn.Identity()
+        )
+
+    @staticmethod
+    def _channel_descriptor(pool, conv, feature):
+        descriptor = pool(feature).squeeze(-1).transpose(-1, -2)
+        return conv(descriptor).transpose(-1, -2).unsqueeze(-1)
+
+    def forward(self, features):
+        high_feature, low_feature = features
+        high_desc = self._channel_descriptor(
+            self.avg_high, self.conv_high, high_feature
+        )
+        low_desc = self._channel_descriptor(self.avg_low, self.conv_low, low_feature)
+        joint = torch.cat((high_desc, low_desc), dim=1)
+        joint = self.conv_joint(joint.squeeze(-1).transpose(-1, -2))
+        attention = joint.transpose(-1, -2).unsqueeze(-1).sigmoid()
+        high_weight, low_weight = torch.split(
+            attention, [self.high_channels, self.low_channels], dim=1
+        )
+        high_out = high_feature * high_weight
+        low_out = self.align(self.upsample(low_feature * low_weight))
+        if high_out.shape[-2:] != low_out.shape[-2:]:
+            raise ValueError("CAF inputs must have an exact 2x spatial relationship")
+        return self.output(high_out + low_out)
+
+
+class ChannelAdaptiveFusionDown(nn.Module):
+    """HF-D-FINE downsampling CAF for the bottom-up PAN path."""
+
+    def __init__(
+        self,
+        low_channels,
+        high_channels,
+        output_channels,
+        gamma=2,
+        bias=1,
+        act="silu",
+    ):
+        super().__init__()
+        self.low_channels = int(low_channels)
+        self.high_channels = int(high_channels)
+        self.avg_low = nn.AdaptiveAvgPool2d(1)
+        self.avg_high = nn.AdaptiveAvgPool2d(1)
+
+        def kernel_size(channels):
+            size = int(abs((math.log(channels, 2) + bias) / gamma))
+            return size if size % 2 else size + 1
+
+        low_kernel = kernel_size(low_channels)
+        high_kernel = kernel_size(high_channels)
+        joint_kernel = kernel_size(low_channels + high_channels)
+        self.conv_low = nn.Conv1d(
+            1, 1, low_kernel, padding=(low_kernel - 1) // 2, bias=False
+        )
+        self.conv_high = nn.Conv1d(
+            1, 1, high_kernel, padding=(high_kernel - 1) // 2, bias=False
+        )
+        self.conv_joint = nn.Conv1d(
+            1, 1, joint_kernel, padding=(joint_kernel - 1) // 2, bias=False
+        )
+        self.downsample = nn.Conv2d(high_channels, low_channels, 3, 2, 1)
+        self.output = (
+            ConvNormLayer_fuse(low_channels, output_channels, 1, 1, act=act)
+            if low_channels != output_channels
+            else nn.Identity()
+        )
+
+    @staticmethod
+    def _channel_descriptor(pool, conv, feature):
+        descriptor = pool(feature).squeeze(-1).transpose(-1, -2)
+        return conv(descriptor).transpose(-1, -2).unsqueeze(-1)
+
+    def forward(self, features):
+        low_feature, high_feature = features
+        low_desc = self._channel_descriptor(self.avg_low, self.conv_low, low_feature)
+        high_desc = self._channel_descriptor(
+            self.avg_high, self.conv_high, high_feature
+        )
+        joint = torch.cat((low_desc, high_desc), dim=1)
+        joint = self.conv_joint(joint.squeeze(-1).transpose(-1, -2))
+        attention = joint.transpose(-1, -2).unsqueeze(-1).sigmoid()
+        low_weight, high_weight = torch.split(
+            attention, [self.low_channels, self.high_channels], dim=1
+        )
+        low_out = low_feature * low_weight
+        high_out = self.downsample(high_feature * high_weight)
+        if low_out.shape[-2:] != high_out.shape[-2:]:
+            raise ValueError("CAF_Down inputs must have an exact 2x spatial relationship")
+        return self.output(low_out + high_out)
 
 
 class VGGBlock(nn.Module):
@@ -587,11 +811,35 @@ class TransformerEncoderLayer(nn.Module):
         dropout=0.1,
         activation="relu",
         normalize_before=False,
+        use_spatial_prior_attn=False,
+        spatial_prior_beta_min=0.75,
+        spatial_prior_beta_max=1.0,
+        spatial_prior_query_chunk_size=128,
     ):
         super().__init__()
         self.normalize_before = normalize_before
 
         self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout, batch_first=True)
+        self.use_spatial_prior_attn = bool(use_spatial_prior_attn)
+        self.spatial_prior_query_chunk_size = int(spatial_prior_query_chunk_size)
+        if not 0.0 < spatial_prior_beta_min < spatial_prior_beta_max <= 1.0:
+            raise ValueError(
+                "spatial prior beta range must satisfy 0 < beta_min < beta_max <= 1"
+            )
+        if self.spatial_prior_query_chunk_size <= 0:
+            raise ValueError("spatial_prior_query_chunk_size must be positive")
+
+        # DFormerv2 assigns a different fixed decay rate to every attention
+        # head. The upper endpoint is excluded, matching the paper's default
+        # linear range [0.75, 1.0). This non-persistent buffer adds no model
+        # parameters or checkpoint keys.
+        head_indices = torch.arange(nhead, dtype=torch.float32)
+        spatial_prior_betas = spatial_prior_beta_min + (
+            spatial_prior_beta_max - spatial_prior_beta_min
+        ) * head_indices / nhead
+        self.register_buffer(
+            "spatial_prior_betas", spatial_prior_betas, persistent=False
+        )
 
         self.linear1 = nn.Linear(d_model, dim_feedforward)
         self.dropout = nn.Dropout(dropout)
@@ -607,12 +855,118 @@ class TransformerEncoderLayer(nn.Module):
     def with_pos_embed(tensor, pos_embed):
         return tensor if pos_embed is None else tensor + pos_embed
 
-    def forward(self, src, src_mask=None, pos_embed=None) -> torch.Tensor:
+    def _spatial_prior_attention(self, query, key, value, spatial_shape, attn_mask=None):
+        """Apply paper Eq. (4): (softmax(QK^T) * beta^S) V.
+
+        S is the pairwise Manhattan distance between 2-D feature tokens. Query
+        rows are processed in chunks to avoid constructing one additional
+        batch-sized HW-by-HW prior tensor. Existing MultiheadAttention
+        projection parameters are reused unchanged.
+        """
+        if spatial_shape is None:
+            raise ValueError("spatial_shape is required for spatial-prior attention")
+        height, width = (int(spatial_shape[0]), int(spatial_shape[1]))
+        batch_size, sequence_length, embed_dim = query.shape
+        if height * width != sequence_length:
+            raise ValueError(
+                "spatial_shape does not match the flattened token sequence: "
+                f"{height}x{width} != {sequence_length}"
+            )
+        if not self.self_attn._qkv_same_embed_dim:
+            raise ValueError("spatial-prior attention requires equal Q/K/V dimensions")
+        if self.self_attn.bias_k is not None or self.self_attn.bias_v is not None:
+            raise ValueError("spatial-prior attention does not support bias_k/bias_v")
+        if self.self_attn.add_zero_attn:
+            raise ValueError("spatial-prior attention does not support add_zero_attn")
+
+        q_weight, k_weight, v_weight = self.self_attn.in_proj_weight.chunk(3, dim=0)
+        if self.self_attn.in_proj_bias is None:
+            q_bias = k_bias = v_bias = None
+        else:
+            q_bias, k_bias, v_bias = self.self_attn.in_proj_bias.chunk(3, dim=0)
+        query = F.linear(query, q_weight, q_bias)
+        key = F.linear(key, k_weight, k_bias)
+        value = F.linear(value, v_weight, v_bias)
+
+        num_heads = self.self_attn.num_heads
+        head_dim = embed_dim // num_heads
+        query = query.reshape(batch_size, sequence_length, num_heads, head_dim)
+        query = query.transpose(1, 2) * head_dim**-0.5
+        key = key.reshape(batch_size, sequence_length, num_heads, head_dim).transpose(1, 2)
+        value = value.reshape(batch_size, sequence_length, num_heads, head_dim).transpose(1, 2)
+
+        row_indices = torch.arange(height, device=query.device)
+        col_indices = torch.arange(width, device=query.device)
+        grid_y, grid_x = torch.meshgrid(row_indices, col_indices, indexing="ij")
+        coordinates = torch.stack((grid_y, grid_x), dim=-1).reshape(sequence_length, 2)
+        log_beta = self.spatial_prior_betas.log().to(device=query.device)
+
+        output_chunks = []
+        chunk_size = min(self.spatial_prior_query_chunk_size, sequence_length)
+        for start in range(0, sequence_length, chunk_size):
+            end = min(start + chunk_size, sequence_length)
+            logits = torch.matmul(query[:, :, start:end], key.transpose(-2, -1))
+
+            if attn_mask is not None:
+                if attn_mask.ndim == 2:
+                    mask = attn_mask[start:end].unsqueeze(0).unsqueeze(0)
+                elif attn_mask.ndim == 3 and attn_mask.shape[0] == batch_size * num_heads:
+                    mask = attn_mask.reshape(
+                        batch_size, num_heads, sequence_length, sequence_length
+                    )[:, :, start:end]
+                else:
+                    raise ValueError("unsupported attention-mask shape")
+                if mask.dtype == torch.bool:
+                    logits = logits.masked_fill(
+                        mask.to(device=logits.device), float("-inf")
+                    )
+                else:
+                    logits = logits + mask.to(dtype=logits.dtype, device=logits.device)
+
+            attention = logits.softmax(dim=-1)
+            distance = (
+                coordinates[start:end, None] - coordinates[None, :]
+            ).abs().sum(dim=-1)
+            spatial_decay = torch.exp(
+                log_beta[:, None, None] * distance.to(dtype=log_beta.dtype)[None]
+            ).to(dtype=attention.dtype)
+
+            # Deliberately do not renormalize after multiplication: this is the
+            # exact ordering written in DFormerv2 Eq. (4).
+            attention = attention * spatial_decay.unsqueeze(0)
+            attention = F.dropout(
+                attention,
+                p=self.self_attn.dropout,
+                training=self.training,
+            )
+            output_chunks.append(torch.matmul(attention, value))
+
+        output = torch.cat(output_chunks, dim=2)
+        output = output.transpose(1, 2).reshape(batch_size, sequence_length, embed_dim)
+        return self.self_attn.out_proj(output)
+
+    def forward(
+        self,
+        src,
+        src_mask=None,
+        pos_embed=None,
+        spatial_shape=None,
+    ) -> torch.Tensor:
         residual = src
         if self.normalize_before:
             src = self.norm1(src)
         q = k = self.with_pos_embed(src, pos_embed)
-        src, _ = self.self_attn(q, k, value=src, attn_mask=src_mask)
+        if self.use_spatial_prior_attn:
+            src = self._spatial_prior_attention(
+                q,
+                k,
+                src,
+                spatial_shape=spatial_shape,
+                attn_mask=src_mask,
+            )
+        else:
+            # Preserve the original D-FINE path exactly when the switch is off.
+            src, _ = self.self_attn(q, k, value=src, attn_mask=src_mask)
 
         src = residual + self.dropout1(src)
         if not self.normalize_before:
@@ -635,15 +989,364 @@ class TransformerEncoder(nn.Module):
         self.num_layers = num_layers
         self.norm = norm
 
-    def forward(self, src, src_mask=None, pos_embed=None) -> torch.Tensor:
+    def forward(
+        self,
+        src,
+        src_mask=None,
+        pos_embed=None,
+        spatial_shape=None,
+    ) -> torch.Tensor:
         output = src
         for layer in self.layers:
-            output = layer(output, src_mask=src_mask, pos_embed=pos_embed)
+            output = layer(
+                output,
+                src_mask=src_mask,
+                pos_embed=pos_embed,
+                spatial_shape=spatial_shape,
+            )
 
         if self.norm is not None:
             output = self.norm(output)
 
         return output
+
+
+class FixedQuerySelfAttention(nn.Module):
+    """Fixed-Query Self-Attention (FQSA) from AQF-Net.
+
+    The paper specifies fixed-resolution adaptive pooling, a lightweight local
+    query branch, a pyramidal multi-scale key/value branch, multi-head scaled
+    dot-product attention, and bilinear restoration. It does not disclose the
+    exact kernels used inside the two branches; the depth-wise 3x3 and dilated
+    3x3 operations below are deliberately exposed as implementation choices.
+    """
+
+    def __init__(
+        self,
+        channels,
+        num_heads=8,
+        query_size=16,
+        pyramid_dilation=2,
+    ):
+        super().__init__()
+        if channels % num_heads != 0:
+            raise ValueError("FQSA channels must be divisible by num_heads")
+        if query_size <= 0:
+            raise ValueError("FQSA query_size must be positive")
+        if pyramid_dilation <= 0:
+            raise ValueError("FQSA pyramid_dilation must be positive")
+
+        self.channels = int(channels)
+        self.num_heads = int(num_heads)
+        self.head_dim = self.channels // self.num_heads
+        self.query_size = int(query_size)
+
+        self.pool = nn.AdaptiveAvgPool2d((self.query_size, self.query_size))
+        self.query_proj = nn.Conv2d(self.channels, self.channels, kernel_size=1)
+        self.query_local = nn.Conv2d(
+            self.channels,
+            self.channels,
+            kernel_size=3,
+            padding=1,
+            groups=self.channels,
+        )
+
+        self.kv_local = nn.Conv2d(
+            self.channels,
+            self.channels,
+            kernel_size=3,
+            padding=1,
+            groups=self.channels,
+        )
+        self.kv_context = nn.Conv2d(
+            self.channels,
+            self.channels,
+            kernel_size=3,
+            padding=pyramid_dilation,
+            dilation=pyramid_dilation,
+            groups=self.channels,
+        )
+        self.kv_proj = nn.Conv2d(self.channels, self.channels * 2, kernel_size=1)
+        self.output_proj = nn.Conv2d(self.channels, self.channels, kernel_size=1)
+
+    def _reshape_heads(self, tensor):
+        batch_size, _, height, width = tensor.shape
+        return tensor.reshape(
+            batch_size, self.num_heads, self.head_dim, height * width
+        ).transpose(-2, -1)
+
+    def forward(self, x):
+        _, _, height, width = x.shape
+        pooled = self.pool(x)
+
+        query = self.query_proj(pooled)
+        query = query + self.query_local(query)
+
+        pyramid = pooled + self.kv_local(pooled) + self.kv_context(pooled)
+        key, value = self.kv_proj(pyramid).chunk(2, dim=1)
+
+        query = self._reshape_heads(query)
+        key = self._reshape_heads(key)
+        value = self._reshape_heads(value)
+        attention = torch.matmul(query, key.transpose(-2, -1)) * self.head_dim**-0.5
+        attention = attention.softmax(dim=-1)
+        output = torch.matmul(attention, value)
+        output = output.transpose(-2, -1).reshape(
+            x.shape[0], self.channels, self.query_size, self.query_size
+        )
+        output = self.output_proj(output)
+        return F.interpolate(
+            output,
+            size=(height, width),
+            mode="bilinear",
+            align_corners=False,
+        )
+
+
+class BidirectionalSelectiveAggregation(nn.Module):
+    """Channel-wise and spatial-wise branch selection used by AQF-Net LREA."""
+
+    def __init__(self, channels, reduction=4):
+        super().__init__()
+        hidden_channels = max(channels // reduction, 8)
+        self.channel_reduce = nn.Conv2d(channels, hidden_channels, kernel_size=1)
+        self.channel_depthwise = nn.Conv2d(
+            hidden_channels,
+            hidden_channels,
+            kernel_size=3,
+            padding=1,
+            groups=hidden_channels,
+        )
+        self.channel_expand = nn.ModuleList(
+            [nn.Conv2d(hidden_channels, channels, kernel_size=1) for _ in range(3)]
+        )
+        self.spatial_map = nn.Conv2d(2, 3, kernel_size=7, padding=3)
+
+    def forward(self, branch_features):
+        if len(branch_features) != 3:
+            raise ValueError("BSA expects exactly three branch features")
+        shared = branch_features[0] + branch_features[1] + branch_features[2]
+
+        channel_context = F.adaptive_avg_pool2d(shared, 1)
+        channel_context = self.channel_reduce(channel_context)
+        channel_context = self.channel_depthwise(channel_context)
+        channel_weights = [
+            torch.sigmoid(expand(channel_context)) for expand in self.channel_expand
+        ]
+
+        spatial_context = torch.cat(
+            [shared.mean(dim=1, keepdim=True), shared.amax(dim=1, keepdim=True)],
+            dim=1,
+        )
+        spatial_weights = torch.sigmoid(self.spatial_map(spatial_context)).chunk(3, dim=1)
+
+        return sum(
+            feature * channel_weight * spatial_weight
+            for feature, channel_weight, spatial_weight in zip(
+                branch_features, channel_weights, spatial_weights
+            )
+        )
+
+
+class SparseDecomposedBroadConvolution(nn.Module):
+    """SDBConv: local 5x5 DWConv plus horizontal/vertical dilated strips."""
+
+    def __init__(self, channels, strip_kernel_size=11, strip_dilation=2, reduction=4):
+        super().__init__()
+        if strip_kernel_size % 2 != 1:
+            raise ValueError("LREA strip_kernel_size must be odd")
+        if strip_dilation <= 0:
+            raise ValueError("LREA strip_dilation must be positive")
+
+        strip_padding = strip_dilation * (strip_kernel_size - 1) // 2
+        self.local = nn.Conv2d(
+            channels, channels, kernel_size=5, padding=2, groups=channels
+        )
+        self.horizontal = nn.Conv2d(
+            channels,
+            channels,
+            kernel_size=(1, strip_kernel_size),
+            padding=(0, strip_padding),
+            dilation=(1, strip_dilation),
+            groups=channels,
+        )
+        self.vertical = nn.Conv2d(
+            channels,
+            channels,
+            kernel_size=(strip_kernel_size, 1),
+            padding=(strip_padding, 0),
+            dilation=(strip_dilation, 1),
+            groups=channels,
+        )
+        self.selection = BidirectionalSelectiveAggregation(channels, reduction)
+        self.modulation = nn.Conv2d(channels, channels, kernel_size=1)
+
+    def forward(self, x):
+        local_feature = self.local(x)
+        horizontal_feature = self.horizontal(local_feature)
+        vertical_feature = self.vertical(local_feature)
+        fused = self.selection(
+            [local_feature, horizontal_feature, vertical_feature]
+        )
+        return x * self.modulation(fused)
+
+
+class LargeReceptiveFieldAttention(nn.Module):
+    def __init__(self, channels, strip_kernel_size=11, strip_dilation=2, reduction=4):
+        super().__init__()
+        self.input_proj = nn.Conv2d(channels, channels, kernel_size=1)
+        self.sdbconv = SparseDecomposedBroadConvolution(
+            channels,
+            strip_kernel_size=strip_kernel_size,
+            strip_dilation=strip_dilation,
+            reduction=reduction,
+        )
+        self.output_proj = nn.Conv2d(channels, channels, kernel_size=1)
+
+    def forward(self, x):
+        return self.output_proj(self.sdbconv(F.gelu(self.input_proj(x))))
+
+
+class ConvolutionalFeedForwardNetwork(nn.Module):
+    def __init__(self, channels, expansion=2.0):
+        super().__init__()
+        hidden_channels = max(int(round(channels * expansion)), channels)
+        self.expand = nn.Conv2d(channels, hidden_channels, kernel_size=1)
+        self.depthwise = nn.Conv2d(
+            hidden_channels,
+            hidden_channels,
+            kernel_size=3,
+            padding=1,
+            groups=hidden_channels,
+        )
+        self.compress = nn.Conv2d(hidden_channels, channels, kernel_size=1)
+
+    def forward(self, x):
+        x = self.expand(x)
+        x = F.gelu(self.depthwise(x))
+        return self.compress(x)
+
+
+class LargeReceptiveFieldEnhancement(nn.Module):
+    """LREA attention-feedforward block from AQF-Net."""
+
+    def __init__(
+        self,
+        channels,
+        strip_kernel_size=11,
+        strip_dilation=2,
+        bsa_reduction=4,
+        cffn_expansion=2.0,
+    ):
+        super().__init__()
+        self.norm1 = nn.BatchNorm2d(channels)
+        self.attention = LargeReceptiveFieldAttention(
+            channels,
+            strip_kernel_size=strip_kernel_size,
+            strip_dilation=strip_dilation,
+            reduction=bsa_reduction,
+        )
+        self.norm2 = nn.BatchNorm2d(channels)
+        self.feed_forward = ConvolutionalFeedForwardNetwork(
+            channels, expansion=cffn_expansion
+        )
+
+    def forward(self, x):
+        x = x + self.attention(self.norm1(x))
+        return x + self.feed_forward(self.norm2(x))
+
+
+class SpatioFrequencyInteractiveFusion(nn.Module):
+    """Spatio-Frequency Interactive Fusion (SFIF) from FBDNet.
+
+    The spatial branch performs channel-wise multi-head self-attention plus a
+    depth-wise local value path. The frequency branch predicts a spatial
+    weight map, transforms both tensors with a 2-D FFT, and filters the input
+    by complex multiplication. Two cross gates then fuse both branches into a
+    residual output.
+    """
+
+    def __init__(self, channels, num_heads=8):
+        super().__init__()
+        if channels % num_heads != 0:
+            raise ValueError("SFIF channels must be divisible by num_heads")
+
+        self.channels = channels
+        self.num_heads = num_heads
+        self.head_dim = channels // num_heads
+
+        self.qkv = nn.Conv2d(channels, channels * 3, kernel_size=1)
+        self.local_value = nn.Conv2d(
+            channels,
+            channels,
+            kernel_size=3,
+            padding=1,
+            groups=channels,
+        )
+        self.spatial_scale = nn.Parameter(
+            torch.full((num_heads, 1, 1), self.head_dim**-0.5)
+        )
+        self.spatial_proj = nn.Conv2d(channels, channels, kernel_size=1)
+
+        self.frequency_weight_in = nn.Conv2d(channels, channels, kernel_size=1)
+        self.frequency_weight_out = nn.Conv2d(channels, channels, kernel_size=1)
+        self.frequency_proj = nn.Conv2d(channels, channels, kernel_size=1)
+
+        self.spatial_to_frequency_gate = nn.Conv2d(channels, channels, kernel_size=1)
+        self.frequency_to_spatial_gate = nn.Conv2d(channels, channels, kernel_size=1)
+
+    def _spatial_branch(self, x):
+        batch_size, _, height, width = x.shape
+        query, key, value = self.qkv(x).chunk(3, dim=1)
+        local_value = self.local_value(value)
+
+        query = query.reshape(
+            batch_size, self.num_heads, self.head_dim, height * width
+        )
+        key = key.reshape(batch_size, self.num_heads, self.head_dim, height * width)
+        value = value.reshape(
+            batch_size, self.num_heads, self.head_dim, height * width
+        )
+
+        attention = torch.matmul(query, key.transpose(-2, -1))
+        attention = attention * self.spatial_scale.to(dtype=attention.dtype)
+        attention = attention.softmax(dim=-1)
+        global_value = torch.matmul(attention, value).reshape(
+            batch_size, self.channels, height, width
+        )
+        return self.spatial_proj(global_value + local_value)
+
+    def _frequency_branch(self, x):
+        frequency_weight = self.frequency_weight_out(
+            F.gelu(self.frequency_weight_in(x))
+        )
+
+        # CUDA FFT does not support every low-precision shape under AMP. The
+        # transform is therefore evaluated in fp32 and cast back afterwards.
+        fft_input = x.float() if x.dtype in (torch.float16, torch.bfloat16) else x
+        fft_weight = (
+            frequency_weight.float()
+            if frequency_weight.dtype in (torch.float16, torch.bfloat16)
+            else frequency_weight
+        )
+        filtered = torch.fft.fft2(fft_input, dim=(-2, -1)) * torch.fft.fft2(
+            fft_weight, dim=(-2, -1)
+        )
+        restored = torch.fft.ifft2(filtered, dim=(-2, -1)).real.to(dtype=x.dtype)
+        return self.frequency_proj(restored)
+
+    def forward(self, x):
+        spatial_feature = self._spatial_branch(x)
+        frequency_feature = self._frequency_branch(x)
+
+        frequency_gate = torch.sigmoid(
+            self.spatial_to_frequency_gate(spatial_feature)
+        )
+        spatial_gate = torch.sigmoid(
+            self.frequency_to_spatial_gate(frequency_feature)
+        )
+        fused = spatial_feature * spatial_gate + frequency_feature * frequency_gate
+        return x + fused
 
 
 @register()
@@ -688,6 +1391,26 @@ class HybridEncoder(nn.Module):
         triplet_attention_kernel_size=7,
         triplet_attention_levels=None,
         triplet_attention_no_spatial=False,
+        use_caf=False,
+        caf_gamma=2,
+        caf_bias=1,
+        caf_groups=4,
+        caf_dyscope=True,
+        use_sfif=False,
+        sfif_num_heads=8,
+        use_fqsa=False,
+        fqsa_query_size=16,
+        fqsa_num_heads=8,
+        fqsa_pyramid_dilation=2,
+        use_lrea=False,
+        lrea_strip_kernel_size=11,
+        lrea_strip_dilation=2,
+        lrea_bsa_reduction=4,
+        lrea_cffn_expansion=2.0,
+        use_spatial_prior_attn=False,
+        spatial_prior_beta_min=0.75,
+        spatial_prior_beta_max=1.0,
+        spatial_prior_query_chunk_size=128,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -710,6 +1433,26 @@ class HybridEncoder(nn.Module):
         self.use_simam = use_simam
         self.use_mbde_p3 = use_mbde_p3
         self.use_triplet_attention = bool(use_triplet_attention)
+        self.use_caf = bool(use_caf)
+        self.use_sfif = bool(use_sfif)
+        self.use_fqsa = bool(use_fqsa)
+        self.use_lrea = bool(use_lrea)
+        self.use_spatial_prior_attn = bool(use_spatial_prior_attn)
+        if self.use_sfif and self.use_fqsa:
+            raise ValueError("SFIF and FQSA are alternative encoder replacements")
+        if self.use_spatial_prior_attn and (self.use_sfif or self.use_fqsa):
+            raise ValueError(
+                "spatial-prior attention requires the original AIFI encoder; "
+                "disable SFIF and FQSA"
+            )
+        if self.use_sfif and num_encoder_layers != 1:
+            raise ValueError("SFIF replaces the single AIFI layer; set num_encoder_layers to 1")
+        if self.use_sfif and hidden_dim % sfif_num_heads != 0:
+            raise ValueError("hidden_dim must be divisible by sfif_num_heads")
+        if self.use_fqsa and num_encoder_layers != 1:
+            raise ValueError("FQSA replaces the single AIFI layer; set num_encoder_layers to 1")
+        if self.use_fqsa and hidden_dim % fqsa_num_heads != 0:
+            raise ValueError("hidden_dim must be divisible by fqsa_num_heads")
         if triplet_attention_levels is None:
             triplet_attention_levels = list(range(len(in_channels)))
         self.triplet_attention_levels = tuple(int(level) for level in triplet_attention_levels)
@@ -744,30 +1487,69 @@ class HybridEncoder(nn.Module):
 
             self.input_proj.append(proj)
 
-        # encoder transformer
-        encoder_layer = TransformerEncoderLayer(
-            hidden_dim,
-            nhead=nhead,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            activation=enc_act,
-        )
-
-        self.encoder = nn.ModuleList(
-            [
-                TransformerEncoder(copy.deepcopy(encoder_layer), num_encoder_layers)
-                for _ in range(len(use_encoder_idx))
-            ]
-        )
+        # SFIF and FQSA are alternative single-variable replacements for AIFI,
+        # rather than extra blocks stacked on top of the baseline transformer.
+        if self.use_fqsa:
+            self.encoder = nn.ModuleList(
+                [
+                    FixedQuerySelfAttention(
+                        hidden_dim,
+                        num_heads=fqsa_num_heads,
+                        query_size=fqsa_query_size,
+                        pyramid_dilation=fqsa_pyramid_dilation,
+                    )
+                    for _ in range(len(use_encoder_idx))
+                ]
+            )
+        elif self.use_sfif:
+            self.encoder = nn.ModuleList(
+                [
+                    SpatioFrequencyInteractiveFusion(hidden_dim, sfif_num_heads)
+                    for _ in range(len(use_encoder_idx))
+                ]
+            )
+        else:
+            encoder_layer = TransformerEncoderLayer(
+                hidden_dim,
+                nhead=nhead,
+                dim_feedforward=dim_feedforward,
+                dropout=dropout,
+                activation=enc_act,
+                use_spatial_prior_attn=self.use_spatial_prior_attn,
+                spatial_prior_beta_min=spatial_prior_beta_min,
+                spatial_prior_beta_max=spatial_prior_beta_max,
+                spatial_prior_query_chunk_size=spatial_prior_query_chunk_size,
+            )
+            self.encoder = nn.ModuleList(
+                [
+                    TransformerEncoder(copy.deepcopy(encoder_layer), num_encoder_layers)
+                    for _ in range(len(use_encoder_idx))
+                ]
+            )
 
         # top-down fpn
         self.lateral_convs = nn.ModuleList()
         self.fpn_blocks = nn.ModuleList()
+        self.caf_ups = nn.ModuleList()
+        self.fpn_lrea = nn.ModuleList()
         for _ in range(len(in_channels) - 1, 0, -1):
             self.lateral_convs.append(ConvNormLayer_fuse(hidden_dim, hidden_dim, 1, 1))
+            if self.use_caf:
+                self.caf_ups.append(
+                    ChannelAdaptiveFusion(
+                        hidden_dim,
+                        hidden_dim,
+                        hidden_dim,
+                        gamma=caf_gamma,
+                        bias=caf_bias,
+                        groups=caf_groups,
+                        dyscope=caf_dyscope,
+                        act=act,
+                    )
+                )
             self.fpn_blocks.append(
                 RepNCSPELAN4(
-                    hidden_dim * 2,
+                    hidden_dim if self.use_caf else hidden_dim * 2,
                     hidden_dim,
                     hidden_dim * 2,
                     round(expansion * hidden_dim // 2),
@@ -775,19 +1557,43 @@ class HybridEncoder(nn.Module):
                 )
                 # CSPLayer(hidden_dim * 2, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion, bottletype=VGGBlock)
             )
+            if self.use_lrea:
+                self.fpn_lrea.append(
+                    LargeReceptiveFieldEnhancement(
+                        hidden_dim,
+                        strip_kernel_size=lrea_strip_kernel_size,
+                        strip_dilation=lrea_strip_dilation,
+                        bsa_reduction=lrea_bsa_reduction,
+                        cffn_expansion=lrea_cffn_expansion,
+                    )
+                )
 
         # bottom-up pan
         self.downsample_convs = nn.ModuleList()
         self.pan_blocks = nn.ModuleList()
+        self.caf_downs = nn.ModuleList()
+        self.pan_lrea = nn.ModuleList()
         for _ in range(len(in_channels) - 1):
-            self.downsample_convs.append(
-                nn.Sequential(
-                    SCDown(hidden_dim, hidden_dim, 3, 2),
+            if self.use_caf:
+                self.caf_downs.append(
+                    ChannelAdaptiveFusionDown(
+                        hidden_dim,
+                        hidden_dim,
+                        hidden_dim,
+                        gamma=caf_gamma,
+                        bias=caf_bias,
+                        act=act,
+                    )
                 )
-            )
+            else:
+                self.downsample_convs.append(
+                    nn.Sequential(
+                        SCDown(hidden_dim, hidden_dim, 3, 2),
+                    )
+                )
             self.pan_blocks.append(
                 RepNCSPELAN4(
-                    hidden_dim * 2,
+                    hidden_dim if self.use_caf else hidden_dim * 2,
                     hidden_dim,
                     hidden_dim * 2,
                     round(expansion * hidden_dim // 2),
@@ -795,6 +1601,16 @@ class HybridEncoder(nn.Module):
                 )
                 # CSPLayer(hidden_dim * 2, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion, bottletype=VGGBlock)
             )
+            if self.use_lrea:
+                self.pan_lrea.append(
+                    LargeReceptiveFieldEnhancement(
+                        hidden_dim,
+                        strip_kernel_size=lrea_strip_kernel_size,
+                        strip_dilation=lrea_strip_dilation,
+                        bsa_reduction=lrea_bsa_reduction,
+                        cffn_expansion=lrea_cffn_expansion,
+                    )
+                )
 
 
         if self.use_simam:
@@ -885,6 +1701,9 @@ class HybridEncoder(nn.Module):
         # encoder
         if self.num_encoder_layers > 0:
             for i, enc_ind in enumerate(self.use_encoder_idx):
+                if self.use_sfif or self.use_fqsa:
+                    proj_feats[enc_ind] = self.encoder[i](proj_feats[enc_ind])
+                    continue
                 h, w = proj_feats[enc_ind].shape[2:]
                 # flatten [B, C, H, W] to [B, HxW, C]
                 src_flatten = proj_feats[enc_ind].flatten(2).permute(0, 2, 1)
@@ -895,7 +1714,11 @@ class HybridEncoder(nn.Module):
                 else:
                     pos_embed = getattr(self, f"pos_embed{enc_ind}", None).to(src_flatten.device)
 
-                memory: torch.Tensor = self.encoder[i](src_flatten, pos_embed=pos_embed)
+                memory: torch.Tensor = self.encoder[i](
+                    src_flatten,
+                    pos_embed=pos_embed,
+                    spatial_shape=(h, w),
+                )
                 proj_feats[enc_ind] = (
                     memory.permute(0, 2, 1).reshape(-1, self.hidden_dim, h, w).contiguous()
                 )
@@ -907,11 +1730,21 @@ class HybridEncoder(nn.Module):
             feat_low = proj_feats[idx - 1]
             feat_heigh = self.lateral_convs[len(self.in_channels) - 1 - idx](feat_heigh)
             inner_outs[0] = feat_heigh
-            upsample_feat = F.interpolate(feat_heigh, scale_factor=2.0, mode="nearest")
-            fused_feat = self.fpn_blocks[len(self.in_channels) - 1 - idx](
-                torch.concat([upsample_feat, feat_low], dim=1)
-            )
+            fusion_idx = len(self.in_channels) - 1 - idx
+            if self.use_caf:
+                fused_input = self.caf_ups[fusion_idx]([feat_low, feat_heigh])
+                fused_feat = self.fpn_blocks[fusion_idx](fused_input)
+                upsample_feat = None
+            else:
+                upsample_feat = F.interpolate(feat_heigh, scale_factor=2.0, mode="nearest")
+                fused_feat = self.fpn_blocks[fusion_idx](
+                    torch.concat([upsample_feat, feat_low], dim=1)
+                )
+            if self.use_lrea:
+                fused_feat = self.fpn_lrea[fusion_idx](fused_feat)
             if self.use_hf_gate and (idx - 1) == self.hf_gate_level:
+                if self.use_caf:
+                    raise ValueError("use_hf_gate and use_caf are mutually exclusive")
                 gate = torch.sigmoid(self.hf_gate).to(dtype=fused_feat.dtype)
                 inner_out = upsample_feat + gate * (fused_feat - upsample_feat)
             else:
@@ -922,8 +1755,16 @@ class HybridEncoder(nn.Module):
         for idx in range(len(self.in_channels) - 1):
             feat_low = outs[-1]
             feat_height = inner_outs[idx + 1]
-            downsample_feat = self.downsample_convs[idx](feat_low)
-            out = self.pan_blocks[idx](torch.concat([downsample_feat, feat_height], dim=1))
+            if self.use_caf:
+                fused_input = self.caf_downs[idx]([feat_height, feat_low])
+                out = self.pan_blocks[idx](fused_input)
+            else:
+                downsample_feat = self.downsample_convs[idx](feat_low)
+                out = self.pan_blocks[idx](
+                    torch.concat([downsample_feat, feat_height], dim=1)
+                )
+            if self.use_lrea:
+                out = self.pan_lrea[idx](out)
             outs.append(out)
 
         if self.use_triplet_attention:

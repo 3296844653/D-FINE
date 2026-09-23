@@ -1,0 +1,28 @@
+__include__:
+  - dfine_s_university_5cls.yml
+
+# Single-variable D-FINE-S experiment based on DFormerv2 Eq. (2) and Eq. (4).
+# Only the existing P5 AIFI self-attention is guided by a 2-D Manhattan prior.
+HGNetv2:
+  use_afta: false
+
+HybridEncoder:
+  use_spatial_prior_attn: true
+  spatial_prior_beta_min: 0.75
+  spatial_prior_beta_max: 1.0
+  spatial_prior_query_chunk_size: 128
+
+  # Explicit guards keep all other experimental modules disabled.
+  use_sfif: false
+  use_fqsa: false
+  use_lrea: false
+  use_caf: false
+  use_hf_gate: false
+  use_simam: false
+  use_bmefs: false
+  use_mbde_p3: false
+  use_triplet_attention: false
+
+DFINECriterion:
+  use_shape_iou: false
+  use_aspect_ratio_loss: false

@@ -1,0 +1,11 @@
+# Exp-2: only the final classification branch gains region bilinear features.
+__include__:
+  - dfine_s_university_5cls.yml
+
+DFINETransformer:
+  use_region_bilinear_cls: true
+  region_bilinear_rank: 32
+  region_bilinear_roi_size: 7
+
+DFINEPostProcessor:
+  single_label_per_query: false

@@ -1,0 +1,27 @@
+__include__:
+  - dfine_s_university_5cls.yml
+
+# AQF-Net LREA single-variable experiment for D-FINE-S.
+# Adds one LREA after each of the two FPN and two PAN RepNCSPELAN blocks.
+HGNetv2:
+  use_afta: false
+
+HybridEncoder:
+  use_caf: false
+  use_sfif: false
+  use_fqsa: false
+  use_lrea: true
+  # Engineering choices: k and dilation are not disclosed in the paper.
+  lrea_strip_kernel_size: 11
+  lrea_strip_dilation: 2
+  lrea_bsa_reduction: 4
+  lrea_cffn_expansion: 2.0
+  use_hf_gate: false
+  use_simam: false
+  use_bmefs: false
+  use_mbde_p3: false
+  use_triplet_attention: false
+
+DFINECriterion:
+  use_shape_iou: false
+  use_aspect_ratio_loss: false

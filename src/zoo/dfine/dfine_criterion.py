@@ -20,6 +20,103 @@ from .box_ops import box_cxcywh_to_xyxy, box_iou, generalized_box_iou
 from .dfine_utils import bbox2distance
 
 
+def shape_iou_loss(pred_boxes, target_boxes, scale=0.0, eps=1e-7):
+    """Shape-IoU loss for aligned ``cxcywh`` box pairs.
+
+    Adapted from the official implementation:
+    https://github.com/malagoutou/Shape-IoU/blob/main/shapeiou.py
+    """
+    if pred_boxes.shape != target_boxes.shape or pred_boxes.shape[-1] != 4:
+        raise ValueError(
+            "pred_boxes and target_boxes must have the same shape [..., 4]"
+        )
+    if pred_boxes.numel() == 0:
+        return pred_boxes.new_zeros(pred_boxes.shape[:-1])
+
+    # Compute the geometric terms in fp32 under AMP for numerical stability.
+    pred = pred_boxes.float() if pred_boxes.dtype in (torch.float16, torch.bfloat16) else pred_boxes
+    target = (
+        target_boxes.float()
+        if target_boxes.dtype in (torch.float16, torch.bfloat16)
+        else target_boxes
+    )
+
+    pred_x, pred_y, pred_w, pred_h = pred.unbind(-1)
+    target_x, target_y, target_w, target_h = target.unbind(-1)
+    pred_w = pred_w.clamp_min(eps)
+    pred_h = pred_h.clamp_min(eps)
+    target_w = target_w.clamp_min(eps)
+    target_h = target_h.clamp_min(eps)
+
+    pred_x1, pred_x2 = pred_x - pred_w / 2, pred_x + pred_w / 2
+    pred_y1, pred_y2 = pred_y - pred_h / 2, pred_y + pred_h / 2
+    target_x1, target_x2 = target_x - target_w / 2, target_x + target_w / 2
+    target_y1, target_y2 = target_y - target_h / 2, target_y + target_h / 2
+
+    inter_w = (torch.minimum(pred_x2, target_x2) - torch.maximum(pred_x1, target_x1)).clamp_min(0)
+    inter_h = (torch.minimum(pred_y2, target_y2) - torch.maximum(pred_y1, target_y1)).clamp_min(0)
+    intersection = inter_w * inter_h
+    union = (pred_w * pred_h + target_w * target_h - intersection).clamp_min(eps)
+    iou = intersection / union
+
+    target_w_scaled = target_w.pow(scale)
+    target_h_scaled = target_h.pow(scale)
+    shape_denominator = (target_w_scaled + target_h_scaled).clamp_min(eps)
+    width_weight = 2 * target_w_scaled / shape_denominator
+    height_weight = 2 * target_h_scaled / shape_denominator
+
+    convex_w = (torch.maximum(pred_x2, target_x2) - torch.minimum(pred_x1, target_x1)).clamp_min(eps)
+    convex_h = (torch.maximum(pred_y2, target_y2) - torch.minimum(pred_y1, target_y1)).clamp_min(eps)
+    convex_diagonal = (convex_w.square() + convex_h.square()).clamp_min(eps)
+    center_distance = (
+        height_weight * (pred_x - target_x).square()
+        + width_weight * (pred_y - target_y).square()
+    ) / convex_diagonal
+
+    width_difference = (
+        height_weight
+        * (pred_w - target_w).abs()
+        / torch.maximum(pred_w, target_w).clamp_min(eps)
+    )
+    height_difference = (
+        width_weight
+        * (pred_h - target_h).abs()
+        / torch.maximum(pred_h, target_h).clamp_min(eps)
+    )
+    shape_cost = (1 - torch.exp(-width_difference)).pow(4) + (
+        1 - torch.exp(-height_difference)
+    ).pow(4)
+
+    shape_iou = iou - center_distance - 0.5 * shape_cost
+    return 1 - shape_iou
+
+
+def aspect_ratio_penalty(pred_boxes, target_boxes, eps=1e-7):
+    """Normalized aspect-ratio difference for aligned ``cxcywh`` box pairs."""
+    if pred_boxes.shape != target_boxes.shape or pred_boxes.shape[-1] != 4:
+        raise ValueError(
+            "pred_boxes and target_boxes must have the same shape [..., 4]"
+        )
+    if pred_boxes.numel() == 0:
+        return pred_boxes.new_zeros(pred_boxes.shape[:-1])
+
+    pred = (
+        pred_boxes.float()
+        if pred_boxes.dtype in (torch.float16, torch.bfloat16)
+        else pred_boxes
+    )
+    target = (
+        target_boxes.float()
+        if target_boxes.dtype in (torch.float16, torch.bfloat16)
+        else target_boxes
+    )
+    pred_ratio = pred[..., 2].clamp_min(eps) / pred[..., 3].clamp_min(eps)
+    target_ratio = target[..., 2].clamp_min(eps) / target[..., 3].clamp_min(eps)
+    return (pred_ratio - target_ratio).abs() / (
+        pred_ratio + target_ratio
+    ).clamp_min(eps)
+
+
 @register()
 class DFINECriterion(nn.Module):
     """This class computes the loss for D-FINE."""
@@ -79,6 +176,14 @@ class DFINECriterion(nn.Module):
         lahns_iou_power=2.0,
         lahns_score_power=2.0,
         lahns_topk=30,
+        use_shape_iou=False,
+        shape_iou_scale=0.0,
+        shape_iou_eps=1e-7,
+        use_aspect_ratio_loss=False,
+        aspect_ratio_loss_weight=0.1,
+        aspect_ratio_loss_eps=1e-7,
+        duplicate_loss_weight=0.25,
+        duplicate_iou_threshold=0.7,
     ):
         """Create the criterion.
         Parameters:
@@ -94,6 +199,10 @@ class DFINECriterion(nn.Module):
         self.matcher = matcher
         self.weight_dict = weight_dict
         self.losses = losses
+        self.duplicate_loss_weight = float(duplicate_loss_weight)
+        self.duplicate_iou_threshold = float(duplicate_iou_threshold)
+        if self.duplicate_loss_weight < 0 or not 0 < self.duplicate_iou_threshold <= 1:
+            raise ValueError("Invalid duplicate relation loss settings")
         self.boxes_weight_format = boxes_weight_format
         self.share_matched_indices = share_matched_indices
         self.alpha = alpha
@@ -101,6 +210,19 @@ class DFINECriterion(nn.Module):
         self.fgl_targets, self.fgl_targets_dn = None, None
         self.own_targets, self.own_targets_dn = None, None
         self.reg_max = reg_max
+        self.use_shape_iou = bool(use_shape_iou)
+        self.shape_iou_scale = float(shape_iou_scale)
+        self.shape_iou_eps = float(shape_iou_eps)
+        assert self.shape_iou_scale >= 0
+        assert self.shape_iou_eps > 0
+        self.use_aspect_ratio_loss = bool(use_aspect_ratio_loss)
+        self.aspect_ratio_loss_weight = float(aspect_ratio_loss_weight)
+        self.aspect_ratio_loss_eps = float(aspect_ratio_loss_eps)
+        assert not (self.use_shape_iou and self.use_aspect_ratio_loss), (
+            "Shape-IoU and AR loss are independent experiments and cannot be enabled together"
+        )
+        assert self.aspect_ratio_loss_weight >= 0
+        assert self.aspect_ratio_loss_eps > 0
         self.num_pos, self.num_neg = None, None
         self.use_o2m_aux = use_o2m_aux
         self.o2m_topk = max(int(o2m_topk), 1)
@@ -732,9 +854,26 @@ class DFINECriterion(nn.Module):
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction="none")
         losses["loss_bbox"] = loss_bbox.sum() / num_boxes
 
-        loss_giou = 1 - torch.diag(
-            generalized_box_iou(box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes))
-        )
+        if self.use_shape_iou:
+            loss_giou = shape_iou_loss(
+                src_boxes,
+                target_boxes,
+                scale=self.shape_iou_scale,
+                eps=self.shape_iou_eps,
+            )
+        else:
+            loss_giou = 1 - torch.diag(
+                generalized_box_iou(
+                    box_cxcywh_to_xyxy(src_boxes),
+                    box_cxcywh_to_xyxy(target_boxes),
+                )
+            )
+            if self.use_aspect_ratio_loss:
+                loss_giou = loss_giou + self.aspect_ratio_loss_weight * aspect_ratio_penalty(
+                    src_boxes,
+                    target_boxes,
+                    eps=self.aspect_ratio_loss_eps,
+                )
         loss_giou = loss_giou if boxes_weight is None else loss_giou * boxes_weight
         losses["loss_giou"] = loss_giou.sum() / num_boxes
 
@@ -904,7 +1043,13 @@ class DFINECriterion(nn.Module):
         outputs_without_aux = {k: v for k, v in outputs.items() if "aux" not in k}
 
         # Retrieve the matching between the outputs of the last layer and the targets
-        indices = self.matcher(outputs_without_aux, targets)["indices"]
+        if "pre_duplicate_logits" in outputs_without_aux:
+            # Keep Hungarian assignment identical to the original class scores.
+            matching_outputs = dict(outputs_without_aux)
+            matching_outputs["pred_logits"] = outputs_without_aux["pre_duplicate_logits"]
+        else:
+            matching_outputs = outputs_without_aux
+        indices = self.matcher(matching_outputs, targets)["indices"]
         self._clear_cache()
 
         # Get the matching union set across all decoder layers.
@@ -941,6 +1086,31 @@ class DFINECriterion(nn.Module):
 
         # Compute all the requested losses
         losses = {}
+        if "duplicate_keep_logits" in outputs:
+            keep = outputs["duplicate_keep_logits"].squeeze(-1).float()
+            duplicate_losses = []
+            for batch, (source_ids, _) in enumerate(indices):
+                selected = torch.zeros_like(keep[batch], dtype=torch.bool)
+                selected[source_ids] = True
+                if len(targets[batch]["boxes"]):
+                    ious, _ = box_iou(
+                        box_cxcywh_to_xyxy(outputs["pred_boxes"][batch].detach().float()),
+                        box_cxcywh_to_xyxy(targets[batch]["boxes"].float()),
+                    )
+                    duplicate_candidates = (~selected) & (ious.max(-1).values >= self.duplicate_iou_threshold)
+                else:
+                    duplicate_candidates = torch.zeros_like(selected)
+                supervised = selected | duplicate_candidates
+                if supervised.any():
+                    duplicate_losses.append(
+                        F.binary_cross_entropy_with_logits(
+                            keep[batch][supervised], selected[supervised].to(keep.dtype)
+                        )
+                    )
+            losses["loss_duplicate_keep"] = (
+                torch.stack(duplicate_losses).mean() * self.duplicate_loss_weight
+                if duplicate_losses else keep.sum() * 0
+            )
         for loss in self.losses:
             indices_in = indices_go if loss in ["boxes", "local"] else indices
             num_boxes_in = num_boxes_go if loss in ["boxes", "local"] else num_boxes

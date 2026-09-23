@@ -1,0 +1,18 @@
+__include__:
+  - dfine_s_university_5cls.yml
+
+# FBDNet AFTA single-variable experiment for D-FINE-S.
+# AFTA is inserted after feature aggregation in every HG block.
+HGNetv2:
+  use_afta: true
+  afta_spatial_kernel_size: 7
+  afta_edge_kernel_size: 3
+
+# Explicit guards keep this run independent from other module experiments.
+HybridEncoder:
+  use_caf: false
+  use_sfif: false
+
+DFINECriterion:
+  use_shape_iou: false
+  use_aspect_ratio_loss: false

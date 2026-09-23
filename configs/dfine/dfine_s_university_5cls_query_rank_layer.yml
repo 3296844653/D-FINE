@@ -1,0 +1,8 @@
+__include__:
+  - dfine_s_university_5cls.yml
+
+# Single-variable Rank-DETR ablation: Query Rank Layer (QRL) only.
+# VFL, Hungarian matching, FDR, GO-LSD, DN training, query count, and all
+# baseline optimization/data settings remain inherited and unchanged.
+DFINETransformer:
+  use_query_rank_layer: true

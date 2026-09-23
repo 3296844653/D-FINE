@@ -1185,6 +1185,84 @@ class LQE(nn.Module):
         return scores + quality_score
 
 
+class RegionBilinearClassifier(nn.Module):
+    """Optional final-layer classification residual from P3 region interactions.
+
+    Boxes only select sampling locations; their coordinates are detached.  The
+    zero-initialized output starts with exactly the baseline classification.
+    """
+
+    def __init__(self, hidden_dim=256, rank=32, roi_size=7, level=0, num_classes=5):
+        super().__init__()
+        if rank < 1 or roi_size < 1 or level < 0:
+            raise ValueError("rank, roi_size and level must be valid")
+        self.rank, self.roi_size, self.level = rank, roi_size, level
+        self.reduce = nn.Conv2d(hidden_dim, rank, 1)
+        self.classifier = nn.Linear(rank * rank, num_classes)
+        init.zeros_(self.classifier.weight)
+        init.zeros_(self.classifier.bias)
+
+    def forward(self, memory, spatial_shapes, boxes):
+        if self.level >= len(spatial_shapes):
+            raise ValueError("bilinear ROI level exceeds decoder feature levels")
+        start = sum(h * w for h, w in spatial_shapes[:self.level])
+        h, w = spatial_shapes[self.level]
+        feature = memory[:, start:start + h * w].transpose(1, 2).reshape(memory.shape[0], -1, h, w)
+        feature = self.reduce(feature)
+        boxes = boxes.detach()
+        batch, count = boxes.shape[:2]
+        offsets = torch.linspace(-0.5, 0.5, self.roi_size, device=boxes.device, dtype=boxes.dtype)
+        yy, xx = torch.meshgrid(offsets, offsets, indexing="ij")
+        offsets = torch.stack((xx, yy), -1).view(1, 1, self.roi_size, self.roi_size, 2)
+        grid = (boxes[..., :2].view(batch, count, 1, 1, 2)
+                + offsets * boxes[..., 2:].clamp_min(1e-4).view(batch, count, 1, 1, 2))
+        grid = grid.mul(2).sub(1).reshape(batch, count * self.roi_size, self.roi_size, 2).to(feature.dtype)
+        sampled = F.grid_sample(feature, grid, mode="bilinear", padding_mode="border", align_corners=False)
+        sampled = sampled.reshape(batch, self.rank, count, self.roi_size ** 2).permute(0, 2, 1, 3)
+        second_order = torch.matmul(sampled.float(), sampled.float().transpose(-1, -2)) / (self.roi_size ** 2)
+        descriptor = second_order.flatten(-2)
+        descriptor = F.normalize(descriptor.sign() * descriptor.abs().clamp_min(1e-12).sqrt(), dim=-1)
+        return self.classifier(descriptor.to(dtype=feature.dtype))
+
+
+class DuplicateRelationHead(nn.Module):
+    """Score each final matching query against its most overlapping neighbors."""
+
+    def __init__(self, hidden_dim=256, neighbors=8):
+        super().__init__()
+        if neighbors < 1:
+            raise ValueError("neighbors must be positive")
+        self.neighbors = neighbors
+        self.keep = nn.Sequential(nn.Linear(hidden_dim * 2 + 2, 128), nn.ReLU(), nn.Linear(128, 1))
+        init.zeros_(self.keep[-1].weight)
+        init.zeros_(self.keep[-1].bias)
+
+    def forward(self, query, boxes, logits):
+        batch, count, channels = query.shape
+        if count < 2:
+            return query.new_zeros((batch, count, 1))
+        boxes = boxes.detach().float()
+        xy1 = boxes[..., :2] - boxes[..., 2:] / 2
+        xy2 = boxes[..., :2] + boxes[..., 2:] / 2
+        intersection = (torch.minimum(xy2[:, :, None], xy2[:, None])
+                        - torch.maximum(xy1[:, :, None], xy1[:, None])).clamp_min(0).prod(-1)
+        areas = boxes[..., 2:].prod(-1)
+        overlap = intersection / (areas[:, :, None] + areas[:, None] - intersection).clamp_min(1e-7)
+        diagonal = torch.eye(count, dtype=torch.bool, device=query.device).unsqueeze(0)
+        overlap = overlap.masked_fill(diagonal, -1)
+        values, neighbors = overlap.topk(min(self.neighbors, count - 1), dim=-1)
+        batch_ids = torch.arange(batch, device=query.device)[:, None, None]
+        neighbor_query = query[batch_ids, neighbors]
+        neighbor_score = logits.detach().sigmoid().amax(-1)[batch_ids, neighbors]
+        weights = values.clamp_min(0)
+        weights = (weights / weights.sum(-1, keepdim=True).clamp_min(1e-6)).to(query.dtype)
+        context = (neighbor_query * weights.unsqueeze(-1)).sum(-2)
+        strongest = (neighbor_score * weights).sum(-1, keepdim=True)
+        evidence = torch.cat((query, context, values[..., :1].clamp_min(0).to(query.dtype),
+                              strongest.to(query.dtype)), -1)
+        return self.keep(evidence)
+
+
 class TransformerDecoder(nn.Module):
     """
     Transformer Decoder implementing Fine-grained Distribution Refinement (FDR).
@@ -1236,9 +1314,11 @@ class TransformerDecoder(nn.Module):
         saam_key_dim=32,
         saam_dropout=0.0,
         saam_residual_init=0.05,
+        capture_query_features=False,
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
+        self.capture_query_features = bool(capture_query_features)
         self.num_layers = num_layers
         self.layer_scale = layer_scale
         self.num_head = num_head
@@ -1506,7 +1586,7 @@ class TransformerDecoder(nn.Module):
 
 
 
-                if self.training and self.return_query_features:
+                if (self.training and self.return_query_features) or self.capture_query_features:
                     final_query_features = cls_head_output
 
                 if not self.training:
@@ -1622,6 +1702,11 @@ class DFINETransformer(nn.Module):
         saam_key_dim=32,
         saam_dropout=0.0,
         saam_residual_init=0.05,
+        use_region_bilinear_cls=False,
+        region_bilinear_rank=32,
+        region_bilinear_roi_size=7,
+        use_duplicate_relation=False,
+        duplicate_neighbors=8,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -1637,6 +1722,10 @@ class DFINETransformer(nn.Module):
         self.num_levels = num_levels
         self.num_classes = num_classes
         self.num_queries = num_queries
+        self.use_region_bilinear_cls = bool(use_region_bilinear_cls)
+        self.use_duplicate_relation = bool(use_duplicate_relation)
+        if self.use_region_bilinear_cls and self.use_duplicate_relation:
+            raise ValueError("Run region bilinear and duplicate relation as separate ablations")
         self.eps = eps
         self.num_layers = num_layers
         self.eval_spatial_size = eval_spatial_size
@@ -1857,7 +1946,18 @@ class DFINETransformer(nn.Module):
             saam_key_dim=saam_key_dim,
             saam_dropout=saam_dropout,
             saam_residual_init=saam_residual_init,
+            capture_query_features=self.use_duplicate_relation,
         )
+        if self.use_region_bilinear_cls:
+            with torch.random.fork_rng(devices=[]):
+                self.region_bilinear_cls = RegionBilinearClassifier(
+                    hidden_dim, region_bilinear_rank, region_bilinear_roi_size, 0, num_classes
+                )
+        if self.use_duplicate_relation:
+            if layer_scale != 1:
+                raise ValueError("Duplicate relation requires layer_scale=1")
+            with torch.random.fork_rng(devices=[]):
+                self.duplicate_relation = DuplicateRelationHead(hidden_dim, duplicate_neighbors)
         # denoising
         self.num_denoising = num_denoising
         self.label_noise_ratio = label_noise_ratio
@@ -2369,9 +2469,25 @@ class DFINETransformer(nn.Module):
                 out_teacher_logits, dn_meta["dn_num_split"], dim=1
             )
 
+        final_logits = out_logits[-1]
+        duplicate_keep_logits = None
+        if self.use_region_bilinear_cls:
+            final_logits = final_logits + self.region_bilinear_cls(
+                memory, spatial_shapes, out_bboxes[-1]
+            )
+        if self.use_duplicate_relation:
+            if out_query_features is None:
+                raise RuntimeError("Duplicate relation requires final decoder query features")
+            duplicate_keep_logits = self.duplicate_relation(
+                out_query_features, out_bboxes[-1], final_logits
+            )
+            # Zero-initialized keep head gives log(sigmoid(0))-log(0.5)=0.
+            # A low learned keep score suppresses all class scores of a query.
+            final_logits = final_logits + F.logsigmoid(duplicate_keep_logits) - math.log(0.5)
+
         if self.training:
             out = {
-                "pred_logits": out_logits[-1],
+                "pred_logits": final_logits,
                 "pred_boxes": out_bboxes[-1],
                 "pred_corners": out_corners[-1],
                 "ref_points": out_refs[-1],
@@ -2381,7 +2497,11 @@ class DFINETransformer(nn.Module):
             if out_query_features is not None:
                 out["query_features"] = out_query_features
         else:
-            out = {"pred_logits": out_logits[-1], "pred_boxes": out_bboxes[-1]}
+            out = {"pred_logits": final_logits, "pred_boxes": out_bboxes[-1]}
+
+        if self.use_duplicate_relation and self.training:
+            out["duplicate_keep_logits"] = duplicate_keep_logits
+            out["pre_duplicate_logits"] = out_logits[-1]
 
         if self.training and self.aux_loss:
             out["aux_outputs"] = self._set_aux_loss2(

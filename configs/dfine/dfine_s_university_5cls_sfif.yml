@@ -1,0 +1,16 @@
+__include__:
+  - dfine_s_university_5cls.yml
+
+# FBDNet SFIF single-variable experiment for D-FINE-S.
+# SFIF replaces the single AIFI/Transformer encoder layer at P5.
+HGNetv2:
+  use_afta: false
+
+HybridEncoder:
+  use_caf: false
+  use_sfif: true
+  sfif_num_heads: 8
+
+DFINECriterion:
+  use_shape_iou: false
+  use_aspect_ratio_loss: false

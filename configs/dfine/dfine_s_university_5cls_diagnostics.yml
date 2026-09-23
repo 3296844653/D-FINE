@@ -1,0 +1,12 @@
+# Validation-only diagnostics for the current D-FINE-S five-class baseline.
+# Use --test-only -r <best checkpoint>; this file does not change training settings.
+__include__:
+  - dfine_s_university_5cls.yml
+
+export_diagnostics: true
+diagnostic_conf_thresh: 0.5
+diagnostic_iou_thresh: 0.5
+# The validation split contains 142 images. This caps saved visualizations only;
+# error_details.csv still contains all recorded errors.
+diagnostic_max_images: 142
+diagnostic_run_name: baseline_s_5cls_run2_seed0

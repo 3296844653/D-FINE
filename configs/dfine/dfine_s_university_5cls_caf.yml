@@ -1,0 +1,12 @@
+__include__:
+  - dfine_s_university_5cls.yml
+
+# Single-variable CAF experiment adapted from HF-D-FINE for D-FINE-S.
+# Replaces the P3/P4/P5 top-down and bottom-up fusion operators only.
+# Does not add P2, HF Hybrid Encoder restructuring, or Outer-SNWD.
+HybridEncoder:
+  use_caf: true
+  caf_gamma: 2
+  caf_bias: 1
+  caf_groups: 4
+  caf_dyscope: true

@@ -1,0 +1,10 @@
+# Exp-1: validation only, using exactly the same checkpoint as the baseline.
+# One sigmoid class per query; no model/loss/training changes and no NMS.
+__include__:
+  - dfine_s_university_5cls_diagnostics.yml
+
+DFINEPostProcessor:
+  single_label_per_query: true
+
+# Only the output filename prefix differs from baseline diagnostics.
+diagnostic_run_name: single_label_s_5cls_run2_seed0

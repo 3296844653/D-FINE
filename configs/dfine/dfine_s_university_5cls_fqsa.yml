@@ -1,0 +1,26 @@
+__include__:
+  - dfine_s_university_5cls.yml
+
+# AQF-Net FQSA single-variable experiment for D-FINE-S.
+# Replaces the single P5 AIFI encoder with fixed 16x16 query attention.
+HGNetv2:
+  use_afta: false
+
+HybridEncoder:
+  use_caf: false
+  use_sfif: false
+  use_fqsa: true
+  fqsa_query_size: 16
+  fqsa_num_heads: 8
+  # Engineering choice: the paper does not disclose this branch dilation.
+  fqsa_pyramid_dilation: 2
+  use_lrea: false
+  use_hf_gate: false
+  use_simam: false
+  use_bmefs: false
+  use_mbde_p3: false
+  use_triplet_attention: false
+
+DFINECriterion:
+  use_shape_iou: false
+  use_aspect_ratio_loss: false

@@ -1,0 +1,12 @@
+# Single-variable aspect-ratio regression experiment on D-FINE-S.
+# Baseline GIoU is retained; only the normalized aspect-ratio penalty is added.
+
+__include__:
+  - dfine_s_university_5cls.yml
+
+
+DFINECriterion:
+  use_shape_iou: false
+  use_aspect_ratio_loss: true
+  aspect_ratio_loss_weight: 0.1
+  aspect_ratio_loss_eps: 1.0e-7

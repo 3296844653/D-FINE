@@ -1,0 +1,12 @@
+# Single-variable Shape-IoU regression-loss experiment on D-FINE-S.
+# Matcher, L1, FGL/DDF, architecture and all other training settings stay unchanged.
+
+__include__:
+  - dfine_s_university_5cls.yml
+
+
+DFINECriterion:
+  use_shape_iou: true
+  use_aspect_ratio_loss: false
+  shape_iou_scale: 0.0
+  shape_iou_eps: 1.0e-7

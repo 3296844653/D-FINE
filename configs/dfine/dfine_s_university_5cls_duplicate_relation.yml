@@ -1,0 +1,14 @@
+# Exp-3: final-query duplicate relation and its own training supervision.
+__include__:
+  - dfine_s_university_5cls.yml
+
+DFINETransformer:
+  use_duplicate_relation: true
+  duplicate_neighbors: 8
+
+DFINECriterion:
+  duplicate_loss_weight: 0.25
+  duplicate_iou_threshold: 0.7
+
+DFINEPostProcessor:
+  single_label_per_query: false
