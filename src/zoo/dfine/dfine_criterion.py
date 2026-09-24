@@ -45,6 +45,8 @@ class DFINECriterion(nn.Module):
         use_class_margin=False,
         class_margin=0.2,
         class_margin_weight=0.1,
+        use_query_validity=False,
+        query_validity_weight=0.1,
     ):
         """Create the criterion.
         Parameters:
@@ -75,6 +77,30 @@ class DFINECriterion(nn.Module):
         self.class_margin_weight = class_margin_weight
         if class_margin < 0 or class_margin_weight < 0:
             raise ValueError("Class margin and its weight must be non-negative")
+        self.use_query_validity = use_query_validity
+        self.query_validity_weight = query_validity_weight
+        if query_validity_weight < 0:
+            raise ValueError("Query validity loss weight must be non-negative")
+
+    @staticmethod
+    def loss_query_validity(outputs, indices):
+        """Balanced matched/unmatched binary supervision for final queries only.
+
+        Hungarian-matched queries are positive; all other ordinary queries are
+        negative. Positive and negative means are balanced per batch so the
+        numerous easy negatives cannot overwhelm the sparse positives.
+        """
+        logits = outputs["query_validity_logits"].squeeze(-1)
+        if logits.shape != outputs["pred_logits"].shape[:2]:
+            raise ValueError("Query validity logits do not match detection queries")
+        target = torch.zeros_like(logits)
+        for batch_idx, (query_indices, _) in enumerate(indices):
+            target[batch_idx, query_indices.to(device=logits.device)] = 1
+        per_query = F.binary_cross_entropy_with_logits(logits, target, reduction="none")
+        positive = target.bool()
+        positive_loss = per_query[positive].mean() if positive.any() else logits.sum() * 0
+        negative_loss = per_query[~positive].mean() if (~positive).any() else logits.sum() * 0
+        return 0.5 * (positive_loss + negative_loss)
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
         assert "pred_logits" in outputs
@@ -368,6 +394,13 @@ class DFINECriterion(nn.Module):
         if self.use_class_margin:
             losses["loss_class_margin"] = self.class_margin_weight * self.loss_labels_class_margin(
                 outputs_without_aux, targets, indices, num_boxes
+            )
+
+        if self.use_query_validity:
+            if "query_validity_logits" not in outputs_without_aux:
+                raise ValueError("Query validity loss requires query_validity_logits")
+            losses["loss_query_validity"] = self.query_validity_weight * self.loss_query_validity(
+                outputs_without_aux, indices
             )
 
         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.

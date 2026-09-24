@@ -1,0 +1,13 @@
+# Independent experiment: class-agnostic validity of final detection queries.
+# Local-evidence refinement, class-margin loss, data and baseline schedule stay off/unchanged.
+__include__:
+  - dfine_s_university_5cls.yml
+
+DFINETransformer:
+  use_query_validity: true
+  query_validity_dim: 64
+  query_validity_scale: 0.25
+
+DFINECriterion:
+  use_query_validity: true
+  query_validity_weight: 0.1

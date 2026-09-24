@@ -46,6 +46,72 @@ class MLP(nn.Module):
         return x
 
 
+class LocalEvidenceClassificationRefiner(nn.Module):
+    """Refine final class logits with four spatial samples inside each predicted box.
+
+    This is a project-specific ablation, not a reproduction of a published module.
+    The box is detached so classification gradients cannot change localization.
+    The last linear layer starts at zero, making the initial output identical to
+    the baseline logits when the same pretrained weights are loaded.
+    """
+
+    def __init__(self, hidden_dim: int, num_classes: int, refine_dim: int = 64):
+        super().__init__()
+        self.classifier = nn.Sequential(
+            nn.LayerNorm(4 * hidden_dim),
+            nn.Linear(4 * hidden_dim, refine_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(refine_dim, num_classes),
+        )
+        init.constant_(self.classifier[-1].weight, 0)
+        init.constant_(self.classifier[-1].bias, 0)
+
+    def forward(self, feature: torch.Tensor, boxes: torch.Tensor) -> torch.Tensor:
+        """feature: [B,C,H,W]; boxes: [B,Q,4] normalized cxcywh.
+
+        Returns residual logits [B,Q,num_classes]. No ROI per-pixel tensor or
+        Q-by-Q attention matrix is constructed.
+        """
+        box = boxes.detach()
+        # Four fixed interior locations retain coarse upper/lower and left/right
+        # evidence without claiming that any location is a labeled body part.
+        offsets = box.new_tensor(
+            [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]]
+        )
+        grid = box[..., None, :2] + box[..., None, 2:] * offsets
+        grid = grid.mul(2).sub(1).clamp(-1, 1)
+        sampled = F.grid_sample(
+            feature, grid, mode="bilinear", padding_mode="border", align_corners=False
+        )
+        # [B,C,Q,4] -> [B,Q,4*C]
+        sampled = sampled.permute(0, 2, 3, 1).flatten(2)
+        return self.classifier(sampled)
+
+
+class QueryValidityHead(nn.Module):
+    """Predict a class-agnostic logit for a final detection query.
+
+    This project-specific branch is supervised only on ordinary detection
+    queries. Its zero-initialized output leaves pretrained class logits exactly
+    unchanged before training.
+    """
+
+    def __init__(self, hidden_dim: int, head_dim: int = 64):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.LayerNorm(hidden_dim),
+            nn.Linear(hidden_dim, head_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(head_dim, 1),
+        )
+        init.constant_(self.layers[-1].weight, 0)
+        init.constant_(self.layers[-1].bias, 0)
+
+    def forward(self, query: torch.Tensor) -> torch.Tensor:
+        """query: [B,Q,C]; returns unscaled validity logits [B,Q,1]."""
+        return self.layers(query)
+
+
 class MSDeformableAttention(nn.Module):
     def __init__(
         self,
@@ -453,6 +519,7 @@ class TransformerDecoder(nn.Module):
             torch.stack(dec_out_refs),
             pre_bboxes,
             pre_scores,
+            output,
         )
 
 
@@ -487,6 +554,11 @@ class DFINETransformer(nn.Module):
         reg_max=32,
         reg_scale=4.0,
         layer_scale=1,
+        use_local_evidence_cls=False,
+        local_evidence_dim=64,
+        use_query_validity=False,
+        query_validity_dim=64,
+        query_validity_scale=0.25,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -507,6 +579,23 @@ class DFINETransformer(nn.Module):
         self.eval_spatial_size = eval_spatial_size
         self.aux_loss = aux_loss
         self.reg_max = reg_max
+        self.use_local_evidence_cls = use_local_evidence_cls
+        self.use_query_validity = use_query_validity
+        if use_local_evidence_cls and use_query_validity:
+            raise ValueError("Local evidence and query validity must be ablated separately")
+        if use_local_evidence_cls:
+            if local_evidence_dim <= 0:
+                raise ValueError("local_evidence_dim must be positive")
+            self.local_evidence_cls = LocalEvidenceClassificationRefiner(
+                hidden_dim, num_classes, local_evidence_dim
+            )
+        if use_query_validity:
+            if query_validity_dim <= 0 or query_validity_scale <= 0:
+                raise ValueError("Query validity dimension and score scale must be positive")
+            if (eval_idx if eval_idx >= 0 else num_layers + eval_idx) != num_layers - 1 or layer_scale != 1:
+                raise ValueError("Query validity currently requires the final decoder layer at base width")
+            self.query_validity = QueryValidityHead(hidden_dim, query_validity_dim)
+            self.query_validity_scale = query_validity_scale
 
         assert query_select_method in ("default", "one2many", "agnostic"), ""
         assert cross_attn_method in ("default", "discrete"), ""
@@ -862,7 +951,7 @@ class DFINETransformer(nn.Module):
         )
 
         # decoder
-        out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_logits = self.decoder(
+        out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_logits, final_query = self.decoder(
             init_ref_contents,
             init_ref_points_unact,
             memory,
@@ -878,6 +967,16 @@ class DFINETransformer(nn.Module):
             dn_meta=dn_meta,
         )
 
+        if self.use_local_evidence_cls:
+            # The first encoder level is P3 (stride 8). Keep this branch on the
+            # final decoder output only; auxiliary and encoder heads stay intact.
+            p3_h, p3_w = spatial_shapes[0]
+            p3 = memory[:, : p3_h * p3_w].transpose(1, 2).reshape(
+                memory.shape[0], self.hidden_dim, p3_h, p3_w
+            )
+            refined_logits = out_logits[-1] + self.local_evidence_cls(p3, out_bboxes[-1])
+            out_logits = torch.cat((out_logits[:-1], refined_logits.unsqueeze(0)), dim=0)
+
         if self.training and dn_meta is not None:
             dn_pre_logits, pre_logits = torch.split(pre_logits, dn_meta["dn_num_split"], dim=1)
             dn_pre_bboxes, pre_bboxes = torch.split(pre_bboxes, dn_meta["dn_num_split"], dim=1)
@@ -886,6 +985,17 @@ class DFINETransformer(nn.Module):
 
             dn_out_corners, out_corners = torch.split(out_corners, dn_meta["dn_num_split"], dim=2)
             dn_out_refs, out_refs = torch.split(out_refs, dn_meta["dn_num_split"], dim=2)
+
+        if self.use_query_validity:
+            # DN queries are not supervised by this branch and retain their
+            # original logits. Only the final ordinary detection head changes.
+            if self.training and dn_meta is not None:
+                _, final_query = torch.split(final_query, dn_meta["dn_num_split"], dim=1)
+            # Keep the new validity supervision out of the shared decoder and
+            # bbox representation; only the small validity head is trained by it.
+            validity_logits = self.query_validity(final_query.detach())
+            refined_logits = out_logits[-1] + self.query_validity_scale * validity_logits
+            out_logits = torch.cat((out_logits[:-1], refined_logits.unsqueeze(0)), dim=0)
 
         if self.training:
             out = {
@@ -898,6 +1008,9 @@ class DFINETransformer(nn.Module):
             }
         else:
             out = {"pred_logits": out_logits[-1], "pred_boxes": out_bboxes[-1]}
+
+        if self.training and self.use_query_validity:
+            out["query_validity_logits"] = validity_logits
 
         if self.training and self.aux_loss:
             out["aux_outputs"] = self._set_aux_loss2(

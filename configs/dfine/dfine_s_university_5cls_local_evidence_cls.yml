@@ -1,0 +1,8 @@
+# Single-variable experiment: refine only final classification logits with
+# four local samples from P3. All training and detection settings are inherited.
+__include__:
+  - dfine_s_university_5cls.yml
+
+DFINETransformer:
+  use_local_evidence_cls: true
+  local_evidence_dim: 64
