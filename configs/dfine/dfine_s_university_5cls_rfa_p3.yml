@@ -1,0 +1,9 @@
+# Single-variable EduYOLO-inspired receptive-field attention ablation.
+# The original D-FINE-S training schedule, dataset, decoder, and losses remain
+# inherited from the five-class baseline. This is not the full C3RFA module.
+__include__:
+  - dfine_s_university_5cls.yml
+
+HybridEncoder:
+  use_rfa_p3: true
+  rfa_mid_channels: 32

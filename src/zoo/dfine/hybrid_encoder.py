@@ -240,6 +240,46 @@ class CSPLayer(nn.Module):
         return self.conv3(x_1 + x_2)
 
 
+class RFAInspiredP3Refiner(nn.Module):
+    """Receptive-field-weighted local refinement inspired by EduYOLO's RFAConv.
+
+    This is a bottleneck residual adaptation for D-FINE, not a reproduction of
+    EduYOLO's C3RFA block. Each P3 position learns nine weights over its 3x3
+    receptive field; no YOLO neck, P2 head, or regression loss is transplanted.
+    The zero-initialized output projection makes the initial residual exactly 0.
+    """
+
+    def __init__(self, channels: int, mid_channels: int = 32):
+        super().__init__()
+        if mid_channels <= 0:
+            raise ValueError("rfa_mid_channels must be positive")
+        self.reduce = ConvNormLayer(channels, mid_channels, 1, 1, act="silu")
+        self.offset_weights = nn.Sequential(
+            nn.AvgPool2d(kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(mid_channels, mid_channels * 9, 1, groups=mid_channels, bias=False),
+        )
+        self.local_features = nn.Sequential(
+            nn.Conv2d(mid_channels, mid_channels * 9, 3, padding=1, groups=mid_channels, bias=False),
+            nn.BatchNorm2d(mid_channels * 9),
+            nn.SiLU(),
+        )
+        self.aggregate = ConvNormLayer(mid_channels, mid_channels, 3, 3, padding=0, act="silu")
+        self.expand = nn.Conv2d(mid_channels, channels, 1, bias=True)
+        nn.init.zeros_(self.expand.weight)
+        nn.init.zeros_(self.expand.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        reduced = self.reduce(x)
+        batch, channels, height, width = reduced.shape
+        weights = self.offset_weights(reduced).reshape(batch, channels, 9, height, width)
+        weights = weights.softmax(dim=2)
+        features = self.local_features(reduced).reshape(batch, channels, 9, height, width)
+        # PixelShuffle places the nine weighted offsets in a 3H x 3W grid.
+        weighted = (features * weights).reshape(batch, channels * 9, height, width)
+        local_grid = F.pixel_shuffle(weighted, upscale_factor=3)
+        return x + self.expand(self.aggregate(local_grid))
+
+
 # transformer
 class TransformerEncoderLayer(nn.Module):
     def __init__(
@@ -331,6 +371,8 @@ class HybridEncoder(nn.Module):
         depth_mult=1.0,
         act="silu",
         eval_spatial_size=None,
+        use_rfa_p3=False,
+        rfa_mid_channels=32,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -342,6 +384,11 @@ class HybridEncoder(nn.Module):
         self.eval_spatial_size = eval_spatial_size
         self.out_channels = [hidden_dim for _ in range(len(in_channels))]
         self.out_strides = feat_strides
+        self.use_rfa_p3 = use_rfa_p3
+        if use_rfa_p3:
+            if len(in_channels) != 3 or feat_strides[0] != 8:
+                raise ValueError("RFA P3 refinement requires the standard P3-P5 encoder")
+            self.rfa_p3 = RFAInspiredP3Refiner(hidden_dim, rfa_mid_channels)
 
         # channel projection
         self.input_proj = nn.ModuleList()
@@ -484,5 +531,10 @@ class HybridEncoder(nn.Module):
             downsample_feat = self.downsample_convs[idx](feat_low)
             out = self.pan_blocks[idx](torch.concat([downsample_feat, feat_height], dim=1))
             outs.append(out)
+
+        if self.use_rfa_p3:
+            # Refine only the final stride-8 P3 output. P4/P5 and the decoder
+            # architecture are unchanged, making this a single-variable test.
+            outs[0] = self.rfa_p3(outs[0])
 
         return outs
