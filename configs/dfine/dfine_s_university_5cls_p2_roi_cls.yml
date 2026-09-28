@@ -1,0 +1,14 @@
+# Single-variable ablation: stride-4 ROI classification refinement for
+# reading/writing/using_phone. Base detector schedule and losses are inherited.
+__include__:
+  - dfine_s_university_5cls.yml
+
+HGNetv2:
+  return_idx: [0, 1, 2, 3]
+
+DFINETransformer:
+  use_p2_roi_cls: true
+  p2_roi_channels: 64
+  p2_roi_dim: 32
+  p2_roi_grid_size: 5
+  p2_roi_class_ids: [0, 1, 2]

@@ -32,8 +32,23 @@ class DFINE(nn.Module):
 
     def forward(self, x, targets=None):
         x = self.backbone(x)
+        if getattr(self.decoder, "use_p2_roi_cls", False):
+            # Keep the detector's original P3-P5 path intact. The extra P2
+            # feature is used only by the optional fine-grained class branch.
+            if len(x) != 4:
+                raise ValueError("P2 ROI classification requires backbone return_idx=[0,1,2,3]")
+            p2_feat, x = x[0], x[1:]
+        else:
+            p2_feat = None
+            # Toggling the experiment config off must also recover the normal
+            # three-level detector even if return_idx still includes P2.
+            if len(x) == 4 and list(getattr(self.backbone, "return_idx", [])) == [0, 1, 2, 3]:
+                x = x[1:]
         x = self.encoder(x)
-        x = self.decoder(x, targets)
+        if p2_feat is None:
+            x = self.decoder(x, targets)
+        else:
+            x = self.decoder(x, targets, p2_feat=p2_feat)
 
         return x
 

@@ -88,6 +88,66 @@ class LocalEvidenceClassificationRefiner(nn.Module):
         return self.classifier(sampled)
 
 
+class P2ROIClassificationRefiner(nn.Module):
+    """Pool a spatial grid from stride-4 P2 to refine selected class logits.
+
+    This project-specific ablation uses the detector's *resized* input, not
+    original-resolution RGB. Boxes are detached, so the branch cannot move
+    them through its sampling grid. It changes neither query count nor shape.
+    """
+
+    def __init__(self, in_channels, refine_dim, num_classes, class_ids, grid_size=5):
+        super().__init__()
+        if grid_size < 2 or refine_dim <= 0 or refine_dim % 8:
+            raise ValueError("P2 ROI grid_size must be >=2 and refine_dim a positive multiple of 8")
+        if not class_ids or any(c < 0 or c >= num_classes for c in class_ids):
+            raise ValueError("P2 ROI class_ids must be valid class indices")
+        if len(set(class_ids)) != len(class_ids):
+            raise ValueError("P2 ROI class_ids must not contain duplicates")
+        self.grid_size = grid_size
+        self.features = nn.Sequential(
+            nn.Conv2d(in_channels, refine_dim, 1, bias=False),
+            nn.GroupNorm(8, refine_dim),
+            nn.SiLU(),
+            nn.Conv2d(refine_dim, refine_dim, 3, padding=1, groups=refine_dim, bias=False),
+            nn.GroupNorm(8, refine_dim),
+            nn.SiLU(),
+            nn.AdaptiveAvgPool2d(1),
+        )
+        self.classifier = nn.Linear(refine_dim, num_classes)
+        init.zeros_(self.classifier.weight)
+        init.zeros_(self.classifier.bias)
+        mask = torch.zeros(num_classes)
+        mask[list(class_ids)] = 1
+        self.register_buffer("class_mask", mask, persistent=False)
+
+    def forward(self, feature: torch.Tensor, boxes: torch.Tensor) -> torch.Tensor:
+        """feature [B,C,H/4,W/4], boxes [B,Q,4] normalized cxcywh.
+
+        Returns a [B,Q,num_classes] residual; only configured classes change.
+        The grid is [B,Q*grid_size,grid_size,2], avoiding a Q-by-Q matrix.
+        """
+        batch, channels = feature.shape[:2]
+        queries = boxes.shape[1]
+        side = self.grid_size
+        positions = (torch.arange(side, device=boxes.device, dtype=boxes.dtype) + 0.5) / side - 0.5
+        yy, xx = torch.meshgrid(positions, positions, indexing="ij")
+        relative = torch.stack((xx, yy), dim=-1)
+        detached_boxes = boxes.detach()
+        grid = detached_boxes[..., None, None, :2] + detached_boxes[..., None, None, 2:] * relative
+        grid = grid.mul(2).sub(1).clamp(-1, 1)
+        # Explicit FP32 sampling works under AMP even when feature and box
+        # tensors arrive with different dtypes. Cast back before the convs.
+        sampled = F.grid_sample(
+            feature.float(), grid.reshape(batch, queries * side, side, 2).float(),
+            mode="bilinear", padding_mode="border", align_corners=False,
+        ).to(feature.dtype)
+        sampled = sampled.reshape(batch, channels, queries, side, side)
+        sampled = sampled.permute(0, 2, 1, 3, 4).reshape(batch * queries, channels, side, side)
+        residual = self.classifier(self.features(sampled).flatten(1))
+        return residual.reshape(batch, queries, -1) * self.class_mask.to(residual.dtype)
+
+
 class QueryValidityHead(nn.Module):
     """Predict a class-agnostic logit for a final detection query.
 
@@ -559,6 +619,11 @@ class DFINETransformer(nn.Module):
         use_query_validity=False,
         query_validity_dim=64,
         query_validity_scale=0.25,
+        use_p2_roi_cls=False,
+        p2_roi_channels=64,
+        p2_roi_dim=32,
+        p2_roi_grid_size=5,
+        p2_roi_class_ids=(0, 1, 2),
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -581,8 +646,9 @@ class DFINETransformer(nn.Module):
         self.reg_max = reg_max
         self.use_local_evidence_cls = use_local_evidence_cls
         self.use_query_validity = use_query_validity
-        if use_local_evidence_cls and use_query_validity:
-            raise ValueError("Local evidence and query validity must be ablated separately")
+        self.use_p2_roi_cls = use_p2_roi_cls
+        if sum((use_local_evidence_cls, use_query_validity, use_p2_roi_cls)) > 1:
+            raise ValueError("Classification refiners must be ablated separately")
         if use_local_evidence_cls:
             if local_evidence_dim <= 0:
                 raise ValueError("local_evidence_dim must be positive")
@@ -596,6 +662,11 @@ class DFINETransformer(nn.Module):
                 raise ValueError("Query validity currently requires the final decoder layer at base width")
             self.query_validity = QueryValidityHead(hidden_dim, query_validity_dim)
             self.query_validity_scale = query_validity_scale
+        if use_p2_roi_cls:
+            self.p2_roi_cls = P2ROIClassificationRefiner(
+                p2_roi_channels, p2_roi_dim, num_classes,
+                tuple(p2_roi_class_ids), p2_roi_grid_size,
+            )
 
         assert query_select_method in ("default", "one2many", "agnostic"), ""
         assert cross_attn_method in ("default", "discrete"), ""
@@ -926,7 +997,7 @@ class DFINETransformer(nn.Module):
 
         return topk_memory, topk_logits, topk_anchors
 
-    def forward(self, feats, targets=None):
+    def forward(self, feats, targets=None, p2_feat=None):
         # input projection and embedding
         memory, spatial_shapes = self._get_encoder_input(feats)
 
@@ -986,6 +1057,13 @@ class DFINETransformer(nn.Module):
             dn_out_corners, out_corners = torch.split(out_corners, dn_meta["dn_num_split"], dim=2)
             dn_out_refs, out_refs = torch.split(out_refs, dn_meta["dn_num_split"], dim=2)
 
+        p2_teacher_logits = out_logits[-1] if self.use_p2_roi_cls else None
+        if self.use_p2_roi_cls:
+            if p2_feat is None or p2_feat.shape[1] != self.p2_roi_cls.features[0].in_channels:
+                raise ValueError("P2 ROI classification requires the configured stride-4 feature")
+            refined_logits = out_logits[-1] + self.p2_roi_cls(p2_feat, out_bboxes[-1])
+            out_logits = torch.cat((out_logits[:-1], refined_logits.unsqueeze(0)), dim=0)
+
         if self.use_query_validity:
             # DN queries are not supervised by this branch and retain their
             # original logits. Only the final ordinary detection head changes.
@@ -1019,7 +1097,7 @@ class DFINETransformer(nn.Module):
                 out_corners[:-1],
                 out_refs[:-1],
                 out_corners[-1],
-                out_logits[-1],
+                p2_teacher_logits if self.use_p2_roi_cls else out_logits[-1],
             )
             out["enc_aux_outputs"] = self._set_aux_loss(enc_topk_logits_list, enc_topk_bboxes_list)
             out["pre_outputs"] = {"pred_logits": pre_logits, "pred_boxes": pre_bboxes}
