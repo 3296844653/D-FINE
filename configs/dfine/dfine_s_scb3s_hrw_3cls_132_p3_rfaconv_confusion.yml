@@ -1,0 +1,5 @@
+__include__:
+  - dfine_s_scb3s_hrw_3cls_132_p3_rfaconv.yml
+
+# Evaluation only; architecture must match the P3-RFAConv checkpoint.
+export_confusion_matrix: true

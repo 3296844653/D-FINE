@@ -20,6 +20,75 @@ from .box_ops import box_cxcywh_to_xyxy, box_iou, generalized_box_iou
 from .dfine_utils import bbox2distance
 
 
+def shape_iou_loss(pred_boxes, target_boxes, scale=0.0, eps=1e-7):
+    """Shape-IoU loss for aligned ``cxcywh`` box pairs.
+
+    Adapted from the official implementation:
+    https://github.com/malagoutou/Shape-IoU/blob/main/shapeiou.py
+    """
+    if pred_boxes.shape != target_boxes.shape or pred_boxes.shape[-1] != 4:
+        raise ValueError("pred_boxes and target_boxes must have the same shape [..., 4]")
+    if pred_boxes.numel() == 0:
+        return pred_boxes.new_zeros(pred_boxes.shape[:-1])
+
+    # Compute the geometric terms in fp32 under AMP for numerical stability.
+    pred = pred_boxes.float() if pred_boxes.dtype in (torch.float16, torch.bfloat16) else pred_boxes
+    target = (
+        target_boxes.float()
+        if target_boxes.dtype in (torch.float16, torch.bfloat16)
+        else target_boxes
+    )
+
+    pred_x, pred_y, pred_w, pred_h = pred.unbind(-1)
+    target_x, target_y, target_w, target_h = target.unbind(-1)
+    pred_w = pred_w.clamp_min(eps)
+    pred_h = pred_h.clamp_min(eps)
+    target_w = target_w.clamp_min(eps)
+    target_h = target_h.clamp_min(eps)
+
+    pred_x1, pred_x2 = pred_x - pred_w / 2, pred_x + pred_w / 2
+    pred_y1, pred_y2 = pred_y - pred_h / 2, pred_y + pred_h / 2
+    target_x1, target_x2 = target_x - target_w / 2, target_x + target_w / 2
+    target_y1, target_y2 = target_y - target_h / 2, target_y + target_h / 2
+
+    inter_w = (torch.minimum(pred_x2, target_x2) - torch.maximum(pred_x1, target_x1)).clamp_min(0)
+    inter_h = (torch.minimum(pred_y2, target_y2) - torch.maximum(pred_y1, target_y1)).clamp_min(0)
+    intersection = inter_w * inter_h
+    union = (pred_w * pred_h + target_w * target_h - intersection).clamp_min(eps)
+    iou = intersection / union
+
+    target_w_scaled = target_w.pow(scale)
+    target_h_scaled = target_h.pow(scale)
+    shape_denominator = (target_w_scaled + target_h_scaled).clamp_min(eps)
+    width_weight = 2 * target_w_scaled / shape_denominator
+    height_weight = 2 * target_h_scaled / shape_denominator
+
+    convex_w = (torch.maximum(pred_x2, target_x2) - torch.minimum(pred_x1, target_x1)).clamp_min(eps)
+    convex_h = (torch.maximum(pred_y2, target_y2) - torch.minimum(pred_y1, target_y1)).clamp_min(eps)
+    convex_diagonal = (convex_w.square() + convex_h.square()).clamp_min(eps)
+    center_distance = (
+        height_weight * (pred_x - target_x).square()
+        + width_weight * (pred_y - target_y).square()
+    ) / convex_diagonal
+
+    width_difference = (
+        height_weight
+        * (pred_w - target_w).abs()
+        / torch.maximum(pred_w, target_w).clamp_min(eps)
+    )
+    height_difference = (
+        width_weight
+        * (pred_h - target_h).abs()
+        / torch.maximum(pred_h, target_h).clamp_min(eps)
+    )
+    shape_cost = (1 - torch.exp(-width_difference)).pow(4) + (
+        1 - torch.exp(-height_difference)
+    ).pow(4)
+
+    shape_iou = iou - center_distance - 0.5 * shape_cost
+    return 1 - shape_iou
+
+
 @register()
 class DFINECriterion(nn.Module):
     """This class computes the loss for D-FINE."""
@@ -45,8 +114,20 @@ class DFINECriterion(nn.Module):
         use_class_margin=False,
         class_margin=0.2,
         class_margin_weight=0.1,
+        class_margin_pairs=None,
         use_query_validity=False,
         query_validity_weight=0.1,
+        use_query_objectness=False,
+        query_objectness_weight=0.1,
+        query_objectness_positive_iou=0.5,
+        query_objectness_negative_iou=0.1,
+        query_objectness_negative_ratio=3,
+        query_objectness_min_negatives=32,
+        use_shape_iou=False,
+        shape_iou_scale=0.0,
+        shape_iou_eps=1e-7,
+        use_class_balanced_vfl=False,
+        vfl_positive_class_weights=None,
     ):
         """Create the criterion.
         Parameters:
@@ -66,9 +147,27 @@ class DFINECriterion(nn.Module):
         self.share_matched_indices = share_matched_indices
         self.alpha = alpha
         self.gamma = gamma
+        # Optional positive-only VFL weighting. Category order follows model IDs.
+        # No learnable parameters or buffers: existing checkpoints stay compatible.
+        self.use_class_balanced_vfl = bool(use_class_balanced_vfl)
+        if vfl_positive_class_weights is None:
+            vfl_positive_class_weights = [1.0] * num_classes
+        weights = torch.as_tensor(vfl_positive_class_weights, dtype=torch.float32)
+        if weights.ndim != 1 or weights.numel() != num_classes:
+            raise ValueError("vfl_positive_class_weights must have num_classes entries")
+        if not torch.isfinite(weights).all() or not (weights > 0).all():
+            raise ValueError("VFL positive class weights must be finite and positive")
+        self.vfl_positive_class_weights = tuple(float(w) for w in weights)
         self.fgl_targets, self.fgl_targets_dn = None, None
         self.own_targets, self.own_targets_dn = None, None
         self.reg_max = reg_max
+        self.use_shape_iou = bool(use_shape_iou)
+        self.shape_iou_scale = float(shape_iou_scale)
+        self.shape_iou_eps = float(shape_iou_eps)
+        if self.shape_iou_scale < 0:
+            raise ValueError("shape_iou_scale must be non-negative")
+        if self.shape_iou_eps <= 0:
+            raise ValueError("shape_iou_eps must be positive")
         self.num_pos, self.num_neg = None, None
         # Optional final-layer ranking constraint for matched detection queries.
         # It complements VFL's absolute IoU-aware targets without replacing VFL.
@@ -77,10 +176,72 @@ class DFINECriterion(nn.Module):
         self.class_margin_weight = class_margin_weight
         if class_margin < 0 or class_margin_weight < 0:
             raise ValueError("Class margin and its weight must be non-negative")
+        self.class_margin_pairs = None
+        if class_margin_pairs is not None:
+            normalized_pairs = []
+            for pair in class_margin_pairs:
+                if len(pair) != 2:
+                    raise ValueError("Each class-margin pair must contain exactly two class IDs")
+                first, second = (int(pair[0]), int(pair[1]))
+                if first == second:
+                    raise ValueError("A class-margin pair must contain two different classes")
+                if not (0 <= first < self.num_classes and 0 <= second < self.num_classes):
+                    raise ValueError("Class-margin pair contains an out-of-range class ID")
+                normalized_pairs.append((first, second))
+            if not normalized_pairs:
+                raise ValueError("class_margin_pairs cannot be empty when provided")
+            self.class_margin_pairs = tuple(normalized_pairs)
         self.use_query_validity = use_query_validity
         self.query_validity_weight = query_validity_weight
         if query_validity_weight < 0:
             raise ValueError("Query validity loss weight must be non-negative")
+        self.use_query_objectness = use_query_objectness
+        self.query_objectness_weight = query_objectness_weight
+        self.query_objectness_positive_iou = query_objectness_positive_iou
+        self.query_objectness_negative_iou = query_objectness_negative_iou
+        self.query_objectness_negative_ratio = query_objectness_negative_ratio
+        self.query_objectness_min_negatives = query_objectness_min_negatives
+        if use_query_objectness and (use_query_validity or use_class_margin):
+            raise ValueError("Query objectness must be tested separately from other classification losses")
+        if not 0 <= query_objectness_negative_iou < query_objectness_positive_iou <= 1:
+            raise ValueError("Objectness requires 0 <= negative IoU < positive IoU <= 1")
+        if query_objectness_weight < 0 or query_objectness_negative_ratio <= 0 or query_objectness_min_negatives < 1:
+            raise ValueError("Invalid query objectness loss weight or negative sampling settings")
+
+    def loss_query_objectness(self, outputs, targets):
+        """Detached-box geometric targets, final ordinary queries only.
+
+        Any query with max GT IoU >= positive threshold is positive, including
+        duplicates. Queries <= negative threshold are negative candidates;
+        intermediate overlaps are ignored. Hard negatives are chosen by the
+        ORIGINAL detached classification score, never by validation error lists.
+        Group-balanced BCE avoids domination by thousands of easy negatives.
+        This is task-scope validity relative to annotations, not generic personness.
+        """
+        logits = outputs["query_objectness_logits"].squeeze(-1).float()
+        if logits.shape != outputs["pred_logits"].shape[:2]:
+            raise ValueError("Objectness shape differs from ordinary detection queries")
+        positive_values, negative_values = [], []
+        with torch.no_grad():
+            boxes = box_cxcywh_to_xyxy(outputs["pred_boxes"].detach().float())
+            scores = outputs["pred_logits"].detach().float().sigmoid().amax(-1)
+        for b, target in enumerate(targets):
+            with torch.no_grad():
+                gt = box_cxcywh_to_xyxy(target["boxes"].detach().float())
+                max_iou = box_iou(boxes[b], gt)[0].amax(-1) if len(gt) else scores[b].new_zeros(scores.shape[1])
+                positive = max_iou >= self.query_objectness_positive_iou
+                negatives = torch.where(max_iou <= self.query_objectness_negative_iou)[0]
+                count = min(len(negatives), max(self.query_objectness_min_negatives,
+                    int(self.query_objectness_negative_ratio * int(positive.sum()))))
+                selected = negatives[scores[b, negatives].topk(count).indices] if count else negatives
+            positive_values.append(logits[b, positive])
+            negative_values.append(logits[b, selected])
+        terms = []
+        for values, label in [(positive_values, 1.0), (negative_values, 0.0)]:
+            values = torch.cat(values) if values else logits.reshape(-1)[:0]
+            if values.numel():
+                terms.append(F.binary_cross_entropy_with_logits(values, torch.full_like(values, label)))
+        return torch.stack(terms).mean() if terms else logits.sum() * 0
 
     @staticmethod
     def loss_query_validity(outputs, indices):
@@ -145,6 +306,13 @@ class DFINECriterion(nn.Module):
         pred_score = F.sigmoid(src_logits).detach()
         weight = self.alpha * pred_score.pow(self.gamma) * (1 - target) + target_score
 
+        # Only matched GT-class entries get higher weight, including aux / DN.
+        # Wrong-class entries and unmatched queries keep their original weights.
+        # Class-agnostic encoder outputs have one channel and are left unchanged.
+        if self.use_class_balanced_vfl and src_logits.shape[-1] == len(self.vfl_positive_class_weights):
+            class_weights = src_logits.new_tensor(self.vfl_positive_class_weights)
+            weight = weight + target_score * (class_weights - 1)
+
         loss = F.binary_cross_entropy_with_logits(
             src_logits, target_score, weight=weight, reduction="none"
         )
@@ -156,6 +324,9 @@ class DFINECriterion(nn.Module):
 
         Hungarian matching and VFL remain unchanged. This loss is applied only
         to the final decoder output, not auxiliary, denoising, or encoder heads.
+        When ``class_margin_pairs`` is configured, only those symmetric
+        confusion relations participate; otherwise the legacy all-class
+        strongest-competitor behavior is preserved.
         """
         src_logits = outputs["pred_logits"]
         if self.num_classes < 2 or not any(len(src) for src, _ in indices):
@@ -167,9 +338,29 @@ class DFINECriterion(nn.Module):
             [target["labels"][gt] for target, (_, gt) in zip(targets, indices)]
         ).to(matched_logits.device)
         correct_logits = matched_logits.gather(1, gt_classes[:, None]).squeeze(1)
-        wrong_mask = F.one_hot(gt_classes, num_classes=self.num_classes).bool()
-        highest_wrong_logits = matched_logits.masked_fill(wrong_mask, -torch.inf).max(dim=1).values
-        return F.relu(highest_wrong_logits - correct_logits + self.class_margin).sum() / num_boxes
+
+        if self.class_margin_pairs is None:
+            wrong_mask = F.one_hot(gt_classes, num_classes=self.num_classes).bool()
+            highest_wrong_logits = matched_logits.masked_fill(wrong_mask, -torch.inf).max(dim=1).values
+            active = torch.ones_like(gt_classes, dtype=torch.bool)
+        else:
+            candidate_mask = torch.zeros_like(matched_logits, dtype=torch.bool)
+            for first, second in self.class_margin_pairs:
+                candidate_mask[gt_classes == first, second] = True
+                candidate_mask[gt_classes == second, first] = True
+            active = candidate_mask.any(dim=1)
+            if not active.any():
+                return matched_logits.sum() * 0
+            highest_wrong_logits = matched_logits.masked_fill(
+                ~candidate_mask, -torch.inf
+            ).max(dim=1).values
+
+        margin_loss = F.relu(
+            highest_wrong_logits[active] - correct_logits[active] + self.class_margin
+        )
+        # Normalize by the same global matched-box count as the legacy margin
+        # experiment so restricting the confusion set is the only main change.
+        return margin_loss.sum() / num_boxes
 
     def loss_boxes(self, outputs, targets, indices, num_boxes, boxes_weight=None):
         """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
@@ -184,9 +375,20 @@ class DFINECriterion(nn.Module):
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction="none")
         losses["loss_bbox"] = loss_bbox.sum() / num_boxes
 
-        loss_giou = 1 - torch.diag(
-            generalized_box_iou(box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes))
-        )
+        if self.use_shape_iou:
+            loss_giou = shape_iou_loss(
+                src_boxes,
+                target_boxes,
+                scale=self.shape_iou_scale,
+                eps=self.shape_iou_eps,
+            )
+        else:
+            loss_giou = 1 - torch.diag(
+                generalized_box_iou(
+                    box_cxcywh_to_xyxy(src_boxes),
+                    box_cxcywh_to_xyxy(target_boxes),
+                )
+            )
         loss_giou = loss_giou if boxes_weight is None else loss_giou * boxes_weight
         losses["loss_giou"] = loss_giou.sum() / num_boxes
 
@@ -401,6 +603,12 @@ class DFINECriterion(nn.Module):
                 raise ValueError("Query validity loss requires query_validity_logits")
             losses["loss_query_validity"] = self.query_validity_weight * self.loss_query_validity(
                 outputs_without_aux, indices
+            )
+        if self.use_query_objectness:
+            if "query_objectness_logits" not in outputs_without_aux:
+                raise ValueError("Objectness loss requires the enabled decoder branch")
+            losses["loss_query_objectness"] = self.query_objectness_weight * self.loss_query_objectness(
+                outputs_without_aux, targets
             )
 
         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.

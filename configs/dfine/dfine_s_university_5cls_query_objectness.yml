@@ -1,0 +1,30 @@
+# Independent diagnostic experiment, not a reproduction of a published module.
+# Baseline schedule, augmentation, optimizer, query count and original losses stay unchanged.
+__include__:
+  - dfine_s_university_5cls.yml
+
+DFINETransformer:
+  use_query_objectness: true
+  query_objectness_dim: 64
+  query_objectness_scale: 0.25
+  use_query_validity: false
+
+DFINECriterion:
+  use_query_objectness: true
+  query_objectness_weight: 0.1
+  query_objectness_positive_iou: 0.5
+  query_objectness_negative_iou: 0.1
+  query_objectness_negative_ratio: 3
+  query_objectness_min_negatives: 32
+  use_query_validity: false
+  use_class_margin: false
+
+# Same SCB-U five-class split, using the established server data locations.
+train_dataloader:
+  dataset:
+    img_folder: /media/a5/5号机移动盘2/wq_datasets/0.671k_university_yolo_Dataset/images/train
+    ann_file: /media/a5/5号机移动盘2/wq_datasets/0.671k_university_5cls_Dataset/annotations/instances_train.json
+val_dataloader:
+  dataset:
+    img_folder: /media/a5/5号机移动盘2/wq_datasets/0.671k_university_yolo_Dataset/images/val
+    ann_file: /media/a5/5号机移动盘2/wq_datasets/0.671k_university_5cls_Dataset/annotations/instances_val.json

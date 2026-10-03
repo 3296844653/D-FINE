@@ -1,0 +1,5 @@
+# Reuse the identical baseline, checkpoint, dataset and 640px preprocessing.
+__include__: stage_feature_probe.yml
+probe_checkpoint: /media/a5/5号机移动盘2/wq_workspace/wq_s_5cls_132/stage_feature_probe_run8_seed0/decoder_query/linear_probe.pth
+confidence_threshold: 0.5
+neighbor_iou_threshold: 0.8

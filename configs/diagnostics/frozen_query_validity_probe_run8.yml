@@ -1,0 +1,15 @@
+__include__: stage_feature_probe.yml
+
+# Optional reuse of the already exported validation queries. Train queries
+# still require ONE frozen baseline forward pass per training image.
+validation_raw_dir: /media/a5/5号机移动盘2/wq_workspace/wq_s_5cls_132/query_probe_audit_run8_seed0/raw_queries
+expected_baseline_ap: 0.7961413
+
+# Fixed in advance. No validation checkpoint selection or fusion tuning.
+validity_probe:
+  positive_iou: 0.5
+  negative_iou: 0.3
+  epochs: 50
+  batch_size: 512
+  learning_rate: 0.001
+  weight_decay: 0.01

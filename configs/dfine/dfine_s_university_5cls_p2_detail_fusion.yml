@@ -1,0 +1,12 @@
+__include__:
+  - dfine_s_university_5cls.yml
+
+# Single-variable diagnostic experiment: retain the stride-4 HGNetV2-B0
+# feature and inject a lightweight downsampled residual into the original P3
+# encoder input. P3/P4/P5 output shapes and the decoder remain unchanged.
+HGNetv2:
+  return_idx: [0, 1, 2, 3]
+
+HybridEncoder:
+  use_p2_detail_fusion: true
+  p2_in_channels: 64

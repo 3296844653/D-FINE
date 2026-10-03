@@ -1,0 +1,9 @@
+__include__:
+  - dfine_s_hrw_3cls_132.yml
+
+# Shape-IoU single-variable regression-loss experiment for D-FINE-S.
+# Matcher, L1, FGL/DDF, architecture and all training settings stay unchanged.
+DFINECriterion:
+  use_shape_iou: true
+  shape_iou_scale: 0.0
+  shape_iou_eps: 1.0e-7

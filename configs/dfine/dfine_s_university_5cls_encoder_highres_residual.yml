@@ -1,0 +1,10 @@
+__include__:
+  - dfine_s_university_5cls.yml
+
+# Single-variable encoder-fusion probe. The original projected P3 feature
+# bypasses FPN/PAN and is reintroduced into the final P3 through a learnable
+# scalar initialized at zero. Backbone, decoder, query count, and losses stay
+# identical to the baseline.
+HybridEncoder:
+  use_encoder_highres_residual: true
+  encoder_highres_alpha_init: 0.0

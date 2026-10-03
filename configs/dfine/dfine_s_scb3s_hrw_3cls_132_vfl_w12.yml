@@ -1,0 +1,10 @@
+__include__:
+  - dfine_s_scb3s_hrw_3cls_132.yml
+
+# Single-variable experiment: positive VFL weight for class ID 2 (writing).
+# All dataset paths and training settings come from the server baseline above.
+DFINECriterion:
+  use_class_balanced_vfl: true
+  vfl_positive_class_weights: [1.0, 1.0, 1.2]
+
+output_dir: /media/a5/5号机移动盘2/wq_workspace/wq_s_scb3s_hrw_3cls/dfine_s_scb3s_hrw_3cls_132_vfl_w12_seed0

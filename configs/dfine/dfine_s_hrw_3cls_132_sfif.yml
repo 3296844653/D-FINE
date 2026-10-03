@@ -1,0 +1,8 @@
+__include__:
+  - dfine_s_hrw_3cls_132.yml
+
+# FBDNet SFIF single-variable experiment for D-FINE-S.
+# SFIF replaces the single AIFI/Transformer encoder layer at P5.
+HybridEncoder:
+  use_sfif: true
+  sfif_num_heads: 8

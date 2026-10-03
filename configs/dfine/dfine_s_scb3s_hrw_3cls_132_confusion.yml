@@ -1,0 +1,6 @@
+__include__:
+  - dfine_s_scb3s_hrw_3cls_132.yml
+
+# Evaluation only: train.py --test-only -r <baseline checkpoint>.
+# Reuses existing Validator matching at conf=0.5, IoU=0.5; no metric changes.
+export_confusion_matrix: true

@@ -1,0 +1,8 @@
+__include__:
+  - dfine_s_university_5cls_confusion_margin.yml
+
+# Single-variable follow-up to the m=0.2 experiment.
+# Keep the targeted class pairs and loss weight unchanged; only increase the
+# required logit separation so the constraint is less easily satisfied.
+DFINECriterion:
+  class_margin: 0.5

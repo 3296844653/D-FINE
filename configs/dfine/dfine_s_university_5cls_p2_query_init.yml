@@ -1,0 +1,15 @@
+__include__:
+  - dfine_s_university_5cls.yml
+
+# Probe C: diagnose the encoder-to-decoder interface. P2 evidence sampled
+# around each selected encoder anchor is fused only into the initial ordinary
+# detection-query content. Query count, selection score, boxes and losses stay
+# unchanged.
+HGNetv2:
+  return_idx: [0, 1, 2, 3]
+
+DFINETransformer:
+  use_p2_query_init: true
+  p2_query_channels: 64
+  p2_query_dim: 64
+  p2_query_grid_size: 3

@@ -1,0 +1,8 @@
+__include__:
+  - dfine_s_university_5cls_encoder_highres_residual.yml
+
+# Single-variable follow-up to the zero-initialized encoder high-resolution
+# residual experiment. Only the learnable residual coefficient initialization
+# changes from 0.0 to 0.3; all other model and training settings are inherited.
+HybridEncoder:
+  encoder_highres_alpha_init: 0.3

@@ -53,6 +53,8 @@ class DetSolver(BaseSolver):
                 self.use_wandb
             )
             for k in test_stats:
+                if isinstance(test_stats[k], dict):
+                    continue
                 best_stat["epoch"] = self.last_epoch
                 best_stat[k] = test_stats[k][0]
                 top1 = test_stats[k][0]
@@ -119,6 +121,14 @@ class DetSolver(BaseSolver):
 
             # TODO
             for k in test_stats:
+                if isinstance(test_stats[k], dict):
+                    if self.writer and dist_utils.is_main_process():
+                        for class_name, class_metrics in test_stats[k].items():
+                            for metric_name, value in class_metrics.items():
+                                self.writer.add_scalar(
+                                    f"Test/{k}/{class_name}/{metric_name}", value, epoch
+                                )
+                    continue
                 if self.writer and dist_utils.is_main_process():
                     for i, v in enumerate(test_stats[k]):
                         self.writer.add_scalar(f"Test/{k}_{i}".format(k), v, epoch)
@@ -181,6 +191,9 @@ class DetSolver(BaseSolver):
                 wandb_logs = {}
                 for idx, metric_name in enumerate(metric_names):
                     wandb_logs[f"metrics/{metric_name}"] = test_stats["coco_eval_bbox"][idx]
+                for class_name, class_metrics in test_stats.get("bbox_per_class", {}).items():
+                    for metric_name, value in class_metrics.items():
+                        wandb_logs[f"per_class/{class_name}/{metric_name}"] = value
                 wandb_logs["epoch"] = epoch
                 wandb.log(wandb_logs)
 
@@ -218,7 +231,15 @@ class DetSolver(BaseSolver):
             self.device,
             epoch=-1,
             use_wandb=False,
-            output_dir=self.output_dir if self.cfg.export_query_diagnostics else None,
+            output_dir=self.output_dir if (
+                self.cfg.export_query_diagnostics or self.cfg.yaml_cfg.get('export_confusion_matrix', False)
+            ) else None,
+            export_confusion_matrix=self.cfg.yaml_cfg.get('export_confusion_matrix', False),
+            confusion_metadata={
+                'checkpoint': self.cfg.resume,
+                'weight_source': 'ema' if self.ema else 'model',
+                'validation_dataset': self.cfg.yaml_cfg.get('val_dataloader', {}).get('dataset', {}),
+            },
             export_query_diagnostics=self.cfg.export_query_diagnostics,
             query_diagnostic_conf_thresh=self.cfg.query_diagnostic_conf_thresh,
             query_diagnostic_iou_thresh=self.cfg.query_diagnostic_iou_thresh,
@@ -227,7 +248,28 @@ class DetSolver(BaseSolver):
             query_diagnostic_checkpoint=self.cfg.resume,
         )
 
-        if self.output_dir:
+        if self.output_dir and dist_utils.is_main_process():
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            with (self.output_dir / "validation_metrics.json").open("w") as f:
+                json.dump(test_stats, f, ensure_ascii=False, indent=2)
+
+            per_class_metrics = test_stats.get("bbox_per_class", {})
+            with (self.output_dir / "per_class_metrics.json").open("w") as f:
+                json.dump(per_class_metrics, f, ensure_ascii=False, indent=2)
+
+            with (self.output_dir / "per_class_metrics.txt").open("w") as f:
+                f.write(
+                    "class\tAP\tAP50\tAP75\tAR100\t"
+                    "Precision_conf0.5_iou0.5\tRecall_conf0.5_iou0.5\n"
+                )
+                for class_name, values in per_class_metrics.items():
+                    f.write(
+                        f"{class_name}\t{values['AP']:.6f}\t{values['AP50']:.6f}\t"
+                        f"{values['AP75']:.6f}\t{values['AR100']:.6f}\t"
+                        f"{values.get('Precision_conf0.5_iou0.5', -1.0):.6f}\t"
+                        f"{values.get('Recall_conf0.5_iou0.5', -1.0):.6f}\n"
+                    )
+
             dist_utils.save_on_master(
                 coco_evaluator.coco_eval["bbox"].eval, self.output_dir / "eval.pth"
             )

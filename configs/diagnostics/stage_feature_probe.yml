@@ -1,0 +1,17 @@
+seed: 0
+detector_config: configs/dfine/dfine_s_university_5cls.yml
+checkpoint: /media/a5/5号机移动盘2/wq_workspace/wq_s_5cls_132/dfine_s_university_5cls_run8_seed0/best_stg2.pth
+input_size: [640, 640]
+matching_iou: 0.5
+data:
+  train:
+    image_dir: /media/a5/5号机移动盘2/wq_datasets/0.671k_university_yolo_Dataset/images/train
+    annotation: /media/a5/5号机移动盘2/wq_datasets/0.671k_university_5cls_Dataset/annotations/instances_train.json
+  val:
+    image_dir: /media/a5/5号机移动盘2/wq_datasets/0.671k_university_yolo_Dataset/images/val
+    annotation: /media/a5/5号机移动盘2/wq_datasets/0.671k_university_5cls_Dataset/annotations/instances_val.json
+probe:
+  epochs: 50
+  batch_size: 256
+  learning_rate: 0.001
+  weight_decay: 0.01

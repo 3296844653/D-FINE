@@ -1,0 +1,9 @@
+__include__:
+  - dfine_s_university_5cls.yml
+
+# Single-variable experiment: learn separate residual query features for the
+# classification and regression prediction heads. Decoder interaction, query
+# count, losses, matcher, FDR, LQE, and all training settings remain unchanged.
+DFINETransformer:
+  use_task_decoupled_heads: true
+  task_adapter_dim: 64

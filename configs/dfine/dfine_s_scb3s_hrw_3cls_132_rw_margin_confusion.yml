@@ -1,0 +1,5 @@
+__include__:
+  - dfine_s_scb3s_hrw_3cls_132_rw_margin.yml
+
+# Evaluation-only companion: --test-only -r <rw_margin best checkpoint>.
+export_confusion_matrix: true

@@ -1,0 +1,7 @@
+__include__:
+  - dfine_s_university_5cls_confusion_margin.yml
+
+# Single-variable loss-weight experiment.
+# Keep class_margin=0.2 and the targeted class pairs unchanged.
+DFINECriterion:
+  class_margin_weight: 0.5

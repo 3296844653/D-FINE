@@ -1,0 +1,10 @@
+__include__: gt_box_classifier_tight.yml
+
+# Resolution-control experiment. The complete source image is first resized
+# exactly like D-FINE validation input; the synchronized tight GT crop is then
+# resized to the same 384x384 classifier input used by the other experiments.
+# Relative to tight_bbox, full_image_resize is the only experimental variable.
+data:
+  full_image_resize: [640, 640]
+
+output_dir: output/gt_box_classifier_dfine640_tight

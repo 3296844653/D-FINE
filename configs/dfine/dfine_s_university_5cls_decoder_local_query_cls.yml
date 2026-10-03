@@ -1,0 +1,10 @@
+__include__:
+  - dfine_s_university_5cls.yml
+
+# Probe D: combine each final decoder query with pooled P3 evidence inside its
+# detached predicted box, then add a zero-initialized residual classification
+# logit. The bbox branch, query count, matching and losses are unchanged.
+DFINETransformer:
+  use_decoder_local_query_cls: true
+  decoder_local_dim: 64
+  decoder_local_grid_size: 3

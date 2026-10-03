@@ -23,6 +23,76 @@ from ..optim import ModelEMA, Warmup
 from .validator import Validator, scale_boxes
 
 
+def _mean_valid_coco_values(values):
+    """Return the COCO mean while ignoring unavailable entries (-1)."""
+    values = np.asarray(values)
+    values = values[values > -1]
+    return float(values.mean()) if values.size else -1.0
+
+
+def _bbox_metrics_per_class(coco_eval, threshold_metrics=None):
+    """Extract named per-category bbox metrics from an accumulated COCO eval.
+
+    COCO precision has shape [IoU, recall, category, area, max_dets] and
+    recall has shape [IoU, category, area, max_dets]. The returned Python
+    floats are JSON serializable and do not alter the official COCO summary.
+    """
+    if not coco_eval.eval or "precision" not in coco_eval.eval:
+        return {}
+
+    precision = coco_eval.eval["precision"]
+    recall = coco_eval.eval["recall"]
+    params = coco_eval.params
+    area_idx = list(params.areaRngLbl).index("all")
+    max_det_idx = len(params.maxDets) - 1
+    iou_thrs = np.asarray(params.iouThrs)
+    iou50_idx = int(np.abs(iou_thrs - 0.50).argmin())
+    iou75_idx = int(np.abs(iou_thrs - 0.75).argmin())
+
+    categories = getattr(coco_eval.cocoGt, "cats", {})
+    results = {}
+    for class_idx, category_id in enumerate(params.catIds):
+        category = categories.get(category_id, {})
+        class_name = str(category.get("name", category_id))
+        class_metrics = {
+            "AP": _mean_valid_coco_values(
+                precision[:, :, class_idx, area_idx, max_det_idx]
+            ),
+            "AP50": _mean_valid_coco_values(
+                precision[iou50_idx, :, class_idx, area_idx, max_det_idx]
+            ),
+            "AP75": _mean_valid_coco_values(
+                precision[iou75_idx, :, class_idx, area_idx, max_det_idx]
+            ),
+            "AR100": _mean_valid_coco_values(
+                recall[:, class_idx, area_idx, max_det_idx]
+            ),
+        }
+        if threshold_metrics is not None:
+            class_metrics["Precision_conf0.5_iou0.5"] = float(
+                threshold_metrics.get(f"precision_{category_id}", 0.0)
+            )
+            class_metrics["Recall_conf0.5_iou0.5"] = float(
+                threshold_metrics.get(f"recall_{category_id}", 0.0)
+            )
+        results[class_name] = class_metrics
+    return results
+
+
+def _print_bbox_metrics_per_class(metrics):
+    if not metrics:
+        return
+    print("Per-class bbox metrics:")
+    for class_name, values in metrics.items():
+        print(
+            f"  {class_name:<24} "
+            f"AP={values['AP']:.4f}  AP50={values['AP50']:.4f}  "
+            f"AP75={values['AP75']:.4f}  AR100={values['AR100']:.4f}  "
+            f"P@0.5={values.get('Precision_conf0.5_iou0.5', -1.0):.4f}  "
+            f"R@0.5={values.get('Recall_conf0.5_iou0.5', -1.0):.4f}"
+        )
+
+
 def train_one_epoch(
     model: torch.nn.Module,
     criterion: torch.nn.Module,
@@ -181,6 +251,9 @@ def evaluate(
     output_dir = kwargs.get("output_dir", None)
     num_visualization_sample_batch = kwargs.get("num_visualization_sample_batch", 1)
     query_writer = None
+    export_confusion = kwargs.get("export_confusion_matrix", False)
+    if export_confusion and (output_dir is None or dist_utils.get_world_size() != 1):
+        raise ValueError("Confusion export requires --output-dir and --nproc_per_node=1")
     if kwargs.get("export_query_diagnostics", False):
         if output_dir is None:
             raise ValueError("Query diagnostics require --output-dir")
@@ -202,7 +275,8 @@ def evaluate(
     for i, (samples, targets) in enumerate(metric_logger.log_every(data_loader, 10, header)):
         global_step = epoch * len(data_loader) + i
 
-        if global_step < num_visualization_sample_batch and output_dir is not None and dist_utils.is_main_process():
+        if (not export_confusion and global_step < num_visualization_sample_batch
+                and output_dir is not None and dist_utils.is_main_process()):
             save_samples(samples, targets, output_dir, "val", normalized=False, box_fmt="xyxy")
 
         samples = samples.to(device)
@@ -254,7 +328,16 @@ def evaluate(
         query_writer.finish()
 
     # Conf matrix, F1, Precision, Recall, box IoU
-    metrics = Validator(gt, preds).compute_metrics()
+    validator = Validator(gt, preds)
+    metrics = validator.compute_metrics(extended=True)
+    if export_confusion:
+        from .confusion_export import export_confusion_matrix
+        export_confusion_matrix(
+            validator, coco_evaluator.coco_eval['bbox'].cocoGt, output_dir,
+            metadata=kwargs.get('confusion_metadata', {}),
+            remap=postprocessor.remap_mscoco_category,
+        )
+    threshold_metrics_per_class = metrics.pop("extended_metrics", {})
     print("Metrics:", metrics)
     if use_wandb:
         metrics = {f"metrics/{k}": v for k, v in metrics.items()}
@@ -277,6 +360,11 @@ def evaluate(
     if coco_evaluator is not None:
         if "bbox" in iou_types:
             stats["coco_eval_bbox"] = coco_evaluator.coco_eval["bbox"].stats.tolist()
+            stats["bbox_per_class"] = _bbox_metrics_per_class(
+                coco_evaluator.coco_eval["bbox"], threshold_metrics_per_class
+            )
+            if dist_utils.is_main_process():
+                _print_bbox_metrics_per_class(stats["bbox_per_class"])
         if "segm" in iou_types:
             stats["coco_eval_masks"] = coco_evaluator.coco_eval["segm"].stats.tolist()
 

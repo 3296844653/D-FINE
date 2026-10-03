@@ -1,0 +1,22 @@
+__include__:
+  - dfine_s_scb3s_hrw_3cls_132.yml
+
+# Independent P3-only structural experiment; do not inherit the VFL-weight run.
+HybridEncoder:
+  use_p3_rfaconv_residual: true
+  p3_rfaconv_mid_channels: 32
+  p3_rfaconv_alpha: 0.1
+  use_rfa_p3: false
+  use_sfif: false
+  use_p2_detail_fusion: false
+  use_encoder_highres_residual: false
+  use_encoder_p3_joint_residual: false
+
+DFINECriterion:
+  use_class_balanced_vfl: false
+  use_class_margin: false
+  use_query_validity: false
+  use_query_objectness: false
+  use_shape_iou: false
+
+output_dir: /media/a5/5号机移动盘2/wq_workspace/wq_s_scb3s_hrw_3cls/dfine_s_scb3s_hrw_3cls_132_p3_rfaconv_seed0

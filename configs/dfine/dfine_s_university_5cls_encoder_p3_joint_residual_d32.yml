@@ -1,0 +1,6 @@
+__include__:
+  - dfine_s_university_5cls_encoder_p3_joint_residual.yml
+
+# Single-variable ablation: reduce the joint P3 residual bottleneck from 64 to 32.
+HybridEncoder:
+  encoder_p3_joint_dim: 32

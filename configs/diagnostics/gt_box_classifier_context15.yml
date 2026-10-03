@@ -1,0 +1,7 @@
+__include__: gt_box_classifier_tight.yml
+
+# The only experimental variable relative to the tight-box configuration.
+data:
+  padding: 0.15
+
+output_dir: output/gt_box_classifier_context15

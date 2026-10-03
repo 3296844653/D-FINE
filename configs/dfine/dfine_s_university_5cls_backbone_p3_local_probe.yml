@@ -1,0 +1,6 @@
+__include__:
+  - dfine_s_university_5cls.yml
+
+# Independent backbone probe: refine only the stride-8 backbone output.
+HGNetv2:
+  use_backbone_p3_local_probe: true

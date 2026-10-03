@@ -1,0 +1,15 @@
+__include__:
+  - dfine_s_university_5cls.yml
+
+# Confusion-aware classification-margin experiment for D-FINE-S.
+# Class IDs: 0=reading, 1=writing, 2=using_phone,
+#            3=bowing_head, 4=leaning_over_table.
+# Only the three evidence-backed confusion pairs below are constrained.
+DFINECriterion:
+  use_class_margin: true
+  class_margin: 0.2
+  class_margin_weight: 0.1
+  class_margin_pairs:
+    - [0, 1]
+    - [0, 2]
+    - [1, 2]

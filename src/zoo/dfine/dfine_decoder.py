@@ -46,6 +46,26 @@ class MLP(nn.Module):
         return x
 
 
+class ResidualTaskAdapter(nn.Module):
+    """Learn a task-specific residual feature before a prediction head.
+
+    The final projection is zero-initialized, so a newly enabled adapter starts
+    as an exact identity mapping when loading baseline pretrained weights.
+    """
+
+    def __init__(self, input_dim: int, adapter_dim: int):
+        super().__init__()
+        self.norm = nn.LayerNorm(input_dim)
+        self.down = nn.Linear(input_dim, adapter_dim)
+        self.act = nn.ReLU(inplace=True)
+        self.up = nn.Linear(adapter_dim, input_dim)
+        init.zeros_(self.up.weight)
+        init.zeros_(self.up.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.up(self.act(self.down(self.norm(x))))
+
+
 class LocalEvidenceClassificationRefiner(nn.Module):
     """Refine final class logits with four spatial samples inside each predicted box.
 
@@ -146,6 +166,127 @@ class P2ROIClassificationRefiner(nn.Module):
         sampled = sampled.permute(0, 2, 1, 3, 4).reshape(batch * queries, channels, side, side)
         residual = self.classifier(self.features(sampled).flatten(1))
         return residual.reshape(batch, queries, -1) * self.class_mask.to(residual.dtype)
+
+
+class P2QueryInitializer(nn.Module):
+    """Inject stride-4 local evidence into the initial detection queries.
+
+    This is a position-diagnosis probe for the encoder-to-decoder interface.
+    The selected encoder anchors define a small sampling grid on P2.  The
+    sampled feature and the original selected query are fused through a
+    zero-initialized residual, so enabling the probe starts exactly from the
+    baseline query content.  P2 and boxes are detached to keep this ablation
+    from changing backbone learning or localization through the sampling path.
+    """
+
+    def __init__(self, in_channels, hidden_dim, refine_dim=64, grid_size=3):
+        super().__init__()
+        if grid_size < 1 or refine_dim <= 0 or refine_dim % 8:
+            raise ValueError(
+                "P2 query init grid_size must be positive and refine_dim a positive multiple of 8"
+            )
+        self.grid_size = grid_size
+        self.feature_proj = nn.Sequential(
+            nn.Conv2d(in_channels, refine_dim, 1, bias=False),
+            nn.GroupNorm(8, refine_dim),
+            nn.SiLU(inplace=True),
+        )
+        self.query_norm = nn.LayerNorm(hidden_dim)
+        self.fusion = nn.Sequential(
+            nn.Linear(hidden_dim + refine_dim, hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        init.zeros_(self.fusion[-1].weight)
+        init.zeros_(self.fusion[-1].bias)
+
+    def forward(self, feature, boxes, query):
+        """feature [B,C,H/4,W/4], boxes [B,Q,4], query [B,Q,D]."""
+        batch, _, _, _ = feature.shape
+        queries = boxes.shape[1]
+        side = self.grid_size
+        positions = (
+            torch.arange(side, device=boxes.device, dtype=boxes.dtype) + 0.5
+        ) / side - 0.5
+        yy, xx = torch.meshgrid(positions, positions, indexing="ij")
+        relative = torch.stack((xx, yy), dim=-1)
+
+        detached_boxes = boxes.detach()
+        grid = (
+            detached_boxes[..., None, None, :2]
+            + detached_boxes[..., None, None, 2:] * relative
+        )
+        grid = grid.mul(2).sub(1).clamp(-1, 1)
+        projected = self.feature_proj(feature.detach())
+        sampled = F.grid_sample(
+            projected.float(),
+            grid.reshape(batch, queries * side, side, 2).float(),
+            mode="bilinear",
+            padding_mode="border",
+            align_corners=False,
+        ).to(projected.dtype)
+        sampled = sampled.reshape(batch, projected.shape[1], queries, side, side)
+        sampled = sampled.mean(dim=(-1, -2)).transpose(1, 2)
+        delta = self.fusion(torch.cat((self.query_norm(query), sampled), dim=-1))
+        return query + delta
+
+
+class DecoderLocalQueryClassificationRefiner(nn.Module):
+    """Fuse a final decoder query with P3 evidence inside its predicted box.
+
+    Only a residual classification logit is produced.  Box coordinates are
+    detached before sampling, so this branch cannot directly optimize bbox
+    locations.  The output layer is zero-initialized for exact baseline
+    behavior when the experiment is first enabled.
+    """
+
+    def __init__(self, hidden_dim, num_classes, refine_dim=64, grid_size=3):
+        super().__init__()
+        if grid_size < 1 or refine_dim <= 0:
+            raise ValueError("Decoder local grid_size and refine_dim must be positive")
+        self.grid_size = grid_size
+        self.local_proj = nn.Sequential(
+            nn.LayerNorm(hidden_dim),
+            nn.Linear(hidden_dim, refine_dim),
+            nn.ReLU(inplace=True),
+        )
+        self.classifier = nn.Sequential(
+            nn.LayerNorm(hidden_dim + refine_dim),
+            nn.Linear(hidden_dim + refine_dim, refine_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(refine_dim, num_classes),
+        )
+        init.zeros_(self.classifier[-1].weight)
+        init.zeros_(self.classifier[-1].bias)
+
+    def forward(self, feature, boxes, query):
+        """feature [B,D,H/8,W/8], boxes [B,Q,4], query [B,Q,D]."""
+        batch, channels = feature.shape[:2]
+        queries = boxes.shape[1]
+        side = self.grid_size
+        positions = (
+            torch.arange(side, device=boxes.device, dtype=boxes.dtype) + 0.5
+        ) / side - 0.5
+        yy, xx = torch.meshgrid(positions, positions, indexing="ij")
+        relative = torch.stack((xx, yy), dim=-1)
+
+        detached_boxes = boxes.detach()
+        grid = (
+            detached_boxes[..., None, None, :2]
+            + detached_boxes[..., None, None, 2:] * relative
+        )
+        grid = grid.mul(2).sub(1).clamp(-1, 1)
+        sampled = F.grid_sample(
+            feature.float(),
+            grid.reshape(batch, queries * side, side, 2).float(),
+            mode="bilinear",
+            padding_mode="border",
+            align_corners=False,
+        ).to(feature.dtype)
+        sampled = sampled.reshape(batch, channels, queries, side, side)
+        sampled = sampled.mean(dim=(-1, -2)).transpose(1, 2)
+        local = self.local_proj(sampled)
+        return self.classifier(torch.cat((query, local), dim=-1))
 
 
 class QueryValidityHead(nn.Module):
@@ -503,6 +644,8 @@ class TransformerDecoder(nn.Module):
         spatial_shapes,
         bbox_head,
         score_head,
+        cls_query_adapter,
+        reg_query_adapter,
         query_pos_head,
         pre_bbox_head,
         integral,
@@ -544,20 +687,27 @@ class TransformerDecoder(nn.Module):
                 output, ref_points_input, value, spatial_shapes, attn_mask, query_pos_embed
             )
 
+            # The decoder remains shared. Only the feature passed into each
+            # prediction branch is transformed independently.
+            cls_output = cls_query_adapter[i](output)
+            reg_output = reg_query_adapter[i](output + output_detach)
+
             if i == 0:
                 # Initial bounding box predictions with inverse sigmoid refinement
-                pre_bboxes = F.sigmoid(pre_bbox_head(output) + inverse_sigmoid(ref_points_detach))
-                pre_scores = score_head[0](output)
+                pre_bboxes = F.sigmoid(
+                    pre_bbox_head(reg_output) + inverse_sigmoid(ref_points_detach)
+                )
+                pre_scores = score_head[0](cls_output)
                 ref_points_initial = pre_bboxes.detach()
 
             # Refine bounding box corners using FDR, integrating previous layer's corrections
-            pred_corners = bbox_head[i](output + output_detach) + pred_corners_undetach
+            pred_corners = bbox_head[i](reg_output) + pred_corners_undetach
             inter_ref_bbox = distance2bbox(
                 ref_points_initial, integral(pred_corners, project), reg_scale
             )
 
             if self.training or i == self.eval_idx:
-                scores = score_head[i](output)
+                scores = score_head[i](cls_output)
                 # Lqe does not affect the performance here.
                 scores = self.lqe_layers[i](scores, pred_corners)
                 dec_out_logits.append(scores)
@@ -619,11 +769,23 @@ class DFINETransformer(nn.Module):
         use_query_validity=False,
         query_validity_dim=64,
         query_validity_scale=0.25,
+        use_query_objectness=False,
+        query_objectness_dim=64,
+        query_objectness_scale=0.25,
         use_p2_roi_cls=False,
         p2_roi_channels=64,
         p2_roi_dim=32,
         p2_roi_grid_size=5,
         p2_roi_class_ids=(0, 1, 2),
+        use_p2_query_init=False,
+        p2_query_channels=64,
+        p2_query_dim=64,
+        p2_query_grid_size=3,
+        use_decoder_local_query_cls=False,
+        decoder_local_dim=64,
+        decoder_local_grid_size=3,
+        use_task_decoupled_heads=False,
+        task_adapter_dim=64,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -646,9 +808,25 @@ class DFINETransformer(nn.Module):
         self.reg_max = reg_max
         self.use_local_evidence_cls = use_local_evidence_cls
         self.use_query_validity = use_query_validity
+        # Independent geometric-validity probe. Unlike query_validity, this
+        # branch never changes training scores, matching or distillation.
+        self.use_query_objectness = use_query_objectness
         self.use_p2_roi_cls = use_p2_roi_cls
-        if sum((use_local_evidence_cls, use_query_validity, use_p2_roi_cls)) > 1:
-            raise ValueError("Classification refiners must be ablated separately")
+        self.use_p2_query_init = use_p2_query_init
+        self.use_decoder_local_query_cls = use_decoder_local_query_cls
+        self.use_task_decoupled_heads = use_task_decoupled_heads
+        if sum(
+            (
+                use_local_evidence_cls,
+                use_query_validity,
+                use_query_objectness,
+                use_p2_roi_cls,
+                use_p2_query_init,
+                use_decoder_local_query_cls,
+                use_task_decoupled_heads,
+            )
+        ) > 1:
+            raise ValueError("Query/classification experiments must be ablated separately")
         if use_local_evidence_cls:
             if local_evidence_dim <= 0:
                 raise ValueError("local_evidence_dim must be positive")
@@ -662,10 +840,40 @@ class DFINETransformer(nn.Module):
                 raise ValueError("Query validity currently requires the final decoder layer at base width")
             self.query_validity = QueryValidityHead(hidden_dim, query_validity_dim)
             self.query_validity_scale = query_validity_scale
+        if use_query_objectness:
+            if query_objectness_dim <= 0 or query_objectness_scale <= 0:
+                raise ValueError("Query objectness dimension and scale must be positive")
+            if (eval_idx if eval_idx >= 0 else num_layers + eval_idx) != num_layers - 1 or layer_scale != 1:
+                raise ValueError("Query objectness requires the final decoder layer at base width")
+            # Reuse only the small zero-initialized MLP, not validity supervision.
+            self.query_objectness = QueryValidityHead(hidden_dim, query_objectness_dim)
+            self.query_objectness_scale = query_objectness_scale
         if use_p2_roi_cls:
             self.p2_roi_cls = P2ROIClassificationRefiner(
                 p2_roi_channels, p2_roi_dim, num_classes,
                 tuple(p2_roi_class_ids), p2_roi_grid_size,
+            )
+        if use_p2_query_init:
+            self.p2_query_init = P2QueryInitializer(
+                p2_query_channels,
+                hidden_dim,
+                p2_query_dim,
+                p2_query_grid_size,
+            )
+        if use_decoder_local_query_cls:
+            if (eval_idx if eval_idx >= 0 else num_layers + eval_idx) != num_layers - 1:
+                raise ValueError(
+                    "Decoder local query classification requires the final decoder layer as eval_idx"
+                )
+            if layer_scale != 1:
+                raise ValueError(
+                    "Decoder local query classification currently requires layer_scale=1"
+                )
+            self.decoder_local_query_cls = DecoderLocalQueryClassificationRefiner(
+                hidden_dim,
+                num_classes,
+                decoder_local_dim,
+                decoder_local_grid_size,
             )
 
         assert query_select_method in ("default", "one2many", "agnostic"), ""
@@ -770,6 +978,25 @@ class DFINETransformer(nn.Module):
                 for _ in range(num_layers - self.eval_idx - 1)
             ]
         )
+        decoder_head_dims = [hidden_dim] * (self.eval_idx + 1) + [scaled_dim] * (
+            num_layers - self.eval_idx - 1
+        )
+        if use_task_decoupled_heads:
+            if task_adapter_dim <= 0:
+                raise ValueError("task_adapter_dim must be positive")
+            self.cls_query_adapter = nn.ModuleList(
+                [ResidualTaskAdapter(dim, task_adapter_dim) for dim in decoder_head_dims]
+            )
+            self.reg_query_adapter = nn.ModuleList(
+                [ResidualTaskAdapter(dim, task_adapter_dim) for dim in decoder_head_dims]
+            )
+        else:
+            self.cls_query_adapter = nn.ModuleList(
+                [nn.Identity() for _ in decoder_head_dims]
+            )
+            self.reg_query_adapter = nn.ModuleList(
+                [nn.Identity() for _ in decoder_head_dims]
+            )
         self.integral = Integral(self.reg_max)
 
         # init encoder output anchors and valid_mask
@@ -914,7 +1141,12 @@ class DFINETransformer(nn.Module):
         return anchors, valid_mask
 
     def _get_decoder_input(
-        self, memory: torch.Tensor, spatial_shapes, denoising_logits=None, denoising_bbox_unact=None
+        self,
+        memory: torch.Tensor,
+        spatial_shapes,
+        denoising_logits=None,
+        denoising_bbox_unact=None,
+        p2_feat=None,
     ):
         # prepare input for decoder
         if self.training or self.eval_spatial_size is None:
@@ -951,6 +1183,12 @@ class DFINETransformer(nn.Module):
             content = self.tgt_embed.weight.unsqueeze(0).tile([memory.shape[0], 1, 1])
         else:
             content = enc_topk_memory.detach()
+
+        if self.use_p2_query_init:
+            if p2_feat is None:
+                raise ValueError("P2 query initialization requires a stride-4 P2 feature")
+            init_boxes = enc_topk_anchors.sigmoid()
+            content = self.p2_query_init(p2_feat, init_boxes, content)
 
         enc_topk_bbox_unact = enc_topk_bbox_unact.detach()
 
@@ -1018,7 +1256,13 @@ class DFINETransformer(nn.Module):
             denoising_logits, denoising_bbox_unact, attn_mask, dn_meta = None, None, None, None
 
         init_ref_contents, init_ref_points_unact, enc_topk_bboxes_list, enc_topk_logits_list = (
-            self._get_decoder_input(memory, spatial_shapes, denoising_logits, denoising_bbox_unact)
+            self._get_decoder_input(
+                memory,
+                spatial_shapes,
+                denoising_logits,
+                denoising_bbox_unact,
+                p2_feat,
+            )
         )
 
         # decoder
@@ -1029,6 +1273,8 @@ class DFINETransformer(nn.Module):
             spatial_shapes,
             self.dec_bbox_head,
             self.dec_score_head,
+            self.cls_query_adapter,
+            self.reg_query_adapter,
             self.query_pos_head,
             self.pre_bbox_head,
             self.integral,
@@ -1048,6 +1294,7 @@ class DFINETransformer(nn.Module):
             refined_logits = out_logits[-1] + self.local_evidence_cls(p3, out_bboxes[-1])
             out_logits = torch.cat((out_logits[:-1], refined_logits.unsqueeze(0)), dim=0)
 
+        ordinary_final_query = final_query
         if self.training and dn_meta is not None:
             dn_pre_logits, pre_logits = torch.split(pre_logits, dn_meta["dn_num_split"], dim=1)
             dn_pre_bboxes, pre_bboxes = torch.split(pre_bboxes, dn_meta["dn_num_split"], dim=1)
@@ -1056,6 +1303,24 @@ class DFINETransformer(nn.Module):
 
             dn_out_corners, out_corners = torch.split(out_corners, dn_meta["dn_num_split"], dim=2)
             dn_out_refs, out_refs = torch.split(out_refs, dn_meta["dn_num_split"], dim=2)
+            _, ordinary_final_query = torch.split(
+                final_query, dn_meta["dn_num_split"], dim=1
+            )
+
+        decoder_local_teacher_logits = (
+            out_logits[-1] if self.use_decoder_local_query_cls else None
+        )
+        if self.use_decoder_local_query_cls:
+            # Use the highest-resolution native decoder feature (P3, stride 8)
+            # and ordinary detection queries only. DN predictions are unchanged.
+            p3_h, p3_w = spatial_shapes[0]
+            p3 = memory[:, : p3_h * p3_w].transpose(1, 2).reshape(
+                memory.shape[0], self.hidden_dim, p3_h, p3_w
+            )
+            refined_logits = out_logits[-1] + self.decoder_local_query_cls(
+                p3, out_bboxes[-1], ordinary_final_query
+            )
+            out_logits = torch.cat((out_logits[:-1], refined_logits.unsqueeze(0)), dim=0)
 
         p2_teacher_logits = out_logits[-1] if self.use_p2_roi_cls else None
         if self.use_p2_roi_cls:
@@ -1068,12 +1333,21 @@ class DFINETransformer(nn.Module):
             # DN queries are not supervised by this branch and retain their
             # original logits. Only the final ordinary detection head changes.
             if self.training and dn_meta is not None:
-                _, final_query = torch.split(final_query, dn_meta["dn_num_split"], dim=1)
+                final_query = ordinary_final_query
             # Keep the new validity supervision out of the shared decoder and
             # bbox representation; only the small validity head is trained by it.
             validity_logits = self.query_validity(final_query.detach())
             refined_logits = out_logits[-1] + self.query_validity_scale * validity_logits
             out_logits = torch.cat((out_logits[:-1], refined_logits.unsqueeze(0)), dim=0)
+
+        if self.use_query_objectness:
+            # Ordinary queries only. Detaching isolates the added loss from all
+            # original features and bbox heads. A scalar shift preserves class
+            # order within each query; this experiment tests score discrimination.
+            objectness_logits = self.query_objectness(ordinary_final_query.detach())
+            if not self.training:
+                refined_logits = out_logits[-1] + self.query_objectness_scale * objectness_logits
+                out_logits = torch.cat((out_logits[:-1], refined_logits.unsqueeze(0)), dim=0)
 
         if self.training:
             out = {
@@ -1089,6 +1363,8 @@ class DFINETransformer(nn.Module):
 
         if self.training and self.use_query_validity:
             out["query_validity_logits"] = validity_logits
+        if self.training and self.use_query_objectness:
+            out["query_objectness_logits"] = objectness_logits
 
         if self.training and self.aux_loss:
             out["aux_outputs"] = self._set_aux_loss2(
@@ -1097,7 +1373,13 @@ class DFINETransformer(nn.Module):
                 out_corners[:-1],
                 out_refs[:-1],
                 out_corners[-1],
-                p2_teacher_logits if self.use_p2_roi_cls else out_logits[-1],
+                (
+                    p2_teacher_logits
+                    if self.use_p2_roi_cls
+                    else decoder_local_teacher_logits
+                    if self.use_decoder_local_query_cls
+                    else out_logits[-1]
+                ),
             )
             out["enc_aux_outputs"] = self._set_aux_loss(enc_topk_logits_list, enc_topk_bboxes_list)
             out["pre_outputs"] = {"pred_logits": pre_logits, "pred_boxes": pre_bboxes}

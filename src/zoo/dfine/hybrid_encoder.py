@@ -240,6 +240,53 @@ class CSPLayer(nn.Module):
         return self.conv3(x_1 + x_2)
 
 
+class P3RFAConvResidual(nn.Module):
+    """Official group-convolution RFAConv mechanism inside a P3 bottleneck.
+
+    Source: github.com/Liuchen1997/RFAConv/blob/main/model.py (first RFAConv).
+    Adaptations: 1x1 channel reduction/restoration and a fixed residual scale.
+    Native reshape/permute replaces einops with identical spatial ordering.
+    This is not the older RFAInspiredP3Refiner or the full EduYOLO architecture.
+    """
+
+    def __init__(self, channels, mid_channels=32, alpha=0.1):
+        super().__init__()
+        if mid_channels <= 0 or not 0 <= alpha <= 1:
+            raise ValueError("P3 RFAConv requires positive width and alpha in [0, 1]")
+        self.alpha = float(alpha)  # Fixed coefficient, not alpha_init.
+        self.reduce = nn.Sequential(
+            nn.Conv2d(channels, mid_channels, 1, bias=False),
+            nn.BatchNorm2d(mid_channels), nn.ReLU(),
+        )
+        self.get_weight = nn.Sequential(
+            nn.AvgPool2d(3, stride=1, padding=1),
+            nn.Conv2d(mid_channels, mid_channels * 9, 1, groups=mid_channels, bias=False),
+        )
+        self.generate_feature = nn.Sequential(
+            nn.Conv2d(mid_channels, mid_channels * 9, 3, padding=1,
+                      groups=mid_channels, bias=False),
+            nn.BatchNorm2d(mid_channels * 9), nn.ReLU(),
+        )
+        self.aggregate = nn.Sequential(
+            nn.Conv2d(mid_channels, mid_channels, 3, stride=3, bias=False),
+            nn.BatchNorm2d(mid_channels), nn.ReLU(),
+        )
+        self.restore = nn.Sequential(
+            nn.Conv2d(mid_channels, channels, 1, bias=False),
+            nn.BatchNorm2d(channels),
+        )
+
+    def forward(self, x):
+        reduced = self.reduce(x)
+        b, c, h, w = reduced.shape
+        weights = self.get_weight(reduced).reshape(b, c, 9, h, w).softmax(dim=2)
+        features = self.generate_feature(reduced).reshape(b, c, 9, h, w)
+        # k-index = row*3+column, matching official einops rearrange.
+        expanded = (features * weights).reshape(b, c, 3, 3, h, w)
+        expanded = expanded.permute(0, 1, 4, 2, 5, 3).reshape(b, c, h * 3, w * 3)
+        return x + self.alpha * self.restore(self.aggregate(expanded))
+
+
 class RFAInspiredP3Refiner(nn.Module):
     """Receptive-field-weighted local refinement inspired by EduYOLO's RFAConv.
 
@@ -349,6 +396,99 @@ class TransformerEncoder(nn.Module):
         return output
 
 
+class SpatioFrequencyInteractiveFusion(nn.Module):
+    """Spatio-Frequency Interactive Fusion (SFIF) from FBDNet.
+
+    The spatial branch performs channel-wise multi-head self-attention plus a
+    depth-wise local value path. The frequency branch predicts a spatial
+    weight map, transforms both tensors with a 2-D FFT, and filters the input
+    by complex multiplication. Two cross gates then fuse both branches into a
+    residual output.
+    """
+
+    def __init__(self, channels, num_heads=8):
+        super().__init__()
+        if channels % num_heads != 0:
+            raise ValueError("SFIF channels must be divisible by num_heads")
+
+        self.channels = channels
+        self.num_heads = num_heads
+        self.head_dim = channels // num_heads
+
+        self.qkv = nn.Conv2d(channels, channels * 3, kernel_size=1)
+        self.local_value = nn.Conv2d(
+            channels,
+            channels,
+            kernel_size=3,
+            padding=1,
+            groups=channels,
+        )
+        self.spatial_scale = nn.Parameter(
+            torch.full((num_heads, 1, 1), self.head_dim**-0.5)
+        )
+        self.spatial_proj = nn.Conv2d(channels, channels, kernel_size=1)
+
+        self.frequency_weight_in = nn.Conv2d(channels, channels, kernel_size=1)
+        self.frequency_weight_out = nn.Conv2d(channels, channels, kernel_size=1)
+        self.frequency_proj = nn.Conv2d(channels, channels, kernel_size=1)
+
+        self.spatial_to_frequency_gate = nn.Conv2d(channels, channels, kernel_size=1)
+        self.frequency_to_spatial_gate = nn.Conv2d(channels, channels, kernel_size=1)
+
+    def _spatial_branch(self, x):
+        batch_size, _, height, width = x.shape
+        query, key, value = self.qkv(x).chunk(3, dim=1)
+        local_value = self.local_value(value)
+
+        query = query.reshape(
+            batch_size, self.num_heads, self.head_dim, height * width
+        )
+        key = key.reshape(batch_size, self.num_heads, self.head_dim, height * width)
+        value = value.reshape(
+            batch_size, self.num_heads, self.head_dim, height * width
+        )
+
+        attention = torch.matmul(query, key.transpose(-2, -1))
+        attention = attention * self.spatial_scale.to(dtype=attention.dtype)
+        attention = attention.softmax(dim=-1)
+        global_value = torch.matmul(attention, value).reshape(
+            batch_size, self.channels, height, width
+        )
+        return self.spatial_proj(global_value + local_value)
+
+    def _frequency_branch(self, x):
+        frequency_weight = self.frequency_weight_out(
+            F.gelu(self.frequency_weight_in(x))
+        )
+
+        # CUDA FFT does not support every low-precision shape under AMP. The
+        # transform is therefore evaluated in fp32 and cast back afterwards.
+        fft_input = x.float() if x.dtype in (torch.float16, torch.bfloat16) else x
+        fft_weight = (
+            frequency_weight.float()
+            if frequency_weight.dtype in (torch.float16, torch.bfloat16)
+            else frequency_weight
+        )
+        filtered = torch.fft.fft2(fft_input, dim=(-2, -1)) * torch.fft.fft2(
+            fft_weight, dim=(-2, -1)
+        )
+        restored = torch.fft.ifft2(filtered, dim=(-2, -1)).real.to(dtype=x.dtype)
+        return self.frequency_proj(restored)
+
+    def forward(self, x):
+        spatial_feature = self._spatial_branch(x)
+        frequency_feature = self._frequency_branch(x)
+
+        frequency_gate = torch.sigmoid(
+            self.spatial_to_frequency_gate(spatial_feature)
+        )
+        spatial_gate = torch.sigmoid(
+            self.frequency_to_spatial_gate(frequency_feature)
+        )
+        fused = spatial_feature * spatial_gate + frequency_feature * frequency_gate
+        return x + fused
+
+
 @register()
 class HybridEncoder(nn.Module):
     __share__ = [
@@ -373,6 +513,17 @@ class HybridEncoder(nn.Module):
         eval_spatial_size=None,
         use_rfa_p3=False,
         rfa_mid_channels=32,
+        use_sfif=False,
+        sfif_num_heads=8,
+        use_p2_detail_fusion=False,
+        p2_in_channels=64,
+        use_encoder_highres_residual=False,
+        encoder_highres_alpha_init=0.0,
+        use_encoder_p3_joint_residual=False,
+        encoder_p3_joint_dim=64,
+        use_p3_rfaconv_residual=False,
+        p3_rfaconv_mid_channels=32,
+        p3_rfaconv_alpha=0.1,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -384,11 +535,86 @@ class HybridEncoder(nn.Module):
         self.eval_spatial_size = eval_spatial_size
         self.out_channels = [hidden_dim for _ in range(len(in_channels))]
         self.out_strides = feat_strides
+        self.use_sfif = bool(use_sfif)
+        self.use_p2_detail_fusion = bool(use_p2_detail_fusion)
+        self.use_encoder_highres_residual = bool(use_encoder_highres_residual)
+        self.use_encoder_p3_joint_residual = bool(use_encoder_p3_joint_residual)
+        if self.use_sfif and num_encoder_layers != 1:
+            raise ValueError("SFIF replaces the single AIFI layer; set num_encoder_layers to 1")
+        if self.use_sfif and hidden_dim % sfif_num_heads != 0:
+            raise ValueError("hidden_dim must be divisible by sfif_num_heads")
         self.use_rfa_p3 = use_rfa_p3
+        self.use_p3_rfaconv_residual = bool(use_p3_rfaconv_residual)
+        if sum(
+            (
+                self.use_p2_detail_fusion,
+                self.use_encoder_highres_residual,
+                self.use_encoder_p3_joint_residual,
+                self.use_rfa_p3,
+                self.use_sfif,
+                self.use_p3_rfaconv_residual,
+            )
+        ) > 1:
+            raise ValueError(
+                "P2 detail fusion, encoder high-resolution/joint residual, RFA-P3, P3-RFAConv, and SFIF "
+                "must be ablated separately"
+            )
+        if self.use_p2_detail_fusion:
+            if len(in_channels) != 3 or feat_strides[0] != 8 or p2_in_channels <= 0:
+                raise ValueError("P2 detail fusion requires the standard P3-P5 encoder")
+            # Downsample stride-4 P2 once and project it to the P3 width. The
+            # depthwise step retains local spatial evidence at low cost. A
+            # zero-initialized final BN makes the initial residual exactly zero.
+            self.p2_detail_proj = nn.Sequential(
+                nn.Conv2d(
+                    p2_in_channels,
+                    p2_in_channels,
+                    kernel_size=3,
+                    stride=2,
+                    padding=1,
+                    groups=p2_in_channels,
+                    bias=False,
+                ),
+                nn.BatchNorm2d(p2_in_channels),
+                nn.SiLU(inplace=True),
+                nn.Conv2d(p2_in_channels, hidden_dim, kernel_size=1, bias=False),
+                nn.BatchNorm2d(hidden_dim),
+            )
+            nn.init.zeros_(self.p2_detail_proj[-1].weight)
+            nn.init.zeros_(self.p2_detail_proj[-1].bias)
+        if self.use_encoder_highres_residual:
+            if len(in_channels) != 3 or feat_strides[0] != 8:
+                raise ValueError(
+                    "Encoder high-resolution residual requires the standard P3-P5 encoder"
+                )
+            # A single learnable coefficient probes whether the original P3
+            # information should bypass multi-scale FPN/PAN fusion. Zero init
+            # guarantees exact baseline behavior before training.
+            self.encoder_highres_alpha = nn.Parameter(
+                torch.tensor(float(encoder_highres_alpha_init))
+            )
+        if self.use_encoder_p3_joint_residual:
+            if len(in_channels) != 3 or feat_strides[0] != 8 or encoder_p3_joint_dim <= 0:
+                raise ValueError("Joint P3 residual requires P3-P5 and a positive bottleneck width")
+            # Jointly transform original projected P3 and final fused P3.
+            # No normalization is added, so baseline running statistics stay intact.
+            self.encoder_p3_joint_residual = nn.Sequential(
+                nn.Conv2d(2 * hidden_dim, encoder_p3_joint_dim, 1),
+                nn.SiLU(),
+                nn.Conv2d(encoder_p3_joint_dim, hidden_dim, 1),
+            )
+            nn.init.zeros_(self.encoder_p3_joint_residual[-1].weight)
+            nn.init.zeros_(self.encoder_p3_joint_residual[-1].bias)
         if use_rfa_p3:
             if len(in_channels) != 3 or feat_strides[0] != 8:
                 raise ValueError("RFA P3 refinement requires the standard P3-P5 encoder")
             self.rfa_p3 = RFAInspiredP3Refiner(hidden_dim, rfa_mid_channels)
+        if self.use_p3_rfaconv_residual:
+            if len(in_channels) != 3 or feat_strides != [8, 16, 32]:
+                raise ValueError("P3-RFAConv requires the standard P3/P4/P5 encoder")
+            self.p3_rfaconv_residual = P3RFAConvResidual(
+                hidden_dim, p3_rfaconv_mid_channels, p3_rfaconv_alpha
+            )
 
         # channel projection
         self.input_proj = nn.ModuleList()
@@ -404,21 +630,30 @@ class HybridEncoder(nn.Module):
 
             self.input_proj.append(proj)
 
-        # encoder transformer
-        encoder_layer = TransformerEncoderLayer(
-            hidden_dim,
-            nhead=nhead,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            activation=enc_act,
-        )
+        # SFIF is an alternative single-variable replacement for AIFI, rather
+        # than an extra block stacked on top of the baseline transformer.
+        if self.use_sfif:
+            self.encoder = nn.ModuleList(
+                [
+                    SpatioFrequencyInteractiveFusion(hidden_dim, sfif_num_heads)
+                    for _ in range(len(use_encoder_idx))
+                ]
+            )
+        else:
+            encoder_layer = TransformerEncoderLayer(
+                hidden_dim,
+                nhead=nhead,
+                dim_feedforward=dim_feedforward,
+                dropout=dropout,
+                activation=enc_act,
+            )
 
-        self.encoder = nn.ModuleList(
-            [
-                TransformerEncoder(copy.deepcopy(encoder_layer), num_encoder_layers)
-                for _ in range(len(use_encoder_idx))
-            ]
-        )
+            self.encoder = nn.ModuleList(
+                [
+                    TransformerEncoder(copy.deepcopy(encoder_layer), num_encoder_layers)
+                    for _ in range(len(use_encoder_idx))
+                ]
+            )
 
         # top-down fpn
         self.lateral_convs = nn.ModuleList()
@@ -490,12 +725,43 @@ class HybridEncoder(nn.Module):
         return torch.concat([out_w.sin(), out_w.cos(), out_h.sin(), out_h.cos()], dim=1)[None, :, :]
 
     def forward(self, feats):
-        assert len(feats) == len(self.in_channels)
+        if self.use_p2_detail_fusion:
+            if len(feats) != len(self.in_channels) + 1:
+                raise ValueError(
+                    "P2 detail fusion requires backbone features [P2, P3, P4, P5]"
+                )
+            p2_feat, feats = feats[0], feats[1:]
+        else:
+            if len(feats) != len(self.in_channels):
+                raise ValueError("HybridEncoder feature count does not match in_channels")
+            p2_feat = None
+
         proj_feats = [self.input_proj[i](feat) for i, feat in enumerate(feats)]
+        if self.use_p3_rfaconv_residual:
+            # Stride-8 backbone P3, after channel alignment but BEFORE AIFI/FPN/PAN.
+            # Keep P4/P5 inputs and all three output dimensions unchanged.
+            proj_feats[0] = self.p3_rfaconv_residual(proj_feats[0])
+        highres_residual = (
+            proj_feats[0]
+            if self.use_encoder_highres_residual or self.use_encoder_p3_joint_residual
+            else None
+        )
+
+        if self.use_p2_detail_fusion:
+            p2_detail = self.p2_detail_proj(p2_feat)
+            if p2_detail.shape[-2:] != proj_feats[0].shape[-2:]:
+                p2_detail = F.interpolate(
+                    p2_detail, size=proj_feats[0].shape[-2:], mode="bilinear", align_corners=False
+                )
+            # Preserve the standard three-level encoder and decoder interface.
+            proj_feats[0] = proj_feats[0] + p2_detail
 
         # encoder
         if self.num_encoder_layers > 0:
             for i, enc_ind in enumerate(self.use_encoder_idx):
+                if self.use_sfif:
+                    proj_feats[enc_ind] = self.encoder[i](proj_feats[enc_ind])
+                    continue
                 h, w = proj_feats[enc_ind].shape[2:]
                 # flatten [B, C, H, W] to [B, HxW, C]
                 src_flatten = proj_feats[enc_ind].flatten(2).permute(0, 2, 1)
@@ -536,5 +802,18 @@ class HybridEncoder(nn.Module):
             # Refine only the final stride-8 P3 output. P4/P5 and the decoder
             # architecture are unchanged, making this a single-variable test.
             outs[0] = self.rfa_p3(outs[0])
+
+        if self.use_encoder_highres_residual:
+            # Reintroduce the pre-fusion stride-8 feature only after FPN/PAN.
+            # P4/P5 and the decoder interface remain untouched.
+            outs[0] = (
+                outs[0]
+                + self.encoder_highres_alpha.to(outs[0].dtype) * highres_residual
+            )
+
+        if self.use_encoder_p3_joint_residual:
+            outs[0] = outs[0] + self.encoder_p3_joint_residual(
+                torch.cat((outs[0], highres_residual), dim=1)
+            )
 
         return outs

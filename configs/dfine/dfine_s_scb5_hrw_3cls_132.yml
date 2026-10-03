@@ -1,0 +1,29 @@
+__include__:
+  - dfine_hgnetv2_s_coco.yml
+
+# D-FINE-S / HGNetV2-B0 baseline. No experimental module is enabled.
+# COCO category IDs: 0=hand-raising, 1=read, 2=write.
+num_classes: 3
+remap_mscoco_category: False
+epochs: 132
+
+output_dir: /media/a5/5号机移动盘2/wq_workspace/wq_s_scb5_hrw/dfine_s_scb5_hrw_3cls_132_seed0
+
+train_dataloader:
+  total_batch_size: 8
+  num_workers: 4
+  dataset:
+    img_folder: /media/a5/5号机移动盘2/wq_datasets/SCB5-Handrise-Read-write-2024-9-17/images/train
+    ann_file: /media/a5/5号机移动盘2/wq_datasets/SCB5-Handrise-Read-write-2024-9-17/annotations/instances_train.json
+    transforms:
+      policy:
+        epoch: 120
+  collate_fn:
+    stop_epoch: 120
+
+val_dataloader:
+  total_batch_size: 8
+  num_workers: 4
+  dataset:
+    img_folder: /media/a5/5号机移动盘2/wq_datasets/SCB5-Handrise-Read-write-2024-9-17/images/val
+    ann_file: /media/a5/5号机移动盘2/wq_datasets/SCB5-Handrise-Read-write-2024-9-17/annotations/instances_val.json

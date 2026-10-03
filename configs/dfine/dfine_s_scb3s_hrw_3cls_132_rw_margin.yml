@@ -1,0 +1,27 @@
+__include__:
+  - dfine_s_scb3s_hrw_3cls_132.yml
+
+# Single-variable ablation supported by run2's diagnostic confusion matrix.
+# Category IDs: 0=hand_raising, 1=reading, 2=writing.
+# Reuse the existing final-layer matched-query margin; keep original VFL.
+DFINECriterion:
+  use_class_margin: true
+  class_margin: 0.2
+  class_margin_weight: 0.05
+  class_margin_pairs:
+    - [1, 2]
+  use_class_balanced_vfl: false
+  use_query_validity: false
+  use_query_objectness: false
+  use_shape_iou: false
+
+# Do not combine with the P3-RFAConv or other encoder probes.
+HybridEncoder:
+  use_p3_rfaconv_residual: false
+  use_rfa_p3: false
+  use_sfif: false
+  use_p2_detail_fusion: false
+  use_encoder_highres_residual: false
+  use_encoder_p3_joint_residual: false
+
+output_dir: /media/a5/5号机移动盘2/wq_workspace/wq_s_scb3s_hrw_3cls/dfine_s_scb3s_hrw_3cls_132_rw_margin_seed0
