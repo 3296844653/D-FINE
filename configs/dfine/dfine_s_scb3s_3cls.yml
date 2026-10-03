@@ -8,8 +8,6 @@ num_classes: 3
 remap_mscoco_category: False
 epochs: 132
 
-output_dir: /media/a5/5号机移动盘2/wq_workspace/wq_s_scb3s_hrw_3cls/dfine_s_scb3s_3cls_132_raw_run1_seed0
-
 train_dataloader:
   total_batch_size: 8
   num_workers: 4
