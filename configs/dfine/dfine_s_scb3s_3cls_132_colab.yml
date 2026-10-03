@@ -1,0 +1,16 @@
+__include__:
+  - dfine_s_scb3s_3cls_132.yml
+
+# Colab paths only; all model/training settings inherit the SCB-S baseline.
+# Copy the dataset from Drive to local SSD before running.
+output_dir: /content/D-FINE/output/dfine_s_scb3s_3cls_132_raw_run1_seed0
+
+train_dataloader:
+  dataset:
+    img_folder: /content/D-FINE/dataset/SCB3-S/images/train
+    ann_file: /content/D-FINE/dataset/SCB3-S/annotations/instances_train.json
+
+val_dataloader:
+  dataset:
+    img_folder: /content/D-FINE/dataset/SCB3-S/images/val
+    ann_file: /content/D-FINE/dataset/SCB3-S/annotations/instances_val.json
