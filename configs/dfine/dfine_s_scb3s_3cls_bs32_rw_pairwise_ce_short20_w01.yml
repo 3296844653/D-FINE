@@ -1,0 +1,44 @@
+__include__:
+  - dfine_s_scb3s_3cls_bs32_rw_pairwise_ce.yml
+
+# Short fine-tuning CONTROL: CE weight 0.1, not a new 132-epoch baseline.
+# REQUIRED: train.py -t <original baseline best_stg2.pth>, NOT -r.
+# Both short20 variants must start from exactly the SAME baseline checkpoint.
+epochs: 20
+last_epoch: -1
+
+DFINECriterion:
+  pairwise_ce_weight: 0.1
+
+optimizer:
+  lr: 0.00002
+  params:
+    - params: '^(?=.*backbone)(?!.*norm|bn).*$'
+      lr: 0.00001
+    - params: '^(?=.*backbone)(?=.*norm|bn).*$'
+      lr: 0.00001
+      weight_decay: 0.0
+    - params: '^(?=.*(?:encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
+      weight_decay: 0.0
+
+lr_warmup_scheduler:
+  warmup_duration: 100
+
+lr_scheduler:
+  milestones: [15]
+  gamma: 0.1
+
+train_dataloader:
+  dataset:
+    transforms:
+      policy:
+        # Skip the baseline policy's photometric distortion, zoom and IoU crop.
+        # Other transforms, including horizontal flip, are unchanged in BOTH runs.
+        epoch: 0
+  collate_fn:
+    # Fixed 640 input. Do NOT set stop_epoch=0: solver would try to reload
+    # a nonexistent best_stg1.pth before the first training iteration.
+    base_size_repeat: null
+    # Training visits epochs 0..19, so the stage-reload at epoch 20 never runs.
+    # Best weight is saved as best_stg1.pth, not best_stg2.pth.
+    stop_epoch: 20

@@ -1,0 +1,7 @@
+__include__:
+  - dfine_s_scb3s_3cls_bs32_rw_pairwise_ce_short20_w01.yml
+
+# Short fine-tuning EXPERIMENT: the ONLY change versus short20_w01.
+# REQUIRED: -t the SAME original baseline checkpoint, never the w01 result.
+DFINECriterion:
+  pairwise_ce_weight: 0.05
