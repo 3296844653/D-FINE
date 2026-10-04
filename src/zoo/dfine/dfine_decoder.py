@@ -289,6 +289,68 @@ class DecoderLocalQueryClassificationRefiner(nn.Module):
         return self.classifier(torch.cat((query, local), dim=-1))
 
 
+class RWSpatialRelationRefiner(nn.Module):
+    """Query-conditioned spatial ROI relations; read/write logit correction only.
+
+    Samples keep their relative coordinates through self-attention, unlike
+    spatial-mean local refiners. Coordinates are detached, not shared features.
+    No GT is used during sampling or inference.
+    """
+
+    def __init__(self, hidden_dim, num_classes, relation_dim=64, grid_size=3,
+                 class_ids=(1, 2)):
+        super().__init__()
+        if relation_dim <= 0 or relation_dim % 4 or grid_size < 2:
+            raise ValueError("RW relation requires dimension divisible by 4 and grid_size >= 2")
+        if len(class_ids) != 2 or any(type(i) is not int for i in class_ids):
+            raise ValueError("RW relation class_ids must contain two integer IDs")
+        if class_ids[0] == class_ids[1] or any(i < 0 or i >= num_classes for i in class_ids):
+            raise ValueError("RW relation requires two distinct valid class IDs")
+        self.grid_size = grid_size
+        self.feature_proj = nn.Conv2d(hidden_dim, relation_dim, 1)
+        self.position_proj = nn.Linear(2, relation_dim)
+        self.token_norm = nn.LayerNorm(relation_dim)
+        self.relation = nn.MultiheadAttention(relation_dim, 4, dropout=0, batch_first=True)
+        self.relation_norm = nn.LayerNorm(relation_dim)
+        self.query_proj = nn.Sequential(nn.LayerNorm(hidden_dim), nn.Linear(hidden_dim, relation_dim))
+        self.evidence = nn.MultiheadAttention(relation_dim, 4, dropout=0, batch_first=True)
+        self.pair_head = nn.Sequential(
+            nn.LayerNorm(2 * relation_dim), nn.Linear(2 * relation_dim, relation_dim),
+            nn.GELU(), nn.Linear(relation_dim, 1),
+        )
+        init.zeros_(self.pair_head[-1].weight)
+        init.zeros_(self.pair_head[-1].bias)
+        direction = torch.zeros(num_classes)
+        direction[class_ids[0]], direction[class_ids[1]] = 1, -1
+        self.register_buffer("class_direction", direction, persistent=False)
+
+    def forward(self, feature, boxes, query):
+        batch, queries = boxes.shape[:2]
+        side = self.grid_size
+        # FP32 geometry and grid_sample remain safe with CUDA AMP.
+        positions = (torch.arange(side, device=boxes.device, dtype=torch.float32) + .5) / side - .5
+        yy, xx = torch.meshgrid(positions, positions, indexing="ij")
+        relative = torch.stack((xx, yy), dim=-1)
+        coords = boxes.detach().float()
+        grid = (coords[..., None, None, :2] + coords[..., None, None, 2:] * relative)
+        grid = grid.mul(2).sub(1).clamp(-1, 1)
+        projected = self.feature_proj(feature)
+        sampled = F.grid_sample(
+            projected.float(), grid.reshape(batch, queries * side, side, 2),
+            mode="bilinear", padding_mode="border", align_corners=False,
+        ).to(projected.dtype)
+        tokens = sampled.reshape(batch, projected.shape[1], queries, side * side)
+        tokens = tokens.permute(0, 2, 3, 1).reshape(batch * queries, side * side, -1)
+        tokens = tokens + self.position_proj(relative.reshape(side * side, 2)).to(tokens.dtype)
+        normalized = self.token_norm(tokens)
+        relations, _ = self.relation(normalized, normalized, normalized, need_weights=False)
+        tokens = self.relation_norm(tokens + relations)
+        q = self.query_proj(query).reshape(batch * queries, 1, -1)
+        evidence, _ = self.evidence(q, tokens, tokens, need_weights=False)
+        delta = self.pair_head(torch.cat((q, evidence), dim=-1)).reshape(batch, queries, 1)
+        return delta * self.class_direction.to(delta.dtype)
+
+
 class QueryValidityHead(nn.Module):
     """Predict a class-agnostic logit for a final detection query.
 
@@ -786,6 +848,10 @@ class DFINETransformer(nn.Module):
         decoder_local_grid_size=3,
         use_task_decoupled_heads=False,
         task_adapter_dim=64,
+        use_rw_spatial_relation=False,
+        rw_relation_dim=64,
+        rw_relation_grid_size=3,
+        rw_relation_class_ids=(1, 2),
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -815,6 +881,7 @@ class DFINETransformer(nn.Module):
         self.use_p2_query_init = use_p2_query_init
         self.use_decoder_local_query_cls = use_decoder_local_query_cls
         self.use_task_decoupled_heads = use_task_decoupled_heads
+        self.use_rw_spatial_relation = use_rw_spatial_relation
         if sum(
             (
                 use_local_evidence_cls,
@@ -824,6 +891,7 @@ class DFINETransformer(nn.Module):
                 use_p2_query_init,
                 use_decoder_local_query_cls,
                 use_task_decoupled_heads,
+                use_rw_spatial_relation,
             )
         ) > 1:
             raise ValueError("Query/classification experiments must be ablated separately")
@@ -874,6 +942,14 @@ class DFINETransformer(nn.Module):
                 num_classes,
                 decoder_local_dim,
                 decoder_local_grid_size,
+            )
+
+        if use_rw_spatial_relation:
+            if (eval_idx if eval_idx >= 0 else num_layers + eval_idx) != num_layers - 1 or layer_scale != 1:
+                raise ValueError("RW spatial relation requires the final decoder layer at base width")
+            self.rw_spatial_relation = RWSpatialRelationRefiner(
+                hidden_dim, num_classes, rw_relation_dim, rw_relation_grid_size,
+                tuple(rw_relation_class_ids),
             )
 
         assert query_select_method in ("default", "one2many", "agnostic"), ""
@@ -1322,6 +1398,17 @@ class DFINETransformer(nn.Module):
             )
             out_logits = torch.cat((out_logits[:-1], refined_logits.unsqueeze(0)), dim=0)
 
+        rw_teacher_logits = out_logits[-1] if self.use_rw_spatial_relation else None
+        if self.use_rw_spatial_relation:
+            p3_h, p3_w = spatial_shapes[0]
+            p3 = memory[:, : p3_h * p3_w].transpose(1, 2).reshape(
+                memory.shape[0], self.hidden_dim, p3_h, p3_w
+            )
+            refined_logits = out_logits[-1] + self.rw_spatial_relation(
+                p3, out_bboxes[-1], ordinary_final_query
+            )
+            out_logits = torch.cat((out_logits[:-1], refined_logits.unsqueeze(0)), dim=0)
+
         p2_teacher_logits = out_logits[-1] if self.use_p2_roi_cls else None
         if self.use_p2_roi_cls:
             if p2_feat is None or p2_feat.shape[1] != self.p2_roi_cls.features[0].in_channels:
@@ -1378,6 +1465,8 @@ class DFINETransformer(nn.Module):
                     if self.use_p2_roi_cls
                     else decoder_local_teacher_logits
                     if self.use_decoder_local_query_cls
+                    else rw_teacher_logits
+                    if self.use_rw_spatial_relation
                     else out_logits[-1]
                 ),
             )

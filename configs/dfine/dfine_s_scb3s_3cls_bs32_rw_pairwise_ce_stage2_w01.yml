@@ -1,0 +1,10 @@
+__include__:
+  - dfine_s_scb3s_3cls_bs32_rw_pairwise_ce.yml
+
+# Shared-prefix CONTROL. Resume the completed CE=0.1 experiment's best_stg1
+# at last_epoch=119. Keep the ORIGINAL 132-epoch schedule, not short20 settings.
+# tools/diagnostics/run_pairwise_ce_stage2.py checks the source and prepares
+# output/best_stg1.pth, needed for BOTH the stage transition and EMA refreshes.
+epochs: 132
+DFINECriterion:
+  pairwise_ce_weight: 0.1

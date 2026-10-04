@@ -1,0 +1,7 @@
+__include__:
+  - dfine_s_scb3s_3cls_bs32_rw_pairwise_ce_stage2_w01.yml
+
+# SAME CE=0.1 first-stage prefix as control; only last-stage CE weight differs.
+# This does NOT test CE=0.05 throughout a fresh 132-epoch training run.
+DFINECriterion:
+  pairwise_ce_weight: 0.05

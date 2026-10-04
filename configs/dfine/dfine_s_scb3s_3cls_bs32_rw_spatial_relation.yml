@@ -1,0 +1,37 @@
+__include__:
+  - dfine_s_scb3s_3cls_bs32.yml
+
+# Independent structural experiment. IDs: 0=hand-raising, 1=read, 2=write.
+# Keep the original 132-epoch/batch32/data/optimizer/augmentation baseline.
+DFINETransformer:
+  use_rw_spatial_relation: true
+  rw_relation_dim: 64
+  rw_relation_grid_size: 3
+  rw_relation_class_ids: [1, 2]
+  use_local_evidence_cls: false
+  use_query_validity: false
+  use_query_objectness: false
+  use_p2_roi_cls: false
+  use_p2_query_init: false
+  use_decoder_local_query_cls: false
+  use_task_decoupled_heads: false
+
+HGNetv2:
+  use_afta: false
+  use_backbone_p3_local_probe: false
+
+HybridEncoder:
+  use_rfa_p3: false
+  use_sfif: false
+  use_p2_detail_fusion: false
+  use_encoder_highres_residual: false
+  use_encoder_p3_joint_residual: false
+  use_p3_rfaconv_residual: false
+
+DFINECriterion:
+  use_pairwise_ce: false
+  use_class_margin: false
+  use_class_balanced_vfl: false
+  use_query_validity: false
+  use_query_objectness: false
+  use_shape_iou: false
