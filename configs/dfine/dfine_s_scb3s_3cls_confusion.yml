@@ -1,0 +1,7 @@
+__include__:
+  - dfine_s_scb3s_3cls.yml
+
+# Original SCB-S baseline checkpoint, evaluation only.
+# Usage: train.py -c <this config> -r <best_stg2.pth> --test-only --output-dir <dir>
+# Existing Validator matching: conf >= 0.5, IoU >= 0.5, rows=GT, columns=prediction.
+export_confusion_matrix: true
