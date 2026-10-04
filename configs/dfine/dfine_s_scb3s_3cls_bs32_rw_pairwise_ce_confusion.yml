@@ -1,0 +1,5 @@
+__include__:
+  - dfine_s_scb3s_3cls_bs32_rw_pairwise_ce.yml
+
+# Evaluation only when invoked with --test-only and the experiment checkpoint.
+export_confusion_matrix: true

@@ -1,0 +1,15 @@
+__include__:
+  - dfine_s_scb3s_3cls_bs32.yml
+
+# Single-variable SCB-S experiment. Keep the original bs32 baseline unchanged.
+# category_id: 0=hand-raising, 1=read, 2=write.
+# Only the final matched read/write queries receive the additional loss.
+DFINECriterion:
+  use_pairwise_ce: true
+  pairwise_ce_classes: [1, 2]
+  pairwise_ce_weight: 0.1
+  use_class_margin: false
+  use_class_balanced_vfl: false
+  use_query_validity: false
+  use_query_objectness: false
+  use_shape_iou: false

@@ -7,6 +7,7 @@ Copyright (c) 2023 lyuwenyu. All Rights Reserved.
 """
 
 import copy
+import math
 
 import torch
 import torch.distributed
@@ -128,6 +129,9 @@ class DFINECriterion(nn.Module):
         shape_iou_eps=1e-7,
         use_class_balanced_vfl=False,
         vfl_positive_class_weights=None,
+        use_pairwise_ce=False,
+        pairwise_ce_classes=(1, 2),
+        pairwise_ce_weight=0.1,
     ):
         """Create the criterion.
         Parameters:
@@ -147,6 +151,21 @@ class DFINECriterion(nn.Module):
         self.share_matched_indices = share_matched_indices
         self.alpha = alpha
         self.gamma = gamma
+        # Final matched queries only: conditional discrimination inside a pair.
+        # The detector's sigmoid scores, VFL and matching cost remain unchanged.
+        self.use_pairwise_ce = bool(use_pairwise_ce)
+        self.pairwise_ce_classes = tuple(pairwise_ce_classes)
+        self.pairwise_ce_weight = float(pairwise_ce_weight)
+        if self.use_pairwise_ce:
+            if (len(self.pairwise_ce_classes) != 2
+                or any(type(c) is not int for c in self.pairwise_ce_classes)
+                or len(set(self.pairwise_ce_classes)) != 2
+                or any(c < 0 or c >= num_classes for c in self.pairwise_ce_classes)):
+                raise ValueError("pairwise_ce_classes must contain two distinct valid integer class IDs")
+            if not math.isfinite(self.pairwise_ce_weight) or self.pairwise_ce_weight <= 0:
+                raise ValueError("pairwise_ce_weight must be finite and positive")
+            if use_class_margin or use_class_balanced_vfl or use_query_validity or use_query_objectness:
+                raise ValueError("Pairwise CE must be tested independently of other classification losses")
         # Optional positive-only VFL weighting. Category order follows model IDs.
         # No learnable parameters or buffers: existing checkpoints stay compatible.
         self.use_class_balanced_vfl = bool(use_class_balanced_vfl)
@@ -361,6 +380,29 @@ class DFINECriterion(nn.Module):
         # Normalize by the same global matched-box count as the legacy margin
         # experiment so restricting the confusion set is the only main change.
         return margin_loss.sum() / num_boxes
+
+    def loss_labels_pairwise_ce(self, outputs, targets, indices, num_boxes):
+        """Conditional two-class CE, not a replacement for detection confidence.
+
+        Uses final-layer Hungarian positives whose GT belongs to the pair.
+        Background, other classes, auxiliary and DN queries do not participate.
+        Global GT normalization follows VFL; no class frequency weighting or
+        ground-truth information is introduced at inference time.
+        """
+        logits = outputs["pred_logits"]
+        if not any(len(src) for src, _ in indices):
+            return logits.sum() * 0
+        matched = logits[self._get_src_permutation_idx(indices)].float()
+        labels = torch.cat([
+            target["labels"][gt] for target, (_, gt) in zip(targets, indices)
+        ]).to(matched.device)
+        first, second = self.pairwise_ce_classes
+        active = (labels == first) | (labels == second)
+        if not active.any():
+            return matched.sum() * 0
+        pair_logits = matched[active][:, [first, second]]
+        pair_targets = (labels[active] == second).long()
+        return F.cross_entropy(pair_logits, pair_targets, reduction="sum") / num_boxes
 
     def loss_boxes(self, outputs, targets, indices, num_boxes, boxes_weight=None):
         """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
@@ -592,6 +634,11 @@ class DFINECriterion(nn.Module):
             l_dict = self.get_loss(loss, outputs, targets, indices_in, num_boxes_in, **meta)
             l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
             losses.update(l_dict)
+
+        if self.use_pairwise_ce:
+            losses["loss_pairwise_ce"] = self.pairwise_ce_weight * self.loss_labels_pairwise_ce(
+                outputs_without_aux, targets, indices, num_boxes
+            )
 
         if self.use_class_margin:
             losses["loss_class_margin"] = self.class_margin_weight * self.loss_labels_class_margin(
