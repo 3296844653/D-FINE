@@ -351,6 +351,44 @@ class RWSpatialRelationRefiner(nn.Module):
         return delta * self.class_direction.to(delta.dtype)
 
 
+class RWIsolatedSpecialist(nn.Module):
+    """Read/write relation expert without gradients into the detector.
+
+    Training returns conditional pair logits for a separate matched-positive
+    loss. Inference reroutes the two original scores without raising them.
+    """
+
+    def __init__(self, hidden_dim, num_classes, relation_dim=64, grid_size=3,
+                 class_ids=(1, 2)):
+        super().__init__()
+        self.refiner = RWSpatialRelationRefiner(
+            hidden_dim, num_classes, relation_dim, grid_size, class_ids
+        )
+        self.class_ids = tuple(class_ids)
+
+    def forward(self, feature, boxes, query, base_logits):
+        first, second = self.class_ids
+        correction = self.refiner(feature.detach(), boxes.detach(), query.detach())
+        gap = (base_logits.detach()[..., first].float()
+               - base_logits.detach()[..., second].float())
+        gap = gap + correction[..., first].float() - correction[..., second].float()
+        return torch.stack((gap * .5, -gap * .5), dim=-1)
+
+    def refine_logits(self, base_logits, pair_logits):
+        """Swap only pair labels; preserve every query's original score set."""
+        first, second = self.class_ids
+        old_pair = base_logits[..., [first, second]]
+        old_gap = old_pair[..., 0].float() - old_pair[..., 1].float()
+        gap = pair_logits[..., 0].float() - pair_logits[..., 1].float()
+        # Ties abstain. No softmax confidence replaces the detector's scores.
+        swap = ((gap > 0) & (old_gap < 0)) | ((gap < 0) & (old_gap > 0))
+        pair = torch.where(swap[..., None], old_pair.flip(-1), old_pair)
+        logits = base_logits.clone()
+        logits[..., first] = pair[..., 0].to(logits.dtype)
+        logits[..., second] = pair[..., 1].to(logits.dtype)
+        return logits
+
+
 class QueryValidityHead(nn.Module):
     """Predict a class-agnostic logit for a final detection query.
 
@@ -852,6 +890,11 @@ class DFINETransformer(nn.Module):
         rw_relation_dim=64,
         rw_relation_grid_size=3,
         rw_relation_class_ids=(1, 2),
+        use_rw_isolated_specialist=False,
+        rw_specialist_dim=64,
+        rw_specialist_grid_size=3,
+        rw_specialist_class_ids=(1, 2),
+        rw_specialist_apply_at_eval=True,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -882,6 +925,8 @@ class DFINETransformer(nn.Module):
         self.use_decoder_local_query_cls = use_decoder_local_query_cls
         self.use_task_decoupled_heads = use_task_decoupled_heads
         self.use_rw_spatial_relation = use_rw_spatial_relation
+        self.use_rw_isolated_specialist = use_rw_isolated_specialist
+        self.rw_specialist_apply_at_eval = rw_specialist_apply_at_eval
         if sum(
             (
                 use_local_evidence_cls,
@@ -892,6 +937,7 @@ class DFINETransformer(nn.Module):
                 use_decoder_local_query_cls,
                 use_task_decoupled_heads,
                 use_rw_spatial_relation,
+                use_rw_isolated_specialist,
             )
         ) > 1:
             raise ValueError("Query/classification experiments must be ablated separately")
@@ -951,6 +997,17 @@ class DFINETransformer(nn.Module):
                 hidden_dim, num_classes, rw_relation_dim, rw_relation_grid_size,
                 tuple(rw_relation_class_ids),
             )
+
+        if use_rw_isolated_specialist:
+            if (eval_idx if eval_idx >= 0 else num_layers + eval_idx) != num_layers - 1 or layer_scale != 1:
+                raise ValueError("RW isolated specialist requires the final decoder layer at base width")
+            # The optional module must not consume the original detector's
+            # CPU initialization RNG stream. No random operations in forward.
+            with torch.random.fork_rng(devices=[]):
+                self.rw_isolated_specialist = RWIsolatedSpecialist(
+                    hidden_dim, num_classes, rw_specialist_dim,
+                    rw_specialist_grid_size, tuple(rw_specialist_class_ids),
+                )
 
         assert query_select_method in ("default", "one2many", "agnostic"), ""
         assert cross_attn_method in ("default", "discrete"), ""
@@ -1409,6 +1466,20 @@ class DFINETransformer(nn.Module):
             )
             out_logits = torch.cat((out_logits[:-1], refined_logits.unsqueeze(0)), dim=0)
 
+        if self.use_rw_isolated_specialist and (self.training or self.rw_specialist_apply_at_eval):
+            p3_h, p3_w = spatial_shapes[0]
+            p3 = memory[:, : p3_h * p3_w].transpose(1, 2).reshape(
+                memory.shape[0], self.hidden_dim, p3_h, p3_w
+            )
+            specialist_logits = self.rw_isolated_specialist(
+                p3, out_bboxes[-1], ordinary_final_query, out_logits[-1]
+            )
+            if not self.training:
+                refined_logits = self.rw_isolated_specialist.refine_logits(
+                    out_logits[-1], specialist_logits
+                )
+                out_logits = torch.cat((out_logits[:-1], refined_logits.unsqueeze(0)), dim=0)
+
         p2_teacher_logits = out_logits[-1] if self.use_p2_roi_cls else None
         if self.use_p2_roi_cls:
             if p2_feat is None or p2_feat.shape[1] != self.p2_roi_cls.features[0].in_channels:
@@ -1452,6 +1523,10 @@ class DFINETransformer(nn.Module):
             out["query_validity_logits"] = validity_logits
         if self.training and self.use_query_objectness:
             out["query_objectness_logits"] = objectness_logits
+        if self.training and self.use_rw_isolated_specialist:
+            # Original loss/matching/aux/DN all consume unmodified pred_logits.
+            out["rw_specialist_logits"] = specialist_logits
+            out["rw_specialist_class_ids"] = self.rw_isolated_specialist.class_ids
 
         if self.training and self.aux_loss:
             out["aux_outputs"] = self._set_aux_loss2(

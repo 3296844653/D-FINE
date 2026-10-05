@@ -132,6 +132,10 @@ class DFINECriterion(nn.Module):
         use_pairwise_ce=False,
         pairwise_ce_classes=(1, 2),
         pairwise_ce_weight=0.1,
+        use_rw_isolated_specialist=False,
+        rw_specialist_class_ids=(1, 2),
+        rw_specialist_weight=0.1,
+        rw_specialist_min_iou=0.5,
     ):
         """Create the criterion.
         Parameters:
@@ -151,6 +155,22 @@ class DFINECriterion(nn.Module):
         self.share_matched_indices = share_matched_indices
         self.alpha = alpha
         self.gamma = gamma
+        self.use_rw_isolated_specialist = bool(use_rw_isolated_specialist)
+        self.rw_specialist_class_ids = tuple(rw_specialist_class_ids)
+        self.rw_specialist_weight = float(rw_specialist_weight)
+        self.rw_specialist_min_iou = float(rw_specialist_min_iou)
+        if self.use_rw_isolated_specialist:
+            if (len(self.rw_specialist_class_ids) != 2
+                or any(type(c) is not int for c in self.rw_specialist_class_ids)
+                or len(set(self.rw_specialist_class_ids)) != 2
+                or any(c < 0 or c >= num_classes for c in self.rw_specialist_class_ids)):
+                raise ValueError("rw_specialist_class_ids must contain two distinct valid integer IDs")
+            if not math.isfinite(self.rw_specialist_weight) or self.rw_specialist_weight <= 0:
+                raise ValueError("rw_specialist_weight must be finite and positive")
+            if not math.isfinite(self.rw_specialist_min_iou) or not 0 <= self.rw_specialist_min_iou <= 1:
+                raise ValueError("rw_specialist_min_iou must be in [0, 1]")
+            if use_pairwise_ce or use_class_margin or use_class_balanced_vfl or use_query_validity or use_query_objectness:
+                raise ValueError("RW isolated specialist must be an independent classification experiment")
         # Final matched queries only: conditional discrimination inside a pair.
         # The detector's sigmoid scores, VFL and matching cost remain unchanged.
         self.use_pairwise_ce = bool(use_pairwise_ce)
@@ -404,6 +424,31 @@ class DFINECriterion(nn.Module):
         pair_targets = (labels[active] == second).long()
         return F.cross_entropy(pair_logits, pair_targets, reduction="sum") / num_boxes
 
+    def loss_rw_isolated_specialist(self, outputs, targets, indices, num_boxes):
+        """Only clean original Hungarian pair matches train the detached expert."""
+        if "rw_specialist_logits" not in outputs:
+            raise ValueError("RW specialist loss requires its enabled decoder branch")
+        if tuple(outputs.get("rw_specialist_class_ids", ())) != self.rw_specialist_class_ids:
+            raise ValueError("Decoder/criterion RW specialist class IDs do not match")
+        logits = outputs["rw_specialist_logits"]
+        if logits.shape != (*outputs["pred_logits"].shape[:2], 2):
+            raise ValueError("RW specialist logits must have shape [B,Q,2]")
+        if not any(len(src) for src, _ in indices):
+            return logits.sum() * 0
+        idx = self._get_src_permutation_idx(indices)
+        labels = torch.cat([t["labels"][j] for t, (_, j) in zip(targets, indices)])
+        first, second = self.rw_specialist_class_ids
+        with torch.no_grad():
+            boxes = outputs["pred_boxes"][idx].float()
+            gt_boxes = torch.cat([t["boxes"][j] for t, (_, j) in zip(targets, indices)]).float()
+            ious = torch.diag(box_iou(box_cxcywh_to_xyxy(boxes), box_cxcywh_to_xyxy(gt_boxes))[0])
+            active = ((labels == first) | (labels == second)) & (ious >= self.rw_specialist_min_iou)
+        if not active.any():
+            return logits.sum() * 0
+        return F.cross_entropy(
+            logits[idx][active].float(), (labels[active] == second).long(), reduction="sum"
+        ) / num_boxes
+
     def loss_boxes(self, outputs, targets, indices, num_boxes, boxes_weight=None):
         """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
         targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
@@ -637,6 +682,11 @@ class DFINECriterion(nn.Module):
 
         if self.use_pairwise_ce:
             losses["loss_pairwise_ce"] = self.pairwise_ce_weight * self.loss_labels_pairwise_ce(
+                outputs_without_aux, targets, indices, num_boxes
+            )
+
+        if self.use_rw_isolated_specialist:
+            losses["loss_rw_specialist"] = self.rw_specialist_weight * self.loss_rw_isolated_specialist(
                 outputs_without_aux, targets, indices, num_boxes
             )
 

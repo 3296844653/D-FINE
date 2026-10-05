@@ -23,6 +23,20 @@ from ..optim import ModelEMA, Warmup
 from .validator import Validator, scale_boxes
 
 
+def clip_detector_gradients(model, max_norm):
+    """Keep detached specialist gradients out of the detector's clip factor."""
+    module = dist_utils.de_parallel(model)
+    decoder = getattr(module, "decoder", None)
+    if not getattr(decoder, "use_rw_isolated_specialist", False):
+        return torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+    specialist = list(decoder.rw_isolated_specialist.parameters())
+    expert_ids = {id(p) for p in specialist}
+    detector = [p for p in model.parameters() if id(p) not in expert_ids]
+    detector_norm = torch.nn.utils.clip_grad_norm_(detector, max_norm)
+    torch.nn.utils.clip_grad_norm_(specialist, max_norm)
+    return detector_norm
+
+
 def _mean_valid_coco_values(values):
     """Return the COCO mean while ignoring unavailable entries (-1)."""
     values = np.asarray(values)
@@ -162,7 +176,7 @@ def train_one_epoch(
 
             if max_norm > 0:
                 scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+                clip_detector_gradients(model, max_norm)
 
             scaler.step(optimizer)
             scaler.update()
@@ -177,7 +191,7 @@ def train_one_epoch(
             loss.backward()
 
             if max_norm > 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+                clip_detector_gradients(model, max_norm)
 
             optimizer.step()
 

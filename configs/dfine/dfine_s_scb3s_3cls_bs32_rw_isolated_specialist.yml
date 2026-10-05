@@ -1,0 +1,15 @@
+__include__:
+  - dfine_s_scb3s_3cls_bs32.yml
+
+# Independent read/write specialist; original detector training is retained.
+DFINETransformer:
+  use_rw_isolated_specialist: true
+  rw_specialist_dim: 64
+  rw_specialist_grid_size: 3
+  rw_specialist_class_ids: [1, 2]
+
+DFINECriterion:
+  use_rw_isolated_specialist: true
+  rw_specialist_class_ids: [1, 2]
+  rw_specialist_weight: 0.1
+  rw_specialist_min_iou: 0.5
