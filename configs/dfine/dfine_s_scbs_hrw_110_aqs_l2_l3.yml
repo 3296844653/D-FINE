@@ -1,0 +1,13 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# Independent AQS at L2 and L3. L2 passes refined queries to D3;
+# L3 only refines final classification. No shared LN/MLP/threshold/residual.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_aqs_l2_l3_seed0_run1
+
+DFINETransformer:
+  use_aqs_refine: true
+  aqs_apply_layers: [2, 3]  # 1-based. Keep original final-layer eval_idx.
+  aqs_threshold: 0.50
+  aqs_temperature: 0.10
+  aqs_residual_init: 0.05

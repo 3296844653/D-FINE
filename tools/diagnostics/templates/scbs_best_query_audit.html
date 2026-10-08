@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SCB-S writing：预测框人工核查</title>
+<style>
+:root{color-scheme:light;--bg:#f6f8fb;--panel:#fff;--text:#182335;--muted:#59657a;--line:#dce2eb;--accent:#195bbd;--soft:#eaf1fb;--gt:#df2436;--best:#1174df;--low:#9247d5;--read:#ce6500;--write:#008658;--hand:#9f7800}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#111827;--panel:#192233;--text:#e6edf7;--muted:#b8c3d6;--line:#39475b;--accent:#91bbff;--soft:#26364c}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}main{max-width:1440px;margin:auto;padding:24px}h1{font-size:25px;margin:0 0 6px}h2{font-size:20px;margin:0 0 10px}h3{font-size:17px;margin:0 0 8px}p{margin:7px 0}.muted{color:var(--muted)}.small{font-size:13px}.toolbar,.legend,.controls,.review-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.toolbar{margin:18px 0}.toolbar label{display:flex;align-items:center;gap:8px}.controls{margin:13px 0}.controls label{display:inline-flex;align-items:center;gap:6px}button,select,textarea{font:inherit;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--text);padding:8px 11px}button{cursor:pointer}button:hover{background:var(--soft)}button:disabled{cursor:default;opacity:.45}button:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--accent);outline-offset:2px}.primary{background:var(--accent);color:var(--panel);border-color:var(--accent)}.primary:hover{filter:brightness(.92);background:var(--accent)}#position{font-variant-numeric:tabular-nums;min-width:75px;text-align:center}.case-head{padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:14px}.badge{display:inline-block;padding:3px 9px;background:var(--soft);border-radius:6px}.legend{font-size:14px;gap:18px}.key{display:inline-block;width:25px;border-top:3px solid;vertical-align:middle;margin-right:5px}.key.best,.key.low{border-top-style:dashed}.board{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}.model-panel{min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}.model-title{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}.canvas-holder{width:100%;margin-top:10px;overflow:hidden;border:1px solid var(--line)}canvas{display:block;width:100%;height:auto}.facts{display:grid;grid-template-columns:1fr 1fr;gap:7px 14px;margin:12px 0;font-size:14px}.fact{min-width:0}.fact strong{font-weight:600}.predictions{margin-top:14px}.table-scroll{overflow:auto}table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}th,td{padding:7px 5px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}th{font-weight:600}tr.selected{background:var(--soft)}.row-button{padding:3px 7px;font-size:13px;min-width:45px}.review{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;margin-top:18px}.review-controls label{display:flex;gap:8px;align-items:center;flex-wrap:wrap}textarea{width:100%;min-height:90px;resize:vertical;margin-top:12px}#save-status{margin-left:auto}.overview{margin:15px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px}summary{cursor:pointer}.overview canvas{margin-top:12px}.definition{margin-top:20px;font-size:14px}.definition li{margin:6px 0}#error{color:var(--gt);font-weight:600}.pred-empty{padding:8px 0;color:var(--muted)}.status{padding:3px 8px;border:1px solid var(--line);border-radius:6px;font-size:13px}.read{color:var(--read)}.write{color:var(--write)}.hand{color:var(--hand)}.candidate{padding-top:8px;margin-top:8px;border-top:1px solid var(--line);font-size:14px}.noscript{padding:20px;border:2px solid var(--gt)}
+@media(max-width:900px){.board{grid-template-columns:1fr}main{padding:14px}.facts{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){h1{font-size:21px}.facts{grid-template-columns:1fr}.toolbar select{max-width:100%}.model-panel{padding:12px}#save-status{margin-left:0}}
+</style>
+</head>
+<body>
+<main>
+<h1>SCB-S writing：预测框人工核查</h1>
+<p class="muted">同一个真实目标，左边是 run1 基线，右边是 Pairwise CE。先看行为与标注是否可信，再观察候选框和高分预测的区别。</p>
+<p id="sampling" class="small muted"></p>
+<div class="toolbar">
+  <label for="group">核查组 <select id="group"><option value="all">全部 30 个案例</option></select></label>
+  <button id="previous" type="button">← 上一个</button><span id="position" aria-live="polite"></span><button id="next" type="button">下一个 →</button>
+  <label for="case-picker">跳转 <select id="case-picker"></select></label>
+</div>
+<div id="error" role="alert" hidden></div>
+<section class="case-head" aria-labelledby="case-title">
+  <h2 id="case-title"></h2><p id="case-group"></p><p id="case-detail" class="small muted"></p>
+  <div class="legend" aria-label="框的颜色与线型">
+    <span><i class="key" style="color:var(--gt)"></i>GT：真实框</span>
+    <span><i class="key best" style="color:var(--best)"></i>B：best-IoU query</span>
+    <span><i class="key low" style="color:var(--low)"></i>L：另一个低分正确 query</span>
+    <span><i class="key" style="color:var(--read)"></i>阅读预测</span><span><i class="key" style="color:var(--write)"></i>书写预测</span><span><i class="key" style="color:var(--hand)"></i>举手预测</span>
+  </div>
+  <div class="controls">
+    <label><input id="show-gt" type="checkbox" checked>GT 框</label>
+    <label><input id="show-best" type="checkbox" checked>best-IoU 框</label>
+    <label><input id="show-low" type="checkbox" checked>低分正确候选框</label>
+    <label><input id="show-pred" type="checkbox" checked>最终高分预测框</label>
+  </div>
+  <p class="small muted">局部图取同一裁剪区域。最终高分预测的分数 ≥0.5；默认列表展示与当前 GT 的 IoU≥0.1 的预测对。点击 P 编号可突出对应框。</p>
+  <details class="overview" id="overview"><summary>查看完整原图与全部 GT（当前 GT 为红框）</summary><canvas id="overview-canvas" aria-label="完整场景和真实框"></canvas></details>
+</section>
+<section class="board" aria-label="基线与实验并排对比">
+  <article class="model-panel" id="model-0"><div class="model-title"><h2>run1 基线</h2><span class="status" id="type-0"></span></div><div id="facts-0" class="facts"></div><div class="canvas-holder"><canvas id="canvas-0" aria-label="基线局部框对照"></canvas></div><div id="low-0" class="candidate"></div><div class="predictions"><h3 id="pred-title-0"></h3><div class="table-scroll" id="pred-table-0"></div></div></article>
+  <article class="model-panel" id="model-1"><div class="model-title"><h2>Pairwise CE，权重 0.1</h2><span class="status" id="type-1"></span></div><div id="facts-1" class="facts"></div><div class="canvas-holder"><canvas id="canvas-1" aria-label="实验局部框对照"></canvas></div><div id="low-1" class="candidate"></div><div class="predictions"><h3 id="pred-title-1"></h3><div class="table-scroll" id="pred-table-1"></div></div></article>
+</section>
+<section class="review" aria-labelledby="review-title">
+  <h2 id="review-title">本例人工观察</h2>
+  <div class="review-controls">
+    <label for="gt-review">GT 类别 <select id="gt-review"><option value="unreviewed">未核查</option><option value="credible">标注可信</option><option value="suspect">疑似错标</option><option value="uncertain">无法确认</option></select></label>
+    <label for="detail-review">手部／桌面信息 <select id="detail-review"><option value="unreviewed">未核查</option><option value="clear">细节清楚</option><option value="occluded">存在遮挡</option><option value="blurred">细节模糊</option><option value="not_visible">手或桌面不可见</option><option value="uncertain">无法确认</option></select></label>
+    <span id="save-status" class="small muted" role="status"></span>
+  </div>
+  <label for="notes" class="small muted">备注：是否能看清书写动作？GT 是否合理？基线与实验的预测有什么变化？</label>
+  <textarea id="notes" placeholder="只记录你从图片中能确认的事实；看不清可写“无法确认”。"></textarea>
+  <div class="toolbar"><button id="export" class="primary" type="button">导出核查记录 JSON</button><span id="review-progress" class="small muted"></span></div>
+  <p class="small muted">备注仅保存在当前浏览器。浏览器存储可能不可用，请通过导出保留记录；网页不会修改数据集标注或模型结果。</p>
+</section>
+<details class="definition"><summary>统计口径、文件来源与注意事项</summary><ul>
+  <li>高 IoU 指 best-IoU query 与 GT 的 IoU≥0.75。另一高分正确 query 必须是不同 query，最高分类别为 GT，分数≥0.5，进入原 top-k，并与该 GT 的 IoU≥0.5。</li>
+  <li>类别错误优先归 C/D；A/B 要求 best query 的最高分类正确。E 为类别正确且高分，F 为 best IoU＜0.75。</li>
+  <li>D-FINE 的 top-k 按 query×类别预测对选择。同一个 query 可能同时输出 read 和 write；“query 最高类别”与“某个预测对的类别”不完全相同。</li>
+  <li>A/C 只代表存在替代正确候选；B/D 是候选证据，不是已经确认的评分或分类原因。这些抽样不能用于估算总体准确率，也不能直接定位网络层。</li>
+  <li>GT 标签沿用原标注，尚未经过这次人工核查。网页使用原图字节和导出的精确框／分数，没有重新推理或增强图片。</li>
+  <li>局部图中的 B/L/P 编号是显示标记，框坐标未改变。点击完整原图查看整个场景；局部显示筛选不影响实际预测结果。</li>
+  <li>方向键可切换案例；在备注或选择框中输入时不会切换。</li>
+</ul><pre id="sources" class="small" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>
+<noscript><p class="noscript">此核查页需要启用 JavaScript 才能显示内嵌图片与对照框。</p></noscript>
+</main>
+<script id="audit-data" type="application/json">__AUDIT_DATA__</script>
+<script>
+(() => {
+  'use strict';
+  const data=JSON.parse(document.getElementById('audit-data').textContent), $=id=>document.getElementById(id);
+  const names={'hand-raising':'举手 (hand-raising)','read':'阅读 (read)','write':'书写 (write)'};
+  const format=n=>Number(n).toFixed(3), css=name=>getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const storageKey=`scbs-writing-review-${data.source.baseline_sha256.slice(0,12)}-${data.source.experiment_sha256.slice(0,12)}-${data.source.seed}`;
+  let reviews={}, current=0, filtered=data.cases.map((_,i)=>i), images=new Map(), highlighted=[null,null], loadedImage=null, renderToken=0;
+  try { reviews=JSON.parse(localStorage.getItem(storageKey)||'{}'); } catch (_) { reviews={}; }
+  if (!reviews || typeof reviews!=='object' || Array.isArray(reviews)) reviews={};
+  function reviewed(){return data.cases.filter(c=>{const r=reviews[c.id];return r&&(r.gt!=='unreviewed'||r.detail!=='unreviewed'||(r.notes||'').trim());}).length;}
+  function updateProgress(){ $('review-progress').textContent=`已记录 ${reviewed()} / ${data.cases.length} 个案例`; }
+  function saveReview(){const c=data.cases[current];reviews[c.id]={gt:$('gt-review').value,detail:$('detail-review').value,notes:$('notes').value,updated_at:new Date().toISOString()};try{localStorage.setItem(storageKey,JSON.stringify(reviews));$('save-status').textContent='已保存到本浏览器';}catch(_){$('save-status').textContent='浏览器存储不可用，请导出记录';}updateProgress();}
+  function imageFor(key){if(images.has(key))return images.get(key);const promise=new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(new Error('内嵌原图无法加载'));image.src=data.images[key].src;});images.set(key,promise);return promise;}
+  function prepare(canvas,image,region){const width=Math.max(1,Math.floor(canvas.parentElement.clientWidth)),ratio=(region[3]-region[1])/(region[2]-region[0]),height=Math.round(width*ratio),dpr=Math.min(window.devicePixelRatio||1,2);canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);canvas.style.height=`${height}px`;const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.drawImage(image,region[0],region[1],region[2]-region[0],region[3]-region[1],0,0,width,height);return{ctx,width,height,sx:width/(region[2]-region[0]),sy:height/(region[3]-region[1]),region};}
+  function box(view,coordinates,color,label,dash=[],weight=2){const{ctx,sx,sy,region,width,height}=view;const x=(coordinates[0]-region[0])*sx,y=(coordinates[1]-region[1])*sy,w=(coordinates[2]-coordinates[0])*sx,h=(coordinates[3]-coordinates[1])*sy;if(x+w<0||y+h<0||x>width||y>height)return;ctx.save();ctx.strokeStyle=color;ctx.lineWidth=weight;ctx.setLineDash(dash);ctx.strokeRect(x,y,w,h);if(label){ctx.setLineDash([]);ctx.font='600 12px system-ui';const tw=ctx.measureText(label).width+10,tx=Math.max(0,Math.min(x,width-tw)),ty=Math.max(0,Math.min(y-18,height-20));ctx.fillStyle=color;ctx.fillRect(tx,ty,tw,19);ctx.fillStyle='#fff';ctx.fillText(label,tx+5,ty+14);}ctx.restore();}
+  function predictionColor(p){return css(p.class_id===0?'--hand':p.class_id===1?'--read':'--write');}
+  function drawModel(which){if(!loadedImage)return;const c=data.cases[current],model=c.models[which],view=prepare($(`canvas-${which}`),loadedImage,c.crop);const nearby=model.predictions.filter(p=>p.iou>=.1);if($('show-pred').checked){const grouped=new Map();for(const p of nearby){if(!grouped.has(p.query_id))grouped.set(p.query_id,[]);grouped.get(p.query_id).push(p);}for(const parts of grouped.values())box(view,parts[0].box,predictionColor(parts[0]),parts.map(p=>p.id).join('/'),[],2);}if($('show-low').checked&&model.low_correct)box(view,model.low_correct.box,css('--low'),'L',[4,4],2.3);if($('show-best').checked)box(view,model.best.box,css('--best'),'B',[9,5],2.8);if($('show-gt').checked)box(view,c.gt_box,css('--gt'),'GT',[],3.2);if(highlighted[which]){const chosen=nearby.find(p=>p.id===highlighted[which]);if(chosen)box(view,chosen.box,predictionColor(chosen),`${chosen.id}: ${chosen.class_name}`,[],4.5);}}
+  function drawOverview(){if(!loadedImage||!$('overview').open)return;const c=data.cases[current],info=data.images[c.image_id],view=prepare($('overview-canvas'),loadedImage,[0,0,info.width,info.height]);for(const gt of info.all_gt)if(gt.annotation_id!==c.annotation_id)box(view,gt.box,'rgba(160,160,160,.75)','',[],1);box(view,c.gt_box,css('--gt'),`GT ${c.annotation_id}: write`,[],3);}
+  function fact(container,label,value){const item=document.createElement('div');item.className='fact';const title=document.createElement('strong');title.textContent=`${label}：`;item.append(title,document.createTextNode(value));container.append(item);}
+  function showModel(which){const c=data.cases[current],m=c.models[which],facts=$(`facts-${which}`);facts.replaceChildren();$(`type-${which}`).textContent=`交叉分类 ${m.type}`;fact(facts,'真实类别',names[c.gt_class]);fact(facts,'best query',`q${m.best.query_id}`);fact(facts,'best 预测类别',names[m.best.class_name]);fact(facts,'best IoU',format(m.best.iou));fact(facts,'best 最高分',format(m.best.top_score));fact(facts,'best 的 writing 分数',format(m.best.gt_class_score));fact(facts,'另一高分正确 query',m.another_high_correct_query_exists?'有':'无');fact(facts,'高分 write 预测对',m.high_GT_class_pair_exists?'有（不一定为 query 最高类）':'无');const low=$(`low-${which}`);low.textContent=m.low_correct?`L：另一个低分正确候选 q${m.low_correct.query_id}，${names[m.low_correct.class_name]}，score=${format(m.low_correct.gt_class_score)}，IoU=${format(m.low_correct.iou)}。它不是最终高分预测。`:'L：不存在另一个 IoU≥0.5、最高分类为 writing 且低分的 query。';const nearby=m.predictions.filter(p=>p.iou>=.1);$(`pred-title-${which}`).textContent=`当前 GT 附近的高分预测（${nearby.length} 个预测对）`;
+    const holder=$(`pred-table-${which}`);holder.replaceChildren();if(!nearby.length){const p=document.createElement('p');p.className='pred-empty';p.textContent='没有分数≥0.5 且与当前 GT 的 IoU≥0.1 的预测对。';holder.append(p);return;}const table=document.createElement('table'),head=document.createElement('thead'),hr=document.createElement('tr');for(const title of ['标记','预测类别','分数','IoU','query','query 最高类']){const th=document.createElement('th');th.textContent=title;th.scope='col';hr.append(th);}head.append(hr);table.append(head);const body=document.createElement('tbody');for(const p of nearby){const row=document.createElement('tr');row.dataset.prediction=p.id;const td=document.createElement('td'),button=document.createElement('button');button.type='button';button.className='row-button';button.textContent=p.id;button.setAttribute('aria-label',`突出 ${p.id}，${names[p.class_name]}，分数 ${format(p.score)}`);button.addEventListener('click',()=>{highlighted[which]=highlighted[which]===p.id?null:p.id;for(const other of body.children)other.classList.toggle('selected',other.dataset.prediction===highlighted[which]);drawModel(which);});td.append(button);row.append(td);for(const value of [names[p.class_name],format(p.score),format(p.iou),`q${p.query_id}`,p.query_top_class]){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}body.append(row);}table.append(body);holder.append(table);
+  }
+  function populatePicker(){const picker=$('case-picker');picker.replaceChildren();for(const index of filtered){const c=data.cases[index],option=document.createElement('option');option.value=String(index);option.textContent=`${c.number}. ${c.image_name} · GT ${c.annotation_id}`;picker.append(option);}}
+  async function render(){const token=++renderToken,c=data.cases[current],position=filtered.indexOf(current);$('position').textContent=`${position+1} / ${filtered.length}`;$('previous').disabled=position<=0;$('next').disabled=position>=filtered.length-1;$('case-picker').value=String(current);$('case-title').textContent=`案例 ${c.number} · ${c.image_name} · GT ${c.annotation_id}`;$('case-group').textContent=`基线抽样组：${c.group_title}`;$('case-detail').textContent=`真实类别：${names[c.gt_class]}；图像 ID：${c.image_id}；GT 索引：${c.gt_index}；标注面积：${Math.round(c.area)} px²。两侧红框为同一个 GT。`;highlighted=[null,null];loadedImage=null;for(const id of ['canvas-0','canvas-1','overview-canvas']){const canvas=$(id);canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);}$('error').hidden=true;showModel(0);showModel(1);const review=reviews[c.id]||{};$('gt-review').value=review.gt||'unreviewed';$('detail-review').value=review.detail||'unreviewed';$('notes').value=review.notes||'';$('save-status').textContent=review.updated_at?'已恢复本浏览器记录':'';updateProgress();try{const image=await imageFor(c.image_id);if(token!==renderToken)return;loadedImage=image;drawModel(0);drawModel(1);drawOverview();}catch(error){$('error').textContent=error.message;$('error').hidden=false;}}
+  function navigate(delta){const position=filtered.indexOf(current),next=position+delta;if(next>=0&&next<filtered.length){current=filtered[next];render();}}
+  for(const group of data.groups){const option=document.createElement('option');option.value=group.id;option.textContent=`${group.title} · 抽样 ${group.sample_count}/${group.population}`;$('group').append(option);}
+  $('sampling').textContent=`固定随机种子 ${data.source.seed}；以基线分组抽取 ${data.cases.length} 个 writing GT，每组 ${data.groups[0].sample_count} 个，优先使用不同图片。图片内嵌，可离线打开。`;
+  $('group').options[0].textContent=`全部 ${data.cases.length} 个案例`;
+  $('group').addEventListener('change',()=>{filtered=data.cases.map((_,i)=>i).filter(i=>$('group').value==='all'||data.cases[i].group===$('group').value);current=filtered[0];populatePicker();render();});$('case-picker').addEventListener('change',()=>{current=Number($('case-picker').value);render();});$('previous').addEventListener('click',()=>navigate(-1));$('next').addEventListener('click',()=>navigate(1));
+  for(const id of ['show-gt','show-best','show-low','show-pred'])$(id).addEventListener('change',()=>{drawModel(0);drawModel(1);});$('overview').addEventListener('toggle',drawOverview);
+  for(const id of ['gt-review','detail-review'])$(id).addEventListener('change',saveReview);$('notes').addEventListener('input',saveReview);
+  $('export').addEventListener('click',()=>{const output={exported_at:new Date().toISOString(),source:data.source,review_count:reviewed(),cases:data.cases.map(c=>({annotation_id:c.annotation_id,image_id:c.image_id,image_name:c.image_name,gt_class:c.gt_class,baseline_group:c.group,baseline_type:c.models[0].type,experiment_type:c.models[1].type,review:reviews[c.id]||null}))};const blob=new Blob([JSON.stringify(output,null,2)],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`scbs_writing_review_${new Date().toISOString().slice(0,10)}.json`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);$('save-status').textContent='已请求导出，请确认浏览器下载位置';});
+  document.addEventListener('keydown',event=>{if(['INPUT','SELECT','TEXTAREA'].includes(event.target.tagName))return;if(event.key==='ArrowRight'){event.preventDefault();navigate(1);}if(event.key==='ArrowLeft'){event.preventDefault();navigate(-1);}});
+  const observer=new ResizeObserver(()=>{drawModel(0);drawModel(1);drawOverview();});observer.observe($('model-0'));observer.observe($('model-1'));window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{drawModel(0);drawModel(1);drawOverview();});
+  $('sources').textContent=`基线权重：${data.source.baseline_checkpoint}\n实验权重：${data.source.experiment_checkpoint}\n基线 SHA256：${data.source.baseline_sha256}\n实验 SHA256：${data.source.experiment_sha256}`;
+  populatePicker();render();
+})();
+</script>
+</body>
+</html>

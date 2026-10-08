@@ -1,0 +1,11 @@
+__include__:
+  - dfine_s_scbs_hrw.yml
+
+# Single-variable structure experiment: semantic-guided P3/P4 detail fusion.
+# Inherit the current baseline data, losses, batch size, and 110-epoch schedule.
+HybridEncoder:
+  use_mffe: true
+  mffe_mid_channels: 64
+  mffe_alpha_init: 0.1
+  # Recompute MFFE activations in backward; keep batch=32 and multiscale training.
+  mffe_checkpoint: true

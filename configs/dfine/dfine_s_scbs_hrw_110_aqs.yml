@@ -1,0 +1,12 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# Independent AQS retest: 110 epochs / stop augmentation at 100 / batch 32.
+# Same existing AQS implementation and parameters; original D-FINE losses only.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_aqs_seed0_run1
+
+DFINETransformer:
+  use_aqs_refine: true
+  aqs_threshold: 0.50
+  aqs_temperature: 0.10
+  aqs_residual_init: 0.05

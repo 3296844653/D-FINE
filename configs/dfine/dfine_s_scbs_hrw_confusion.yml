@@ -1,0 +1,12 @@
+__include__:
+  - dfine_s_scbs_hrw_132.yml
+
+# Run with --test-only and -r pointing to run1/best_stg2.pth.
+# Keep the historical run1 132-epoch configuration, not the current 110-epoch baseline.
+# Export the existing Validator matrix and all final queries.
+# Keep the baseline training configuration and model architecture unchanged.
+export_confusion_matrix: true
+export_query_diagnostics: true
+query_diagnostic_conf_thresh: 0.5
+query_diagnostic_iou_thresh: 0.5
+query_diagnostic_neighbor_iou_thresh: 0.8

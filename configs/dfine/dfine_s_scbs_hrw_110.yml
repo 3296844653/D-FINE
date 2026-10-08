@@ -1,0 +1,28 @@
+__include__:
+  - dfine_hgnetv2_s_coco.yml
+
+# Independent SCB-S / D-FINE-S baseline: 110 epochs, stop augmentation at 100.
+# Original annotations: 0=hand-raising, 1=read, 2=write; no experiment modules.
+num_classes: 3
+remap_mscoco_category: False
+epochs: 110
+output_dir: ./output/dfine_s_scbs_hrw_110
+
+train_dataloader:
+  total_batch_size: 32
+  num_workers: 4
+  dataset:
+    img_folder: /media/a5/5号机移动盘2/wq_datasets/SCB-S/images/train
+    ann_file: /media/a5/5号机移动盘2/wq_datasets/SCB-S/annotations/instances_train.json
+    transforms:
+      policy:
+        epoch: 100
+  collate_fn:
+    stop_epoch: 100
+
+val_dataloader:
+  total_batch_size: 32
+  num_workers: 4
+  dataset:
+    img_folder: /media/a5/5号机移动盘2/wq_datasets/SCB-S/images/val
+    ann_file: /media/a5/5号机移动盘2/wq_datasets/SCB-S/annotations/instances_val.json

@@ -24,16 +24,21 @@ from .validator import Validator, scale_boxes
 
 
 def clip_detector_gradients(model, max_norm):
-    """Keep detached specialist gradients out of the detector's clip factor."""
+    """Clip detached experimental heads separately from the original detector."""
     module = dist_utils.de_parallel(model)
     decoder = getattr(module, "decoder", None)
-    if not getattr(decoder, "use_rw_isolated_specialist", False):
+    isolated_groups = []
+    for flag, name in (("use_rw_isolated_specialist", "rw_isolated_specialist"),
+                       ("use_rw_query_calibration", "rw_query_calibration")):
+        if getattr(decoder, flag, False):
+            isolated_groups.append(list(getattr(decoder, name).parameters()))
+    if not isolated_groups:
         return torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-    specialist = list(decoder.rw_isolated_specialist.parameters())
-    expert_ids = {id(p) for p in specialist}
+    expert_ids = {id(p) for group in isolated_groups for p in group}
     detector = [p for p in model.parameters() if id(p) not in expert_ids]
     detector_norm = torch.nn.utils.clip_grad_norm_(detector, max_norm)
-    torch.nn.utils.clip_grad_norm_(specialist, max_norm)
+    for group in isolated_groups:
+        torch.nn.utils.clip_grad_norm_(group, max_norm)
     return detector_norm
 
 

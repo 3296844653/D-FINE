@@ -1,0 +1,10 @@
+__include__:
+  - dfine_s_scbs_hrw.yml
+
+# SCB-S full-training experiment; keep run1's data and training settings.
+# category_id: 0=hand-raising, 1=read, 2=write.
+# Change only the Pairwise CE weight from the previous experiment's 0.1 to 0.05.
+DFINECriterion:
+  use_pairwise_ce: true
+  pairwise_ce_classes: [1, 2]
+  pairwise_ce_weight: 0.05

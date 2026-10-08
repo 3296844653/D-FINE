@@ -1,0 +1,14 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# L2-3: single-layer AQS at decoder layer 2, not L2+L3.
+# Only change vs the original L2 run: raw residual init 0.05 -> 0.25.
+# Threshold init 0.50, fixed temperature 0.10, and original losses are unchanged.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_aqs_layer2_r025_seed0_run1
+
+DFINETransformer:
+  use_aqs_refine: true
+  aqs_apply_layer: 2
+  aqs_threshold: 0.50
+  aqs_temperature: 0.10
+  aqs_residual_init: 0.25

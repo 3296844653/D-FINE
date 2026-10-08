@@ -1,0 +1,8 @@
+__include__:
+  - dfine_s_scbs_hrw.yml
+
+# Independent transfer of the SCB-U encoder high-resolution residual probe.
+# Reintroduce projected P3 AFTER FPN/PAN; keep all baseline training settings.
+HybridEncoder:
+  use_encoder_highres_residual: true
+  encoder_highres_alpha_init: 0.3

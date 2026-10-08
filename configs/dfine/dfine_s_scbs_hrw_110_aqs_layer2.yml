@@ -1,0 +1,13 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# AQS after decoder layer 2, then refined queries enter the normal layer 3.
+# Keep eval_idx at its original final layer; do NOT truncate inference to layer 2.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_aqs_layer2_seed0_run1
+
+DFINETransformer:
+  use_aqs_refine: true
+  aqs_apply_layer: 2  # 1-based layer number; default -1 retains final-layer AQS.
+  aqs_threshold: 0.50
+  aqs_temperature: 0.10
+  aqs_residual_init: 0.05

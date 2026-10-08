@@ -1,0 +1,11 @@
+__include__:
+  - dfine_s_scbs_hrw.yml
+
+# P3-only ablation: same MFFE mechanism and FPN->PAN insertion as P3/P4.
+# Keep the current baseline dataset, losses, batch=32 and 110-epoch schedule.
+HybridEncoder:
+  use_mffe: true
+  mffe_mid_channels: 64
+  mffe_alpha_init: 0.1
+  mffe_checkpoint: true
+  mffe_p3_only: true

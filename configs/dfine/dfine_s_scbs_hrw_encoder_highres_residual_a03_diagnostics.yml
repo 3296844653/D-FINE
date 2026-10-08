@@ -1,0 +1,9 @@
+__include__:
+  - dfine_s_scbs_hrw_encoder_highres_residual_a03.yml
+
+# Evaluate this experiment's own checkpoint, not baseline/AQS/MFFE weights.
+export_confusion_matrix: true
+export_query_diagnostics: true
+query_diagnostic_conf_thresh: 0.5
+query_diagnostic_iou_thresh: 0.5
+query_diagnostic_neighbor_iou_thresh: 0.8

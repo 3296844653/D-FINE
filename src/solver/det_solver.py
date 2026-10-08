@@ -14,6 +14,7 @@ import torch
 
 from ..misc import dist_utils, stats
 from ._solver import BaseSolver
+from .aqs_parameters import print_aqs_report, runtime_aqs_report, save_aqs_report
 from .det_engine import evaluate, train_one_epoch
 
 
@@ -63,6 +64,7 @@ class DetSolver(BaseSolver):
         best_stat_print = best_stat.copy()
         start_time = time.time()
         start_epoch = self.last_epoch + 1
+        last_aqs_report = None
         for epoch in range(start_epoch, args.epochs):
             self.train_dataloader.set_epoch(epoch)
             # self.train_dataloader.dataset.set_epoch(epoch)
@@ -119,6 +121,21 @@ class DetSolver(BaseSolver):
                 output_dir=self.output_dir,
             )
 
+            # Snapshot the actually evaluated weights BEFORE stage-2 code can
+            # reload best_stg1. No AQS => no new logs/files or baseline changes.
+            aqs_report = None
+            if dist_utils.is_main_process():
+                aqs_report = runtime_aqs_report(self.model, self.ema, epoch=epoch)
+                if aqs_report is not None:
+                    last_aqs_report = aqs_report
+                    if self.output_dir:
+                        save_aqs_report(aqs_report, self.output_dir / "aqs_parameters_last_evaluated.json")
+                    if self.writer:
+                        for source, modules in aqs_report["sources"].items():
+                            for name, values in modules.items():
+                                for key in ("threshold", "residual_scale", "effective_residual_scale"):
+                                    self.writer.add_scalar(f"AQS/{source}/{name}/{key}", values[key], epoch)
+
             # TODO
             for k in test_stats:
                 if isinstance(test_stats[k], dict):
@@ -150,10 +167,14 @@ class DetSolver(BaseSolver):
                             dist_utils.save_on_master(
                                 self.state_dict(), self.output_dir / "best_stg2.pth"
                             )
+                            save_aqs_report(aqs_report, self.output_dir / "aqs_parameters_best_stg2.json",
+                                            snapshot="best_stg2", checkpoint=self.output_dir / "best_stg2.pth")
                         else:
                             dist_utils.save_on_master(
                                 self.state_dict(), self.output_dir / "best_stg1.pth"
                             )
+                            save_aqs_report(aqs_report, self.output_dir / "aqs_parameters_best_stg1.json",
+                                            snapshot="best_stg1", checkpoint=self.output_dir / "best_stg1.pth")
 
                 best_stat_print[k] = max(best_stat[k], top1)
                 print(f"best_stat: {best_stat_print}")  # global best
@@ -165,11 +186,15 @@ class DetSolver(BaseSolver):
                             dist_utils.save_on_master(
                                 self.state_dict(), self.output_dir / "best_stg2.pth"
                             )
+                            save_aqs_report(aqs_report, self.output_dir / "aqs_parameters_best_stg2.json",
+                                            snapshot="best_stg2", checkpoint=self.output_dir / "best_stg2.pth")
                     else:
                         top1 = max(test_stats[k][0], top1)
                         dist_utils.save_on_master(
                             self.state_dict(), self.output_dir / "best_stg1.pth"
                         )
+                        save_aqs_report(aqs_report, self.output_dir / "aqs_parameters_best_stg1.json",
+                                        snapshot="best_stg1", checkpoint=self.output_dir / "best_stg1.pth")
 
                 elif epoch >= self.train_dataloader.collate_fn.stop_epoch:
                     best_stat = {
@@ -186,6 +211,8 @@ class DetSolver(BaseSolver):
                 "epoch": epoch,
                 "n_parameters": n_parameters,
             }
+            if aqs_report is not None:
+                log_stats["aqs_parameters"] = aqs_report["sources"]
 
             if self.use_wandb:
                 wandb_logs = {}
@@ -213,6 +240,21 @@ class DetSolver(BaseSolver):
                                 coco_evaluator.coco_eval["bbox"].eval,
                                 self.output_dir / "eval" / name,
                             )
+
+        if last_aqs_report is not None:
+            final_aqs_report = dict(last_aqs_report, snapshot="final_evaluated_epoch")
+            print_aqs_report(final_aqs_report)
+            if self.output_dir:
+                path = self.output_dir / "aqs_parameters_final.json"
+                save_aqs_report(final_aqs_report, path)
+                print(f"AQS final evaluated parameters saved: {path}", flush=True)
+                # These sidecars were captured at the exact checkpoint-save
+                # point, not from the possibly reloaded end-of-loop model.
+                for stage in ("best_stg1", "best_stg2"):
+                    path = self.output_dir / f"aqs_parameters_{stage}.json"
+                    if path.is_file():
+                        with path.open(encoding="utf-8") as handle:
+                            print_aqs_report(json.load(handle))
 
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))

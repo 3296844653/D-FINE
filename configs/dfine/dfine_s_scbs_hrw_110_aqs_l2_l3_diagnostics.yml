@@ -1,0 +1,9 @@
+__include__:
+  - dfine_s_scbs_hrw_110_aqs_l2_l3.yml
+
+# Use THIS dual-AQS run's own checkpoint/config; not L2-only or L3-only weights.
+export_confusion_matrix: true
+export_query_diagnostics: true
+query_diagnostic_conf_thresh: 0.5
+query_diagnostic_iou_thresh: 0.5
+query_diagnostic_neighbor_iou_thresh: 0.8

@@ -1,0 +1,30 @@
+__include__:
+  - dfine_hgnetv2_s_coco.yml
+
+# SCB-S original annotations, format-only COCO conversion (NOT thesis_clean_v1).
+# category_id: 0=hand-raising, 1=read, 2=write.
+# Standard D-FINE-S / HGNetV2-B0, no experimental modules enabled.
+# Current 72-epoch baseline: 60 epochs with augmentation + 12 stage-2 epochs.
+# Historical 132-epoch run1-run5 configuration: dfine_s_scbs_hrw_132.yml.
+num_classes: 3
+remap_mscoco_category: False
+epochs: 72
+
+train_dataloader:
+  total_batch_size: 32
+  num_workers: 4
+  dataset:
+    img_folder: /media/a5/5号机移动盘2/wq_datasets/SCB-S/images/train
+    ann_file: /media/a5/5号机移动盘2/wq_datasets/SCB-S/annotations/instances_train.json
+    transforms:
+      policy:
+        epoch: 60
+  collate_fn:
+    stop_epoch: 60
+
+val_dataloader:
+  total_batch_size: 32
+  num_workers: 4
+  dataset:
+    img_folder: /media/a5/5号机移动盘2/wq_datasets/SCB-S/images/val
+    ann_file: /media/a5/5号机移动盘2/wq_datasets/SCB-S/annotations/instances_val.json

@@ -14,6 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ...core import register
+from .medium_finegrained import MediumScaleFineGrainedEnhancement
 from .utils import get_activation
 
 __all__ = ["HybridEncoder"]
@@ -524,6 +525,11 @@ class HybridEncoder(nn.Module):
         use_p3_rfaconv_residual=False,
         p3_rfaconv_mid_channels=32,
         p3_rfaconv_alpha=0.1,
+        use_mffe=False,
+        mffe_mid_channels=64,
+        mffe_alpha_init=0.1,
+        mffe_checkpoint=True,
+        mffe_p3_only=False,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -545,6 +551,10 @@ class HybridEncoder(nn.Module):
             raise ValueError("hidden_dim must be divisible by sfif_num_heads")
         self.use_rfa_p3 = use_rfa_p3
         self.use_p3_rfaconv_residual = bool(use_p3_rfaconv_residual)
+        self.use_mffe = bool(use_mffe)
+        if not isinstance(mffe_p3_only, bool):
+            raise ValueError("mffe_p3_only must be a boolean")
+        self.mffe_p3_only = mffe_p3_only
         if sum(
             (
                 self.use_p2_detail_fusion,
@@ -553,12 +563,15 @@ class HybridEncoder(nn.Module):
                 self.use_rfa_p3,
                 self.use_sfif,
                 self.use_p3_rfaconv_residual,
+                self.use_mffe,
             )
         ) > 1:
             raise ValueError(
-                "P2 detail fusion, encoder high-resolution/joint residual, RFA-P3, P3-RFAConv, and SFIF "
+                "P2 detail fusion, encoder high-resolution/joint residual, RFA-P3, P3-RFAConv, SFIF, and MFFE "
                 "must be ablated separately"
             )
+        if self.use_mffe and (len(in_channels) != 3 or list(feat_strides) != [8, 16, 32]):
+            raise ValueError("MFFE requires the standard P3/P4/P5 encoder at strides 8/16/32")
         if self.use_p2_detail_fusion:
             if len(in_channels) != 3 or feat_strides[0] != 8 or p2_in_channels <= 0:
                 raise ValueError("P2 detail fusion requires the standard P3-P5 encoder")
@@ -693,6 +706,21 @@ class HybridEncoder(nn.Module):
 
         self._reset_parameters()
 
+        if self.use_mffe:
+            # Build AFTER the original modules and restore CPU RNG state so
+            # enabling MFFE does not alter initialization of the baseline
+            # encoder or decoder merely by consuming extra random numbers.
+            with torch.random.fork_rng(devices=[]):
+                self.mffe = nn.ModuleList(
+                    MediumScaleFineGrainedEnhancement(
+                        hidden_dim, mffe_mid_channels, mffe_alpha_init,
+                        use_checkpoint=mffe_checkpoint,
+                    )
+                    # The default keeps the old P3/P4 parameter names and
+                    # initialization. P3-only constructs NO unused P4 branch.
+                    for _ in range(1 if self.mffe_p3_only else 2)
+                )
+
     def _reset_parameters(self):
         if self.eval_spatial_size:
             for idx in self.use_encoder_idx:
@@ -737,6 +765,7 @@ class HybridEncoder(nn.Module):
             p2_feat = None
 
         proj_feats = [self.input_proj[i](feat) for i, feat in enumerate(feats)]
+        mffe_sources = proj_feats[:len(self.mffe)] if self.use_mffe else None
         if self.use_p3_rfaconv_residual:
             # Stride-8 backbone P3, after channel alignment but BEFORE AIFI/FPN/PAN.
             # Keep P4/P5 inputs and all three output dimensions unchanged.
@@ -789,6 +818,15 @@ class HybridEncoder(nn.Module):
                 torch.concat([upsample_feat, feat_low], dim=1)
             )
             inner_outs.insert(0, inner_out)
+
+        if self.use_mffe:
+            # Semantic-guided detail restoration on FPN P3 (and optionally P4),
+            # BEFORE PAN. P3-only skips direct P4 enhancement, but does not
+            # isolate P4/P5 from P3 changes propagated through the usual PAN.
+            # PAN then carries the enhanced detail into the coarser outputs;
+            # no extra feature level or change to the decoder interface.
+            for idx, enhancement in enumerate(self.mffe):
+                inner_outs[idx] = enhancement(mffe_sources[idx], inner_outs[idx])
 
         outs = [inner_outs[0]]
         for idx in range(len(self.in_channels) - 1):

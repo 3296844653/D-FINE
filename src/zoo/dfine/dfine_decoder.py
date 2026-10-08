@@ -20,6 +20,7 @@ import torch.nn.init as init
 from ...core import register
 from .denoising import get_contrastive_denoising_training_group
 from .dfine_utils import distance2bbox, weighting_function
+from .rw_query_calibration import RWQueryCalibration
 from .utils import (
     bias_init_with_prob,
     deformable_attention_core_func_v2,
@@ -638,6 +639,61 @@ class Gate(nn.Module):
         return self.norm(gate1 * x1 + gate2 * x2)
 
 
+class AdaptiveQuerySelectionRefiner(nn.Module):
+    """Restore the project's SCB-U AQS classification refiner (26b851d).
+
+    This is the existing D-FINE adaptation, not a new token selector or an
+    official paper reproduction. Hard confidence gates select queries for a
+    pooled context; a straight-through estimator trains the threshold. The
+    query count remains unchanged. Final-layer use only refines classification;
+    an earlier-layer use also passes the refined query to the following layer.
+    """
+
+    def __init__(self, hidden_dim, threshold=0.5, temperature=0.1, residual_init=0.05):
+        super().__init__()
+        if isinstance(hidden_dim, bool) or not isinstance(hidden_dim, int) or hidden_dim <= 0:
+            raise ValueError("AQS hidden_dim must be a positive integer")
+        if not math.isfinite(threshold) or not 0.0 < threshold < 1.0:
+            raise ValueError("AQS threshold must be finite and strictly between 0 and 1")
+        if not math.isfinite(temperature) or temperature <= 0.0:
+            raise ValueError("AQS temperature must be finite and positive")
+        if not math.isfinite(residual_init):
+            raise ValueError("AQS residual_init must be finite")
+        self.threshold_logit = nn.Parameter(
+            torch.tensor(math.log(threshold / (1.0 - threshold)))
+        )
+        self.temperature = float(temperature)
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.fuse = nn.Sequential(
+            nn.Linear(2 * hidden_dim, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        self.residual_scale = nn.Parameter(torch.tensor(float(residual_init)))
+        init.constant_(self.fuse[-1].weight, 0)
+        init.constant_(self.fuse[-1].bias, 0)
+
+    def forward(self, query, logits):
+        if (query.ndim != 3 or logits.ndim != 3
+                or query.shape[:2] != logits.shape[:2]
+                or query.shape[-1] != self.norm.normalized_shape[0]
+                or logits.shape[-1] < 1):
+            raise ValueError("AQS expects aligned [B,Q,H] queries and [B,Q,C] logits")
+        importance = logits.sigmoid().amax(dim=-1)
+        threshold = self.threshold_logit.sigmoid().to(dtype=importance.dtype)
+        soft_gate = torch.sigmoid((importance - threshold) / self.temperature)
+        hard_gate = (soft_gate >= 0.5).to(dtype=soft_gate.dtype)
+        # Keep the old hard forward selection and straight-through gradient.
+        gate = hard_gate.detach() - soft_gate.detach() + soft_gate
+        denom = gate.sum(dim=1, keepdim=True).clamp_min(1.0)
+        context = (query * gate.unsqueeze(-1)).sum(dim=1, keepdim=True)
+        context = context / denom.unsqueeze(-1)
+        context = context.expand(-1, query.shape[1], -1)
+        delta = self.fuse(torch.cat([self.norm(query), context], dim=-1))
+        scale = torch.tanh(self.residual_scale).to(dtype=query.dtype)
+        return query + scale * gate.unsqueeze(-1).to(dtype=query.dtype) * delta
+
+
 class Integral(nn.Module):
     """
     A static layer that calculates integral results from a distribution.
@@ -701,6 +757,12 @@ class TransformerDecoder(nn.Module):
         up,
         eval_idx=-1,
         layer_scale=2,
+        use_aqs_refine=False,
+        aqs_threshold=0.5,
+        aqs_temperature=0.1,
+        aqs_residual_init=0.05,
+        aqs_apply_layer=-1,
+        aqs_apply_layers=None,
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -716,6 +778,40 @@ class TransformerDecoder(nn.Module):
         self.lqe_layers = nn.ModuleList(
             [copy.deepcopy(LQE(4, 64, 2, reg_max)) for _ in range(num_layers)]
         )
+        self.use_aqs_refine = bool(use_aqs_refine)
+        if type(aqs_apply_layer) is not int or (aqs_apply_layer != -1 and
+                not 1 <= aqs_apply_layer <= self.eval_idx + 1):
+            raise ValueError("aqs_apply_layer must be -1 (final) or a 1-based executed decoder layer")
+        self.aqs_layer_idx = self.eval_idx if aqs_apply_layer == -1 else aqs_apply_layer - 1
+        if aqs_apply_layers is not None:
+            if aqs_apply_layer != -1:
+                raise ValueError("Set only one of aqs_apply_layer and aqs_apply_layers")
+            if (not isinstance(aqs_apply_layers, (list, tuple)) or not aqs_apply_layers
+                    or any(type(layer) is not int or not 1 <= layer <= self.eval_idx + 1
+                           for layer in aqs_apply_layers)
+                    or len(set(aqs_apply_layers)) != len(aqs_apply_layers)):
+                raise ValueError("aqs_apply_layers must contain unique 1-based executed decoder layers")
+            self.aqs_layer_indices = tuple(sorted(layer - 1 for layer in aqs_apply_layers))
+        else:
+            self.aqs_layer_indices = (self.aqs_layer_idx,)
+        self.aqs_layer_idx = self.aqs_layer_indices[0] if len(self.aqs_layer_indices) == 1 else None
+        self.query_cls_refiner = None
+        self.aqs_refiners = nn.ModuleDict()
+        if self.use_aqs_refine:
+            # Optional initialization must not change the original heads' RNG.
+            with torch.random.fork_rng(devices=[]):
+                for layer_idx in self.aqs_layer_indices:
+                    refiner = AdaptiveQuerySelectionRefiner(
+                        hidden_dim, aqs_threshold, aqs_temperature, aqs_residual_init
+                    )
+                    # Plain metadata, not a state_dict buffer. A legacy single
+                    # AQS keeps its original exact key names for strict loading.
+                    refiner.applied_decoder_layer = layer_idx + 1
+                    if self.aqs_layer_idx is not None:
+                        self.query_cls_refiner = refiner
+                    else:
+                        # EACH layer owns its LN, MLP, threshold and residual.
+                        self.aqs_refiners[f"layer{layer_idx + 1}"] = refiner
 
     def value_op(self, memory, value_proj, value_scale, memory_mask, memory_spatial_shapes):
         """
@@ -732,9 +828,38 @@ class TransformerDecoder(nn.Module):
     def convert_to_deploy(self):
         self.project = weighting_function(self.reg_max, self.up, self.reg_scale, deploy=True)
         self.layers = self.layers[: self.eval_idx + 1]
-        self.lqe_layers = nn.ModuleList(
-            [nn.Identity()] * (self.eval_idx) + [self.lqe_layers[self.eval_idx]]
-        )
+        needed_layers = {self.eval_idx}
+        if self.use_aqs_refine:
+            needed_layers.update(self.aqs_layer_indices)
+        self.lqe_layers = nn.ModuleList([
+            self.lqe_layers[i] if i in needed_layers else nn.Identity()
+            for i in range(self.eval_idx + 1)
+        ])
+
+    def _apply_aqs_refiner(self, query, logits, dn_meta, *, layer_idx=None):
+        """Never pool DN (GT-derived) queries into ordinary detection queries."""
+        if not self.use_aqs_refine:
+            return query
+        if layer_idx is None:
+            if self.aqs_layer_idx is None:
+                raise ValueError("Multi-layer AQS requires an explicit layer_idx")
+            layer_idx = self.aqs_layer_idx
+        if layer_idx not in self.aqs_layer_indices:
+            raise ValueError("Requested layer_idx is not enabled for AQS")
+        refiner = (self.query_cls_refiner if self.query_cls_refiner is not None else
+                   self.aqs_refiners[f"layer{layer_idx + 1}"])
+        if self.training and dn_meta is not None:
+            split_sizes = dn_meta.get("dn_num_split")
+            if (split_sizes is None or len(split_sizes) != 2
+                    or any(type(size) is not int or size < 0 for size in split_sizes)
+                    or sum(split_sizes) != query.shape[1]):
+                raise ValueError("dn_meta['dn_num_split'] must partition DN and detection queries")
+            queries = torch.split(query, split_sizes, dim=1)
+            scores = torch.split(logits, split_sizes, dim=1)
+            return torch.cat([
+                refiner(q, s) for q, s in zip(queries, scores)
+            ], dim=1)
+        return refiner(query, logits)
 
     def forward(
         self,
@@ -754,6 +879,7 @@ class TransformerDecoder(nn.Module):
         attn_mask=None,
         memory_mask=None,
         dn_meta=None,
+        return_teacher_logits=False,
     ):
         output = target
         output_detach = pred_corners_undetach = 0
@@ -763,6 +889,7 @@ class TransformerDecoder(nn.Module):
         dec_out_logits = []
         dec_out_pred_corners = []
         dec_out_refs = []
+        base_teacher_logits = None
         if not hasattr(self, "project"):
             project = weighting_function(self.reg_max, up, reg_scale)
         else:
@@ -806,23 +933,42 @@ class TransformerDecoder(nn.Module):
                 ref_points_initial, integral(pred_corners, project), reg_scale
             )
 
-            if self.training or i == self.eval_idx:
+            # Earlier-layer AQS needs its ORIGINAL classifier + LQE gate in
+            # inference too, even though that layer is not a final prediction.
+            apply_aqs_here = self.use_aqs_refine and i in self.aqs_layer_indices
+            emit_prediction = self.training or i == self.eval_idx
+            if emit_prediction or apply_aqs_here:
                 scores = score_head[i](cls_output)
                 # Lqe does not affect the performance here.
                 scores = self.lqe_layers[i](scores, pred_corners)
-                dec_out_logits.append(scores)
-                dec_out_bboxes.append(inter_ref_bbox)
-                dec_out_pred_corners.append(pred_corners)
-                dec_out_refs.append(ref_points_initial)
+                if i == self.eval_idx:
+                    base_teacher_logits = scores
+                if apply_aqs_here:
+                    refined_cls_output = self._apply_aqs_refiner(
+                        cls_output, scores, dn_meta, layer_idx=i
+                    )
+                    if emit_prediction:
+                        scores = score_head[i](refined_cls_output)
+                        scores = self.lqe_layers[i](scores, pred_corners)
+                    if i < self.eval_idx:
+                        # The current layer's boxes/corner distribution remain
+                        # the pre-AQS result. The next layer consumes Q_refined
+                        # through BOTH the ordinary and detached residual paths.
+                        output = refined_cls_output
+                if emit_prediction:
+                    dec_out_logits.append(scores)
+                    dec_out_bboxes.append(inter_ref_bbox)
+                    dec_out_pred_corners.append(pred_corners)
+                    dec_out_refs.append(ref_points_initial)
 
-                if not self.training:
-                    break
+                    if not self.training:
+                        break
 
             pred_corners_undetach = pred_corners
             ref_points_detach = inter_ref_bbox.detach()
             output_detach = output.detach()
 
-        return (
+        result = (
             torch.stack(dec_out_bboxes),
             torch.stack(dec_out_logits),
             torch.stack(dec_out_pred_corners),
@@ -831,6 +977,8 @@ class TransformerDecoder(nn.Module):
             pre_scores,
             output,
         )
+        # Preserve the original seven-item return for existing callers.
+        return result + (base_teacher_logits,) if return_teacher_logits else result
 
 
 @register()
@@ -895,6 +1043,20 @@ class DFINETransformer(nn.Module):
         rw_specialist_grid_size=3,
         rw_specialist_class_ids=(1, 2),
         rw_specialist_apply_at_eval=True,
+        use_rw_query_calibration=False,
+        rw_calibration_dim=64,
+        rw_calibration_class_ids=(1, 2),
+        rw_calibration_neighbor_count=4,
+        rw_calibration_neighbor_iou=0.5,
+        rw_calibration_common_limit=0.5,
+        rw_calibration_contrast_limit=1.5,
+        rw_query_calibration_apply_at_eval=True,
+        use_aqs_refine=False,
+        aqs_threshold=0.5,
+        aqs_temperature=0.1,
+        aqs_residual_init=0.05,
+        aqs_apply_layer=-1,
+        aqs_apply_layers=None,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -927,6 +1089,9 @@ class DFINETransformer(nn.Module):
         self.use_rw_spatial_relation = use_rw_spatial_relation
         self.use_rw_isolated_specialist = use_rw_isolated_specialist
         self.rw_specialist_apply_at_eval = rw_specialist_apply_at_eval
+        self.use_rw_query_calibration = bool(use_rw_query_calibration)
+        self.rw_query_calibration_apply_at_eval = rw_query_calibration_apply_at_eval
+        self.use_aqs_refine = bool(use_aqs_refine)
         if sum(
             (
                 use_local_evidence_cls,
@@ -938,9 +1103,15 @@ class DFINETransformer(nn.Module):
                 use_task_decoupled_heads,
                 use_rw_spatial_relation,
                 use_rw_isolated_specialist,
+                use_rw_query_calibration,
+                use_aqs_refine,
             )
         ) > 1:
             raise ValueError("Query/classification experiments must be ablated separately")
+        if self.use_aqs_refine:
+            if ((eval_idx if eval_idx >= 0 else num_layers + eval_idx) != num_layers - 1
+                    or layer_scale != 1):
+                raise ValueError("AQS requires the final decoder layer as eval_idx at base width")
         if use_local_evidence_cls:
             if local_evidence_dim <= 0:
                 raise ValueError("local_evidence_dim must be positive")
@@ -1009,6 +1180,17 @@ class DFINETransformer(nn.Module):
                     rw_specialist_grid_size, tuple(rw_specialist_class_ids),
                 )
 
+        if self.use_rw_query_calibration:
+            if (eval_idx if eval_idx >= 0 else num_layers + eval_idx) != num_layers - 1 or layer_scale != 1:
+                raise ValueError("RW query calibration requires the final decoder layer at base width")
+            with torch.random.fork_rng(devices=[]):
+                self.rw_query_calibration = RWQueryCalibration(
+                    hidden_dim, num_classes, reg_max, rw_calibration_dim,
+                    tuple(rw_calibration_class_ids), rw_calibration_neighbor_count,
+                    rw_calibration_neighbor_iou, rw_calibration_common_limit,
+                    rw_calibration_contrast_limit,
+                )
+
         assert query_select_method in ("default", "one2many", "agnostic"), ""
         assert cross_attn_method in ("default", "discrete"), ""
         self.cross_attn_method = cross_attn_method
@@ -1052,6 +1234,12 @@ class DFINETransformer(nn.Module):
             self.up,
             eval_idx,
             layer_scale,
+            use_aqs_refine=self.use_aqs_refine,
+            aqs_threshold=aqs_threshold,
+            aqs_temperature=aqs_temperature,
+            aqs_residual_init=aqs_residual_init,
+            aqs_apply_layer=aqs_apply_layer,
+            aqs_apply_layers=aqs_apply_layers,
         )
         # denoising
         self.num_denoising = num_denoising
@@ -1144,9 +1332,13 @@ class DFINETransformer(nn.Module):
         self._reset_parameters(feat_channels)
 
     def convert_to_deploy(self):
-        self.dec_score_head = nn.ModuleList(
-            [nn.Identity()] * (self.eval_idx) + [self.dec_score_head[self.eval_idx]]
-        )
+        needed_layers = {self.eval_idx}
+        if self.use_aqs_refine:
+            needed_layers.update(self.decoder.aqs_layer_indices)
+        self.dec_score_head = nn.ModuleList([
+            self.dec_score_head[i] if i in needed_layers else nn.Identity()
+            for i in range(self.eval_idx + 1)
+        ])
         self.dec_bbox_head = nn.ModuleList(
             [
                 self.dec_bbox_head[i] if i <= self.eval_idx else nn.Identity()
@@ -1399,7 +1591,7 @@ class DFINETransformer(nn.Module):
         )
 
         # decoder
-        out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_logits, final_query = self.decoder(
+        decoded = self.decoder(
             init_ref_contents,
             init_ref_points_unact,
             memory,
@@ -1415,7 +1607,12 @@ class DFINETransformer(nn.Module):
             self.reg_scale,
             attn_mask=attn_mask,
             dn_meta=dn_meta,
+            return_teacher_logits=self.use_aqs_refine,
         )
+        aqs_teacher_logits = decoded[-1] if self.use_aqs_refine else None
+        if self.use_aqs_refine:
+            decoded = decoded[:-1]
+        out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_logits, final_query = decoded
 
         if self.use_local_evidence_cls:
             # The first encoder level is P3 (stride 8). Keep this branch on the
@@ -1439,6 +1636,10 @@ class DFINETransformer(nn.Module):
             _, ordinary_final_query = torch.split(
                 final_query, dn_meta["dn_num_split"], dim=1
             )
+            if self.use_aqs_refine:
+                _, aqs_teacher_logits = torch.split(
+                    aqs_teacher_logits, dn_meta["dn_num_split"], dim=1
+                )
 
         decoder_local_teacher_logits = (
             out_logits[-1] if self.use_decoder_local_query_cls else None
@@ -1507,6 +1708,16 @@ class DFINETransformer(nn.Module):
                 refined_logits = out_logits[-1] + self.query_objectness_scale * objectness_logits
                 out_logits = torch.cat((out_logits[:-1], refined_logits.unsqueeze(0)), dim=0)
 
+        if self.use_rw_query_calibration and (self.training or self.rw_query_calibration_apply_at_eval):
+            # Final LQE-adjusted scores and ordinary queries AFTER the DN split.
+            # Detached inputs keep the added loss out of all original branches.
+            calibrated_pair = self.rw_query_calibration(
+                ordinary_final_query, out_bboxes[-1], out_logits[-1], out_corners[-1]
+            )
+            if not self.training:
+                refined_logits = self.rw_query_calibration.refine_logits(out_logits[-1], calibrated_pair)
+                out_logits = torch.cat((out_logits[:-1], refined_logits.unsqueeze(0)), dim=0)
+
         if self.training:
             out = {
                 "pred_logits": out_logits[-1],
@@ -1527,6 +1738,11 @@ class DFINETransformer(nn.Module):
             # Original loss/matching/aux/DN all consume unmodified pred_logits.
             out["rw_specialist_logits"] = specialist_logits
             out["rw_specialist_class_ids"] = self.rw_isolated_specialist.class_ids
+        if self.training and self.use_rw_query_calibration:
+            # Baseline matcher, VFL, auxiliary heads, distillation and DN use
+            # unmodified pred_logits. Only this auxiliary head learns calibration.
+            out["rw_calibration_logits"] = calibrated_pair
+            out["rw_calibration_class_ids"] = self.rw_query_calibration.class_ids
 
         if self.training and self.aux_loss:
             out["aux_outputs"] = self._set_aux_loss2(
@@ -1536,7 +1752,9 @@ class DFINETransformer(nn.Module):
                 out_refs[:-1],
                 out_corners[-1],
                 (
-                    p2_teacher_logits
+                    aqs_teacher_logits
+                    if self.use_aqs_refine
+                    else p2_teacher_logits
                     if self.use_p2_roi_cls
                     else decoder_local_teacher_logits
                     if self.use_decoder_local_query_cls

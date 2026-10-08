@@ -74,6 +74,7 @@ class QueryDiagnosticsWriter:
                     digest.update(chunk)
             checkpoint_sha256 = digest.hexdigest()
         self.metadata = {
+            "schema_version": 2,
             "complete": False,
             "checkpoint": str(checkpoint) if checkpoint else None,
             "checkpoint_sha256": checkpoint_sha256,
@@ -84,6 +85,8 @@ class QueryDiagnosticsWriter:
             "num_classes": self.num_classes,
             "postprocessor_top_k": self.top_k,
             "note": "All logits are final decoder logits (including LQE). Top-k is over query-class pairs. Max GT IoU is not a TP assignment.",
+            "score_definition": "sigmoid(final decoder logits), computed on the inference device before CPU conversion",
+            "box_definition": "pred_boxes_xyxy uses the postprocessor's original-device conversion and scaling; pred_boxes_cxcywh is normalized",
         }
         self._write_metadata()
 
@@ -119,6 +122,11 @@ class QueryDiagnosticsWriter:
                 raise ValueError("Non-finite query output during diagnostics")
             probs = logits.sigmoid()
             selected_scores, flat_index = torch.topk(probs.flatten(), self.top_k)
+            # Preserve the actual postprocessor arithmetic, including AMP rounding.
+            # Reapplying sigmoid after float32 CPU conversion need not be identical.
+            postprocessor_boxes = box_convert(norm_boxes, "cxcywh", "xyxy")
+            postprocessor_boxes *= orig_target_sizes[b].repeat(2)
+            postprocessor_boxes = postprocessor_boxes.float().cpu()
             qids = (flat_index // self.num_classes).cpu()
             labels = (flat_index % self.num_classes).cpu()
             selected_scores = selected_scores.cpu()
@@ -126,8 +134,7 @@ class QueryDiagnosticsWriter:
             probs = probs.float().cpu()
             norm_boxes = norm_boxes.float().cpu()
             width, height = [int(x) for x in orig_target_sizes[b].tolist()]
-            box_scale = norm_boxes.new_tensor([width, height, width, height])
-            pred_boxes = box_convert(norm_boxes, "cxcywh", "xyxy") * box_scale
+            pred_boxes = postprocessor_boxes
             gt_boxes = scale_boxes(target["boxes"].detach().float().cpu().clone(),
                                    (height, width), tuple(input_hw))
             gt_labels = target["labels"].detach().long().cpu()
@@ -148,6 +155,9 @@ class QueryDiagnosticsWriter:
             torch.save({"image_id": image_id, "image_name": image_name,
                         "original_size_wh": (width, height), "input_size_hw": tuple(input_hw),
                         "pred_logits": logits, "pred_boxes_cxcywh": norm_boxes,
+                        "pred_scores": probs,
+                        "pred_boxes_xyxy": postprocessor_boxes,
+                        "selected_scores": selected_scores.float(),
                         "gt_boxes_xyxy": gt_boxes, "gt_labels": gt_labels,
                         "selected_flat_indices": flat_index.cpu()},
                        self.raw_dir / f"{image_id}.pt")

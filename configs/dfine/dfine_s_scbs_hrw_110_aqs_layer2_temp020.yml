@@ -1,0 +1,12 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# T2: single-layer L2 AQS; only fixed temperature changes from 0.10 to 0.20.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_aqs_layer2_temp020_seed0_run1
+
+DFINETransformer:
+  use_aqs_refine: true
+  aqs_apply_layer: 2
+  aqs_threshold: 0.50
+  aqs_temperature: 0.20
+  aqs_residual_init: 0.05

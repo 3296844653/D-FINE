@@ -1,0 +1,10 @@
+__include__:
+  - dfine_s_scbs_hrw.yml
+
+# Restore the SCB-U AQS mechanism as one SCB-S / D-FINE-S experiment.
+# All three class logits are refined; data, losses, queries and schedule stay unchanged.
+DFINETransformer:
+  use_aqs_refine: true
+  aqs_threshold: 0.50
+  aqs_temperature: 0.10
+  aqs_residual_init: 0.05

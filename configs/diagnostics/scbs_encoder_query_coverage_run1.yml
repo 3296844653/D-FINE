@@ -1,0 +1,17 @@
+# Frozen old run1 checkpoint; NOT a new training/module experiment.
+seed: 0
+detector_config: configs/dfine/dfine_s_scbs_hrw_132.yml
+checkpoint: /media/a5/5号机移动盘2/wq_workspace/wq_s_scbs_hrw/dfine_s_scbs_hrw_seed0_run1/best_stg2.pth
+input_size: [640, 640]
+splits: [val]
+iou_thresholds: [0.3, 0.5, 0.75, 0.9]
+progress_every: 25
+num_threads: 4
+save_selected_queries: true
+data:
+  train:
+    image_dir: /media/a5/5号机移动盘2/wq_datasets/SCB-S/images/train
+    annotation: /media/a5/5号机移动盘2/wq_datasets/SCB-S/annotations/instances_train.json
+  val:
+    image_dir: /media/a5/5号机移动盘2/wq_datasets/SCB-S/images/val
+    annotation: /media/a5/5号机移动盘2/wq_datasets/SCB-S/annotations/instances_val.json

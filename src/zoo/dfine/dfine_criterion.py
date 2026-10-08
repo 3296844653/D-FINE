@@ -136,6 +136,13 @@ class DFINECriterion(nn.Module):
         rw_specialist_class_ids=(1, 2),
         rw_specialist_weight=0.1,
         rw_specialist_min_iou=0.5,
+        use_rw_query_calibration=False,
+        rw_calibration_class_ids=(1, 2),
+        rw_calibration_weight=0.1,
+        rw_calibration_positive_iou=0.5,
+        rw_calibration_negative_iou=0.3,
+        rw_calibration_negative_ratio=3,
+        rw_calibration_min_negatives=16,
     ):
         """Create the criterion.
         Parameters:
@@ -155,6 +162,28 @@ class DFINECriterion(nn.Module):
         self.share_matched_indices = share_matched_indices
         self.alpha = alpha
         self.gamma = gamma
+        self.use_rw_query_calibration = bool(use_rw_query_calibration)
+        self.rw_calibration_class_ids = tuple(rw_calibration_class_ids)
+        self.rw_calibration_weight = float(rw_calibration_weight)
+        self.rw_calibration_positive_iou = float(rw_calibration_positive_iou)
+        self.rw_calibration_negative_iou = float(rw_calibration_negative_iou)
+        self.rw_calibration_negative_ratio = rw_calibration_negative_ratio
+        self.rw_calibration_min_negatives = rw_calibration_min_negatives
+        if self.use_rw_query_calibration:
+            ids = self.rw_calibration_class_ids
+            if (len(ids) != 2 or any(type(c) is not int for c in ids)
+                    or len(set(ids)) != 2 or any(c < 0 or c >= num_classes for c in ids)):
+                raise ValueError("rw_calibration_class_ids must contain two distinct valid integer IDs")
+            if not math.isfinite(self.rw_calibration_weight) or self.rw_calibration_weight <= 0:
+                raise ValueError("rw_calibration_weight must be finite and positive")
+            if not 0 <= self.rw_calibration_negative_iou < self.rw_calibration_positive_iou <= 1:
+                raise ValueError("RW calibration requires 0 <= negative IoU < positive IoU <= 1")
+            if any(type(v) is not int or v < 1 for v in
+                   (rw_calibration_negative_ratio, rw_calibration_min_negatives)):
+                raise ValueError("RW calibration negative sampling settings must be positive integers")
+            if any((use_pairwise_ce, use_class_margin, use_class_balanced_vfl,
+                    use_query_validity, use_query_objectness, use_rw_isolated_specialist)):
+                raise ValueError("RW query calibration must be an independent classification experiment")
         self.use_rw_isolated_specialist = bool(use_rw_isolated_specialist)
         self.rw_specialist_class_ids = tuple(rw_specialist_class_ids)
         self.rw_specialist_weight = float(rw_specialist_weight)
@@ -449,6 +478,65 @@ class DFINECriterion(nn.Module):
             logits[idx][active].float(), (labels[active] == second).long(), reduction="sum"
         ) / num_boxes
 
+    def loss_rw_query_calibration(self, outputs, targets, indices, num_boxes):
+        """Quality targets for clean ONE-TO-ONE matches, not every overlap.
+
+        Unmatched low-overlap candidates and clean matches of other classes are
+        hard-negative candidates. Duplicates, gray overlaps and poor matches are
+        ignored. Labels express dataset scope; low IoU does not prove background.
+        """
+        if "rw_calibration_logits" not in outputs:
+            raise ValueError("RW calibration loss requires its enabled decoder branch")
+        if tuple(outputs.get("rw_calibration_class_ids", ())) != self.rw_calibration_class_ids:
+            raise ValueError("Decoder/criterion RW calibration class IDs do not match")
+        logits = outputs["rw_calibration_logits"].float()
+        if logits.shape != (*outputs["pred_logits"].shape[:2], 2):
+            raise ValueError("RW calibration logits must have shape [B,Q,2]")
+        first, second = self.rw_calibration_class_ids
+        total = logits.sum() * 0
+        with torch.no_grad():
+            boxes = box_cxcywh_to_xyxy(outputs["pred_boxes"].detach().float())
+            scores = outputs["pred_logits"].detach().float()[..., [first, second]].sigmoid().amax(-1)
+        for b, (target, (source, gt_indices)) in enumerate(zip(targets, indices)):
+            with torch.no_grad():
+                # SciPy HungarianMatcher returns CPU index tensors even when
+                # the model/GT are on CUDA. Boolean masks below are on the
+                # logits device, so normalize the local copies BEFORE indexing
+                # source with a mask. Do not change the original match list.
+                source = source.to(device=logits.device, dtype=torch.long)
+                gt_indices = gt_indices.to(device=logits.device, dtype=torch.long)
+                gt_boxes = box_cxcywh_to_xyxy(
+                    target["boxes"].detach().to(device=logits.device, dtype=torch.float32)
+                )
+                overlaps = box_iou(boxes[b], gt_boxes)[0]
+                max_iou = overlaps.amax(-1) if len(gt_boxes) else scores[b].new_zeros(scores.shape[1])
+                matched = torch.zeros_like(scores[b], dtype=torch.bool)
+                matched[source] = True
+                negatives = ~matched & (max_iou <= self.rw_calibration_negative_iou)
+                labels = target["labels"].to(device=logits.device, dtype=torch.long)[gt_indices]
+                matched_iou = overlaps[source, gt_indices]
+                clean = matched_iou >= self.rw_calibration_positive_iou
+                is_pair = (labels == first) | (labels == second)
+                positives = source[clean & is_pair]
+                pair_targets = logits.new_zeros((len(positives), 2))
+                pair_targets[torch.arange(len(positives), device=logits.device),
+                             (labels[clean & is_pair] == second).long()] = matched_iou[clean & is_pair]
+                negatives[source[clean & ~is_pair]] = True
+                negative_indices = torch.where(negatives)[0]
+                count = min(len(negative_indices), max(self.rw_calibration_min_negatives,
+                            self.rw_calibration_negative_ratio * len(positives)))
+                selected = negative_indices[scores[b, negative_indices].topk(count).indices] if count else negative_indices
+            if len(positives):
+                total = total + F.binary_cross_entropy_with_logits(
+                    logits[b, positives], pair_targets, reduction="none"
+                ).mean(-1).sum()
+            if len(selected):
+                # Group balancing: easy negatives cannot swamp the positives.
+                total = total + max(len(positives), 1) * F.binary_cross_entropy_with_logits(
+                    logits[b, selected], torch.zeros_like(logits[b, selected]), reduction="mean"
+                )
+        return total / num_boxes
+
     def loss_boxes(self, outputs, targets, indices, num_boxes, boxes_weight=None):
         """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
         targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
@@ -633,6 +721,8 @@ class DFINECriterion(nn.Module):
                       The expected keys in each dict depends on the losses applied, see each loss' doc
         """
         outputs_without_aux = {k: v for k, v in outputs.items() if "aux" not in k}
+        if ("rw_calibration_logits" in outputs_without_aux) != self.use_rw_query_calibration:
+            raise ValueError("Decoder and criterion must enable RW query calibration together")
 
         # Retrieve the matching between the outputs of the last layer and the targets
         indices = self.matcher(outputs_without_aux, targets)["indices"]
@@ -687,6 +777,11 @@ class DFINECriterion(nn.Module):
 
         if self.use_rw_isolated_specialist:
             losses["loss_rw_specialist"] = self.rw_specialist_weight * self.loss_rw_isolated_specialist(
+                outputs_without_aux, targets, indices, num_boxes
+            )
+
+        if self.use_rw_query_calibration:
+            losses["loss_rw_query_calibration"] = self.rw_calibration_weight * self.loss_rw_query_calibration(
                 outputs_without_aux, targets, indices, num_boxes
             )
 

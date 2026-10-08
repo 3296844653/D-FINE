@@ -1,0 +1,25 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# Independent 110/100 experiment: 0=hand-raising, 1=read, 2=write.
+# Calibrate final ordinary queries; original matcher/VFL/boxes/DN stay intact.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_rw_query_calibration_seed0_run1
+
+DFINETransformer:
+  use_rw_query_calibration: true
+  rw_calibration_dim: 64
+  rw_calibration_class_ids: [1, 2]
+  rw_calibration_neighbor_count: 4
+  rw_calibration_neighbor_iou: 0.5
+  rw_calibration_common_limit: 0.5
+  rw_calibration_contrast_limit: 1.5
+  rw_query_calibration_apply_at_eval: true
+
+DFINECriterion:
+  use_rw_query_calibration: true
+  rw_calibration_class_ids: [1, 2]
+  rw_calibration_weight: 0.1
+  rw_calibration_positive_iou: 0.5
+  rw_calibration_negative_iou: 0.3
+  rw_calibration_negative_ratio: 3
+  rw_calibration_min_negatives: 16
