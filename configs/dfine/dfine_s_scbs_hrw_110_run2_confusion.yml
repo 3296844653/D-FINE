@@ -1,0 +1,8 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# Evaluate the 110-epoch baseline Run2's own best_stg2.pth with --test-only.
+# Keep the original Validator: confidence >= 0.5, IoU >= 0.5,
+# class-blind greedy highest-IoU one-to-one matching (same as AQS-R1).
+# Only export the existing matrix; do not train, change scores, or export queries.
+export_confusion_matrix: true

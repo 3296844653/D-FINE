@@ -1,4 +1,4 @@
-# SCB-S / D-FINE-S：Encoder High-res Residual，alpha 初始 0.3
+# SCB-S / D-FINE-S：Encoder High-res Residual，110/100，alpha 初始 0.3
 
 ## 目的与位置
 
@@ -41,27 +41,31 @@ H_3=\operatorname{InputProj}_3(B_3).
 
 ## 两个新配置
 
-训练：`configs/dfine/dfine_s_scbs_hrw_encoder_highres_residual_a03.yml`。
-只继承 `dfine_s_scbs_hrw.yml`，增加开启标志和 alpha 初始值两项。
+训练：`configs/dfine/dfine_s_scbs_hrw_110_encoder_highres_residual_a03.yml`。
+明确继承 `dfine_s_scbs_hrw_110.yml`，增加开启标志、alpha 初始值及独立输出目录。
 服务器 SCB-S 路径、三类顺序（0=hand-raising、1=read、2=write）、
-batch=32、多尺度、原损失和学习率保持一致；当前继承新基线的 110 epochs、epoch 100 停增强。
-旧 72/132 轮结果不能直接作为本次 110 轮实验的对照；使用新输出目录，建议名称带 `epochs110`。
+batch=32、多尺度、原损失和学习率保持一致；110 epochs、epoch 100 停增强。
+旧 72/132 轮结果不能直接作为本次 110 轮实验的对照；新输出目录明确带 `epochs110`。
 不增加其他 alpha 变体配置。
 
-诊断：`configs/dfine/dfine_s_scbs_hrw_encoder_highres_residual_a03_diagnostics.yml`。
+诊断：`configs/dfine/dfine_s_scbs_hrw_110_encoder_highres_residual_a03_diagnostics.yml`。
 加载此实验自己的 `best_stg2.pth`，导出相同阈值的混淆矩阵及 query。
 初始化值不覆盖 checkpoint 中已学习到的 alpha。
+
+原来不带 `110` 的 High-res 配置保留不改；本次不要覆盖它的旧输出，也
+不要使用 AQS 的权重续训。AQS 队列、C1 配置均不变，本组不属于 AQS 队列。
 
 ## 同步（Mac 本地终端）
 
 ```bash
 cd /Users/wq/Desktop/D-FINE
-rsync -avR \
-  configs/dfine/dfine_s_scbs_hrw.yml \
+rsync -avR --backup \
+  --backup-dir="/home/a5/MyProject/wq_project/D-FINE-sync-backups/highres110_$(date +%Y%m%d_%H%M%S)" \
+  configs/dfine/dfine_s_scbs_hrw_110.yml \
   src/zoo/dfine/hybrid_encoder.py \
   src/zoo/dfine/medium_finegrained.py \
-  configs/dfine/dfine_s_scbs_hrw_encoder_highres_residual_a03.yml \
-  configs/dfine/dfine_s_scbs_hrw_encoder_highres_residual_a03_diagnostics.yml \
+  configs/dfine/dfine_s_scbs_hrw_110_encoder_highres_residual_a03.yml \
+  configs/dfine/dfine_s_scbs_hrw_110_encoder_highres_residual_a03_diagnostics.yml \
   tools/diagnostics/test_encoder_highres_residual.py \
   tools/diagnostics/SCBS_ENCODER_HIGHRES_RESIDUAL.md \
   a5@100.76.151.67:/home/a5/MyProject/wq_project/D-FINE/
@@ -83,32 +87,39 @@ python tools/diagnostics/test_encoder_highres_residual.py
 从头训练，不使用 -r / -t，不加载基线或旧 SCB-U 权重：
 
 ```bash
+bash <<'BASH'
+set -euo pipefail
 cd /home/a5/MyProject/wq_project/D-FINE
-CUDA_VISIBLE_DEVICES=0 conda run --no-capture-output -n wq \
-torchrun \
-  --master_port=7784 \
-  --nproc_per_node=1 \
-  train.py \
-  -c configs/dfine/dfine_s_scbs_hrw_encoder_highres_residual_a03.yml \
-  --output-dir "/media/a5/5号机移动盘2/wq_workspace/wq_s_scbs_hrw/dfine_s_scbs_hrw_encoder_highres_residual_a03_seed0_run1" \
-  --use-amp \
-  --seed=0
+HIGHRES110_DIR="/media/a5/5号机移动盘2/wq_workspace/wq_s_scbs_hrw/dfine_s_scbs_hrw_epochs110_encoder_highres_residual_a03_seed0_run1"
+if [[ -e "$HIGHRES110_DIR" ]]; then
+  printf '输出已存在，请使用新的运行编号：%s\n' "$HIGHRES110_DIR"
+  exit 1
+fi
+mkdir "$HIGHRES110_DIR"
+CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 MPLBACKEND=Agg \
+conda run --no-capture-output -n wq \
+torchrun --standalone --local-addr=127.0.0.1 --nnodes=1 --nproc_per_node=1 \
+train.py \
+  -c configs/dfine/dfine_s_scbs_hrw_110_encoder_highres_residual_a03.yml \
+  --output-dir "$HIGHRES110_DIR" --use-amp --seed=0 \
+  2>&1 | tee "$HIGHRES110_DIR/console.log"
+BASH
 ```
 
-这是另一个独立训练，不要与 AQS 同时占用同一张 4090。端口不同不能
-防止 GPU 显存竞争。若输出已有结果，请换新 run 编号。
+这是另一个独立训练，不要与 AQS 同时占用同一张 4090。先用 `nvidia-smi`
+确认 GPU 空闲；自动通信端口不等于 GPU 独占。日志实时显示，并保存在
+自己的 `console.log`。脚本不恢复/覆盖旧输出；启动失败后的目录也保留。
 
 ## 训练后诊断（服务器）
 
 ```bash
 cd /home/a5/MyProject/wq_project/D-FINE
-HIGHRES_DIR="/media/a5/5号机移动盘2/wq_workspace/wq_s_scbs_hrw/dfine_s_scbs_hrw_encoder_highres_residual_a03_seed0_run1"
-CUDA_VISIBLE_DEVICES=0 conda run --no-capture-output -n wq \
-torchrun \
-  --master_port=7784 \
-  --nproc_per_node=1 \
+HIGHRES_DIR="/media/a5/5号机移动盘2/wq_workspace/wq_s_scbs_hrw/dfine_s_scbs_hrw_epochs110_encoder_highres_residual_a03_seed0_run1"
+CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 MPLBACKEND=Agg \
+conda run --no-capture-output -n wq \
+torchrun --standalone --local-addr=127.0.0.1 --nnodes=1 --nproc_per_node=1 \
   train.py \
-  -c configs/dfine/dfine_s_scbs_hrw_encoder_highres_residual_a03_diagnostics.yml \
+  -c configs/dfine/dfine_s_scbs_hrw_110_encoder_highres_residual_a03_diagnostics.yml \
   -r "$HIGHRES_DIR/best_stg2.pth" \
   --test-only \
   --output-dir "$HIGHRES_DIR/diagnostics_eval" \
@@ -152,7 +163,8 @@ EMA 是实际使用 EMA 评估时的对应系数。alpha 非零不等于模块�
 
 ## 判断是否有效
 
-总体 AP 对照 SCB-S 五次基线均值和波动；逐项错误固定对照 run1。
+总体 AP 对照同设备、同设置的 SCB-S 110/100 基线（三次 AP 均值约
+55.16 ± 0.11），不对比 132 轮五次均值；逐项错误对照相同 110 轮 run1。
 优先看 writing AP、reading AP、write→read / read→write、writing Recall，
 并补充中尺度类别 AP。只有总 AP 微涨但目标错误未改善，不算解决读写
 问题。若单次有清晰正向信号，再做独立复验；单次不证明稳定有效，也
@@ -163,6 +175,5 @@ EMA 是实际使用 EMA 评估时的对应系数。alpha 非零不等于模块�
 空 GT、优化器、EMA、严格权重加载及部署。不执行完整训练或真实 CUDA
 显存检查，不修改原模型实现来追求测试通过。
 
-本次已通过 6 项 CPU 单元测试，以及标准 640×640 输入的完整模型和原
-后处理前向检查。输出 logits 为 [1,300,3]、boxes 为 [1,300,4]，均有限。
-这些检查不代表 SCB-S 上的 AP、混淆数量或 CUDA 显存已得到验证。
+测试脚本覆盖新配置及旧配置兼容性；本地检查不代表 SCB-S 上的 AP、
+混淆数量或 CUDA 显存已得到验证。效果需运行这组完整训练后确认。

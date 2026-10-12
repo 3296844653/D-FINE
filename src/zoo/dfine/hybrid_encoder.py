@@ -15,6 +15,8 @@ import torch.nn.functional as F
 
 from ...core import register
 from .medium_finegrained import MediumScaleFineGrainedEnhancement
+from .scale_aligned_detail_fusion import ScaleAlignedDetailFusion
+from .semantic_differential_relation_fusion import SemanticDifferentialRelationFusion
 from .utils import get_activation
 
 __all__ = ["HybridEncoder"]
@@ -530,6 +532,23 @@ class HybridEncoder(nn.Module):
         mffe_alpha_init=0.1,
         mffe_checkpoint=True,
         mffe_p3_only=False,
+        use_sadf=False,
+        sadf_dim=64,
+        sadf_offset_limit=2.0,
+        sadf_residual_init=0.1,
+        sadf_checkpoint=True,
+        sadf_enable_alignment=True,
+        sadf_enable_detail=True,
+        sadf_enable_scale_selection=True,
+        use_sdrf=False,
+        sdrf_dim=64,
+        sdrf_heads=4,
+        sdrf_window=5,
+        sdrf_halo=1,
+        sdrf_residual_init=0.1,
+        sdrf_checkpoint=True,
+        sdrf_semantic_condition=True,
+        sdrf_differential=True,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -552,6 +571,12 @@ class HybridEncoder(nn.Module):
         self.use_rfa_p3 = use_rfa_p3
         self.use_p3_rfaconv_residual = bool(use_p3_rfaconv_residual)
         self.use_mffe = bool(use_mffe)
+        if type(use_sadf) is not bool:
+            raise ValueError("use_sadf must be boolean")
+        self.use_sadf = use_sadf
+        if type(use_sdrf) is not bool:
+            raise ValueError("use_sdrf must be boolean")
+        self.use_sdrf = use_sdrf
         if not isinstance(mffe_p3_only, bool):
             raise ValueError("mffe_p3_only must be a boolean")
         self.mffe_p3_only = mffe_p3_only
@@ -564,12 +589,18 @@ class HybridEncoder(nn.Module):
                 self.use_sfif,
                 self.use_p3_rfaconv_residual,
                 self.use_mffe,
+                self.use_sadf,
+                self.use_sdrf,
             )
         ) > 1:
             raise ValueError(
                 "P2 detail fusion, encoder high-resolution/joint residual, RFA-P3, P3-RFAConv, SFIF, and MFFE "
-                "must be ablated separately"
+                "and SADF/SDRF must be ablated separately"
             )
+        if self.use_sadf and (len(in_channels) != 3 or list(feat_strides) != [8, 16, 32]):
+            raise ValueError("SADF requires the standard three-level P3/P4/P5 encoder")
+        if self.use_sdrf and (len(in_channels) != 3 or list(feat_strides) != [8, 16, 32]):
+            raise ValueError("SDRF requires the standard P3/P4/P5 encoder")
         if self.use_mffe and (len(in_channels) != 3 or list(feat_strides) != [8, 16, 32]):
             raise ValueError("MFFE requires the standard P3/P4/P5 encoder at strides 8/16/32")
         if self.use_p2_detail_fusion:
@@ -706,6 +737,25 @@ class HybridEncoder(nn.Module):
 
         self._reset_parameters()
 
+        if self.use_sdrf:
+            # Preserve every original parameter and the decoder RNG stream.
+            with torch.random.fork_rng(devices=[]):
+                self.sdrf = SemanticDifferentialRelationFusion(
+                    hidden_dim, sdrf_dim, sdrf_heads, sdrf_window, sdrf_halo,
+                    sdrf_residual_init, sdrf_checkpoint,
+                    sdrf_semantic_condition, sdrf_differential,
+                )
+
+        if self.use_sadf:
+            # Construct after baseline layers and restore RNG: turning SADF on
+            # does not silently alter the initialization of encoder/decoder.
+            with torch.random.fork_rng(devices=[]):
+                self.sadf = ScaleAlignedDetailFusion(
+                    hidden_dim, sadf_dim, sadf_offset_limit, sadf_residual_init,
+                    sadf_checkpoint, sadf_enable_alignment, sadf_enable_detail,
+                    sadf_enable_scale_selection,
+                )
+
         if self.use_mffe:
             # Build AFTER the original modules and restore CPU RNG state so
             # enabling MFFE does not alter initialization of the baseline
@@ -765,6 +815,7 @@ class HybridEncoder(nn.Module):
             p2_feat = None
 
         proj_feats = [self.input_proj[i](feat) for i, feat in enumerate(feats)]
+        sadf_source = proj_feats[0] if self.use_sadf else None
         mffe_sources = proj_feats[:len(self.mffe)] if self.use_mffe else None
         if self.use_p3_rfaconv_residual:
             # Stride-8 backbone P3, after channel alignment but BEFORE AIFI/FPN/PAN.
@@ -817,6 +868,11 @@ class HybridEncoder(nn.Module):
             inner_out = self.fpn_blocks[len(self.in_channels) - 1 - idx](
                 torch.concat([upsample_feat, feat_low], dim=1)
             )
+            if self.use_sdrf and idx == 1:
+                # Raw projected P3 supplies V; lateral FPN P4 conditions
+                # local relations. Apply BEFORE PAN, unlike SADF/CrossGate.
+                # PAN can propagate the revised P3 into P4/P5 as usual.
+                inner_out = self.sdrf(proj_feats[0], inner_out, feat_heigh)
             inner_outs.insert(0, inner_out)
 
         if self.use_mffe:
@@ -853,5 +909,10 @@ class HybridEncoder(nn.Module):
             outs[0] = outs[0] + self.encoder_p3_joint_residual(
                 torch.cat((outs[0], highres_residual), dim=1)
             )
+
+        if self.use_sadf:
+            # After original FPN/PAN: directly modify ONLY stride-8 P3, using
+            # pre-fusion P3 contrast and final P4/P5 context. No extra level.
+            outs[0] = self.sadf(sadf_source, outs[0], outs[1], outs[2])
 
         return outs

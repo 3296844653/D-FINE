@@ -1,0 +1,13 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# Scale-Aligned Detail Fusion; independently test the complete encoder mechanism.
+# Same SCB-S, 110/100 epochs, batch32, original losses and three-level decoder.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_SADF_seed0_run1
+
+HybridEncoder:
+  use_sadf: true
+  sadf_dim: 64
+  sadf_offset_limit: 2.0
+  sadf_residual_init: 0.1
+  sadf_checkpoint: true

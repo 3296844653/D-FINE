@@ -1,0 +1,19 @@
+__include__:
+  - dfine_s_scbs_hrw_110_aqs_layer2_r010.yml
+
+# AQS-L2 R1 unchanged + ONE PartNet-inspired instance region-selection head.
+# Original loss, 110/100 epochs, batch32. Not the original PartNet-Full model.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_AQS_PartEvidenceSelection_seed0_run1
+
+HGNetv2:
+  return_idx: [0, 1, 2, 3]
+
+DFINETransformer:
+  instance_evidence_module: PartEvidenceSelection
+  instance_evidence_dim: 64
+  instance_evidence_grid: 7
+  instance_evidence_parts: 3
+  instance_evidence_p2_channels: 64
+  instance_evidence_scale: 0.10
+  instance_evidence_chunk: 32
+  instance_evidence_checkpoint: true

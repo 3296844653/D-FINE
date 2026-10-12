@@ -1,0 +1,6 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# N4: predicted-box local query update at decoder layer 2 (not AQS).
+DFINE:
+  night_probe: decoder_l2_local

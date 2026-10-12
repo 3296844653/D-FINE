@@ -1,0 +1,12 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# Independent structural hypothesis; baseline losses / queries / schedule unchanged.
+output_dir: /media/a5/5号机移动盘2/wq_workspace/wq_s_scbs_hrw/dfine_s_scbs_hrw_epochs110_PairEvidenceHead_seed0_run1
+
+DFINE:
+  finegrain_trial: PairEvidenceHead
+  finegrain_dim: 64
+  finegrain_residual_scale: 0.10
+  finegrain_grid_size: 5
+

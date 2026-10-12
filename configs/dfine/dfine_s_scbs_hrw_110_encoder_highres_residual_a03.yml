@@ -1,0 +1,10 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# Independent Encoder High-res Residual transfer, SCB-S / D-FINE-S, 110/100.
+# Restore projected pre-fusion P3 AFTER FPN/PAN; no AQS or loss changes.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_encoder_highres_residual_a03_seed0_run1
+
+HybridEncoder:
+  use_encoder_highres_residual: true
+  encoder_highres_alpha_init: 0.3

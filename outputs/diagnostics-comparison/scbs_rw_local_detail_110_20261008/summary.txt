@@ -1,0 +1,57 @@
+检测诊断（只分析，不训练、不改分数、不修改标注）
+权重：/media/a5/5号机移动盘2/wq_workspace/wq_s_scbs_hrw/dfine_s_scbs_hrw_epochs110_rw_local_detail_seed0_run1/best_stg2.pth；来源：ema
+图像 1026；GT 5427；query 307800
+保存的 COCO 结果（0~1）：{"AP": 0.5492154053426805, "AP_all": 0.5492154053426805, "AP_small": 0.25544983037395974, "AP_medium": 0.3981211075410033, "AP_large": 0.5691527936197939, "AR100": 0.8359506324130893, "AP50": 0.7219073946020255, "AP75": 0.6215352404189973}
+原 Validator 混淆矩阵：{'matching': 'class-blind greedy highest-IoU one-to-one (existing Validator)', 'correct_class_matches': 4094, 'misclassifications': 420, 'unmatched_predictions': 2629, 'unmatched_GT': 913}
+各类别保存的COCO指标（0~1）：{"hand-raising": {"AP": 0.5867627520082177, "AR100": 0.7964069264069265, "AP50": 0.8014423034736949, "AP75": 0.6480025100109229}, "read": {"AP": 0.5774183556874735, "AR100": 0.8436087135224003, "AP50": 0.7405592282438128, "AP75": 0.659526326704539}, "write": {"AP": 0.48346510833235057, "AR100": 0.8678362573099416, "AP50": 0.6237206520885687, "AP75": 0.5570768845415297}}
+类别×尺度COCO指标（百分数；--表示不可计算；GT为导出中的非crowd有效框数）：
+hand-raising | all | GT=2310 | AP=58.68 | AR100=79.64 | AP50=80.14 | AP75=64.80
+hand-raising | small | GT=1 | AP=1.11 | AR100=60.00 | AP50=2.33 | AP75=1.37
+hand-raising | medium | GT=324 | AP=40.99 | AR100=69.17 | AP50=62.35 | AP75=45.58
+hand-raising | large | GT=1985 | AP=61.39 | AR100=81.36 | AP50=82.72 | AP75=67.82
+read | all | GT=2433 | AP=57.74 | AR100=84.36 | AP50=74.06 | AP75=65.95
+read | small | GT=1 | AP=35.53 | AR100=80.00 | AP50=50.00 | AP75=50.00
+read | medium | GT=332 | AP=46.38 | AR100=77.11 | AP50=62.47 | AP75=54.03
+read | large | GT=2100 | AP=59.46 | AR100=85.51 | AP50=75.74 | AP75=67.75
+write | all | GT=684 | AP=48.35 | AR100=86.78 | AP50=62.37 | AP75=55.71
+write | small | GT=1 | AP=40.00 | AR100=80.00 | AP50=50.00 | AP75=50.00
+write | medium | GT=57 | AP=32.06 | AR100=81.40 | AP50=45.92 | AP75=38.05
+write | large | GT=626 | AP=49.90 | AR100=87.28 | AP50=63.86 | AP75=57.39
+类别混淆（原 Validator，GT → 预测）：
+write → read: 218 / 684 GT
+read → write: 170 / 2433 GT
+hand-raising → read: 16 / 2310 GT
+read → hand-raising: 12 / 2433 GT
+hand-raising → write: 3 / 2310 GT
+write → hand-raising: 1 / 684 GT
+GT-best IoU 候选覆盖（不是检测 Recall）：
+{"0.3": {"count": 5426, "fraction": 0.9998157361341441}, "0.5": {"count": 5415, "fraction": 0.9977888336097291}, "0.75": {"count": 5195, "fraction": 0.9572507831214299}, "0.9": {"count": 3505, "fraction": 0.6458448498249493}}
+原图 annotation area 尺寸分组：
+{"all": 5427, "small": 3, "medium": 713, "large": 4711}
+候选证据分组（不是漏检原因判定）：
+{"GT_class_top1_high_score_and_selected_candidate": 4144, "GT_class_top1_but_below_confidence": 1130, "overlap_exists_but_GT_class_never_top1": 141, "no_query_IoU_ge_threshold": 12}
+PR 曲线读取保存的 COCO eval.pth；分数直方图使用另一个明确标注的 score-first 类别匹配诊断。
+一次实验无法判断稳定性，也不能直接确认哪个网络层导致问题。
+best-IoU交叉统计（候选证据，不是COCO漏检原因）：
+A best-IoU类别正确但低分；已有高分同类预测候选覆盖: 2155
+B best-IoU类别正确但低分；没有高分同类预测候选覆盖: 796
+C best-IoU第一类别错误；已有高分同类预测候选覆盖: 777
+D best-IoU第一类别错误；没有高分同类预测候选覆盖: 313
+E best-IoU类别正确且高分；该GT类别项被后处理Top-k淘汰: 0
+F best-IoU类别正确且高分；该GT类别项已被后处理选中: 1374
+G 所有query的IoU均低于阈值: 12
+hand-raising: GT=2310；无高分同类候选=491；候选缺口={'none': 1819, 'all_overlapping_GT_class_scores_below_confidence': 482, 'no_geometric_overlap': 9}；类别一致score-first IoU=0.5高分匹配=1801
+read: GT=2433；无高分同类候选=418；候选缺口={'none': 2015, 'all_overlapping_GT_class_scores_below_confidence': 415, 'no_geometric_overlap': 3}；类别一致score-first IoU=0.5高分匹配=2013
+write: GT=684；无高分同类候选=212；候选缺口={'none': 472, 'all_overlapping_GT_class_scores_below_confidence': 212}；类别一致score-first IoU=0.5高分匹配=469
+中尺度类别×候选缺口：{"hand-raising": {"GT_count": 324, "ignored_GT_count": 0, "type_counts": {"A": 93, "B": 108, "C": 22, "D": 16, "E": 0, "F": 78, "G": 7}, "high_correct_selected_candidate_exists": 193, "no_high_correct_selected_candidate": 131, "candidate_gap_reasons": {"all_overlapping_GT_class_scores_below_confidence": 124, "none": 193, "no_geometric_overlap": 7}, "class_aware_score_first_IoU05_high_matched": 193, "candidate_exists_but_not_one_to_one_high_matched": 0}, "read": {"GT_count": 332, "ignored_GT_count": 0, "type_counts": {"A": 86, "B": 56, "C": 73, "D": 20, "E": 0, "F": 94, "G": 3}, "high_correct_selected_candidate_exists": 253, "no_high_correct_selected_candidate": 79, "candidate_gap_reasons": {"none": 253, "all_overlapping_GT_class_scores_below_confidence": 76, "no_geometric_overlap": 3}, "class_aware_score_first_IoU05_high_matched": 253, "candidate_exists_but_not_one_to_one_high_matched": 0}, "write": {"GT_count": 57, "ignored_GT_count": 0, "type_counts": {"A": 21, "B": 11, "C": 1, "D": 16, "E": 0, "F": 8, "G": 0}, "high_correct_selected_candidate_exists": 30, "no_high_correct_selected_candidate": 27, "candidate_gap_reasons": {"all_overlapping_GT_class_scores_below_confidence": 27, "none": 30}, "class_aware_score_first_IoU05_high_matched": 30, "candidate_exists_but_not_one_to_one_high_matched": 0}}
+NOTE: Correct candidate means GT-class score>=threshold, IoU>=threshold and selected by the actual postprocessor. Its GT class need not be the query's argmax.
+NOTE: A/C show an available correct candidate, not necessarily a redundant FP; the same candidate can overlap multiple GTs.
+NOTE: B/D/no-high-candidate are candidate deficit evidence, not proof of the cause or of a COCO miss; annotation mistakes/occlusion may contribute.
+NOTE: Class-aware score-first matches use IoU=0.5, one-to-one, no COCO ignore/crowd/maxDets rules; keep distinct from the original class-blind Validator matrix.
+NOTE: COCO size boundaries are inclusive and can overlap. Ignore flags are retained; no annotation or teacher exclusion is applied.
+WARNING: One run cannot establish repeatability or small-object stability.
+WARNING: GT-best-IoU and candidate_status are oracle candidate evidence, not detector TP/FN or a causal layer diagnosis.
+WARNING: Unmatched/diagnostic FP predictions are not proven background; duplicates, localization, labels and out-of-scope targets may contribute.
+WARNING: Final sigmoid scores include LQE; its separate contribution is not exported or attributed.
+WARNING: Size ranges follow saved COCO inclusive boundaries; GT exactly on a boundary may belong to two ranges.
+WARNING: Small GT count is below 30: descriptive low-sample warning only, not a statistical reliability cutoff. Inspect counts/images/classes and repeat runs before interpreting APsmall.

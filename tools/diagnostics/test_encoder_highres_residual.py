@@ -16,8 +16,9 @@ from src.core.yaml_utils import load_config
 from src.zoo.dfine.hybrid_encoder import HybridEncoder
 
 
-TRAIN_CONFIG = "dfine_s_scbs_hrw_encoder_highres_residual_a03.yml"
-DIAG_CONFIG = "dfine_s_scbs_hrw_encoder_highres_residual_a03_diagnostics.yml"
+BASE_CONFIG = "dfine_s_scbs_hrw_110.yml"
+TRAIN_CONFIG = "dfine_s_scbs_hrw_110_encoder_highres_residual_a03.yml"
+DIAG_CONFIG = "dfine_s_scbs_hrw_110_encoder_highres_residual_a03_diagnostics.yml"
 
 
 def fresh_config(name):
@@ -132,11 +133,12 @@ class EncoderHighresResidualTests(unittest.TestCase):
             small_encoder(use_encoder_highres_residual=True, feat_strides=[4, 8, 16])
 
     def test_configs_are_independent_and_only_change_two_options(self):
-        base_cfg = fresh_config("dfine_s_scbs_hrw.yml")
+        base_cfg = fresh_config(BASE_CONFIG)
         trial_cfg = fresh_config(TRAIN_CONFIG)
         expected, actual = copy.deepcopy(base_cfg.yaml_cfg), copy.deepcopy(trial_cfg.yaml_cfg)
         for cfg in (expected, actual):
             cfg.pop("__include__", None)
+            cfg.pop("output_dir", None)
         expected["HybridEncoder"].update(
             use_encoder_highres_residual=True, encoder_highres_alpha_init=.3,
         )
@@ -146,6 +148,9 @@ class EncoderHighresResidualTests(unittest.TestCase):
         self.assertEqual(trial_cfg.yaml_cfg["train_dataloader"]["dataset"]["transforms"]["policy"]["epoch"], 100)
         self.assertEqual(trial_cfg.yaml_cfg["train_dataloader"]["collate_fn"]["stop_epoch"], 100)
         self.assertEqual(trial_cfg.yaml_cfg["train_dataloader"]["total_batch_size"], 32)
+        self.assertEqual(trial_cfg.yaml_cfg["DFINECriterion"], base_cfg.yaml_cfg["DFINECriterion"])
+        self.assertEqual(trial_cfg.yaml_cfg["output_dir"],
+                         "./output/dfine_s_scbs_hrw_epochs110_encoder_highres_residual_a03_seed0_run1")
         model = trial_cfg.model
         for name, value in vars(model.decoder).items():
             if name.startswith("use_"):
@@ -165,8 +170,28 @@ class EncoderHighresResidualTests(unittest.TestCase):
         self.assertTrue(diag.yaml_cfg["export_query_diagnostics"])
         self.assertEqual(diag.yaml_cfg["query_diagnostic_conf_thresh"], .5)
 
+    def test_legacy_configuration_is_preserved_and_new_model_matches_it(self):
+        legacy_name = "dfine_s_scbs_hrw_encoder_highres_residual_a03.yml"
+        legacy = load_config(str(ROOT / "configs/dfine" / legacy_name), cfg={})
+        current = load_config(str(ROOT / "configs/dfine" / TRAIN_CONFIG), cfg={})
+        self.assertEqual(legacy["__include__"], ["dfine_s_scbs_hrw.yml"])
+        self.assertEqual(current["__include__"], [BASE_CONFIG])
+        for cfg in (legacy, current):
+            cfg.pop("__include__", None)
+            cfg.pop("output_dir", None)
+        self.assertEqual(legacy, current)
+        torch.manual_seed(24)
+        old = fresh_config(legacy_name).model
+        rng = torch.get_rng_state().clone()
+        torch.manual_seed(24)
+        new = fresh_config(TRAIN_CONFIG).model
+        torch.testing.assert_close(torch.get_rng_state(), rng, rtol=0, atol=0)
+        self.assertEqual(set(old.state_dict()), set(new.state_dict()))
+        for key, value in old.state_dict().items():
+            torch.testing.assert_close(new.state_dict()[key], value, rtol=0, atol=0)
+
     def test_full_detector_loss_optimizer_ema_checkpoint_and_deploy(self):
-        base_cfg, trial_cfg = fresh_config("dfine_s_scbs_hrw.yml"), fresh_config(TRAIN_CONFIG)
+        base_cfg, trial_cfg = fresh_config(BASE_CONFIG), fresh_config(TRAIN_CONFIG)
         torch.manual_seed(21); baseline = base_cfg.model.eval()
         baseline_rng = torch.get_rng_state().clone()
         torch.manual_seed(21); model = trial_cfg.model.eval()

@@ -1,0 +1,19 @@
+__include__:
+  - dfine_s_scbs_hrw_110_aqs_layer2_r010.yml
+
+# AQS-L2 R1 unchanged + ONE TASN-inspired ROI channel/quantile sampling head.
+# No knowledge-distillation loss, image warp or PartEvidenceSelection stacking.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_AQS_TrilinearDetailSampling_seed0_run1
+
+HGNetv2:
+  return_idx: [0, 1, 2, 3]
+
+DFINETransformer:
+  instance_evidence_module: TrilinearDetailSampling
+  instance_evidence_dim: 64
+  instance_evidence_grid: 7
+  instance_evidence_parts: 3
+  instance_evidence_p2_channels: 64
+  instance_evidence_scale: 0.10
+  instance_evidence_chunk: 32
+  instance_evidence_checkpoint: true

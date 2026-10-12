@@ -1,0 +1,15 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# Independent Encoder relation experiment: original losses, no AQS.
+# Source P3 supplies values; P4 changes local relation affinities, not values.
+HybridEncoder:
+  use_sdrf: true
+  sdrf_dim: 64
+  sdrf_heads: 4
+  sdrf_window: 5
+  sdrf_halo: 1
+  sdrf_residual_init: 0.10
+  sdrf_checkpoint: true
+
+output_dir: /media/a5/5号机移动盘2/wq_workspace/wq_s_scbs_hrw/dfine_s_scbs_hrw_epochs110_SDRF_seed0_run1

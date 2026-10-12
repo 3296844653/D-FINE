@@ -1,0 +1,11 @@
+src/zoo/dfine/dfine.py
+src/zoo/dfine/hybrid_encoder.py
+src/zoo/dfine/scale_aligned_detail_fusion.py
+configs/dfine/dfine_s_scbs_hrw_110_SADF.yml
+tools/diagnostics/run_scbs_SADF_110.sh
+tools/diagnostics/export_sadf_parameters.py
+tools/diagnostics/test_sadf.py
+tools/diagnostics/SCBS_SADF_110.md
+tools/diagnostics/scbs_SADF_sync_files.txt
+tools/diagnostics/sync_scbs_SADF.sh
+tools/diagnostics/analyze_detection_diagnostics.py

@@ -21,6 +21,11 @@ from ...core import register
 from .denoising import get_contrastive_denoising_training_group
 from .dfine_utils import distance2bbox, weighting_function
 from .rw_query_calibration import RWQueryCalibration
+from .rw_local_detail import RWLocalDetailAdapter
+from .evidence_contrast_aqs import EvidenceContrastAQS
+from .night_probes import NIGHT_PROBES, BoxLocalQueryAdapter, RWAdaptiveROI, QueryContentScore
+from .finegrain_trials import FINEGRAIN_TRIALS, BoxScaleContrastL2, PartInteractionL2, PairEvidenceHead
+from .instance_evidence import INSTANCE_EVIDENCE_MODULES, build_instance_evidence
 from .utils import (
     bias_init_with_prob,
     deformable_attention_core_func_v2,
@@ -763,6 +768,15 @@ class TransformerDecoder(nn.Module):
         aqs_residual_init=0.05,
         aqs_apply_layer=-1,
         aqs_apply_layers=None,
+        aqs_refiner_type="legacy",
+        aqs_evidence_classes=80,
+        aqs_evidence_dim=64,
+        aqs_evidence_slots=4,
+        aqs_evidence_heads=4,
+        aqs_evidence_geometry=True,
+        aqs_evidence_quality=True,
+        aqs_evidence_contrast=True,
+        aqs_evidence_adaptive_receiver=True,
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -779,6 +793,11 @@ class TransformerDecoder(nn.Module):
             [copy.deepcopy(LQE(4, 64, 2, reg_max)) for _ in range(num_layers)]
         )
         self.use_aqs_refine = bool(use_aqs_refine)
+        if aqs_refiner_type not in ("legacy", "EvidenceContrastAQS"):
+            raise ValueError("Unknown aqs_refiner_type")
+        if aqs_refiner_type != "legacy" and not self.use_aqs_refine:
+            raise ValueError("EvidenceContrastAQS requires use_aqs_refine=true")
+        self.aqs_refiner_type = aqs_refiner_type
         if type(aqs_apply_layer) is not int or (aqs_apply_layer != -1 and
                 not 1 <= aqs_apply_layer <= self.eval_idx + 1):
             raise ValueError("aqs_apply_layer must be -1 (final) or a 1-based executed decoder layer")
@@ -801,12 +820,22 @@ class TransformerDecoder(nn.Module):
             # Optional initialization must not change the original heads' RNG.
             with torch.random.fork_rng(devices=[]):
                 for layer_idx in self.aqs_layer_indices:
-                    refiner = AdaptiveQuerySelectionRefiner(
-                        hidden_dim, aqs_threshold, aqs_temperature, aqs_residual_init
-                    )
+                    if aqs_refiner_type == "legacy":
+                        refiner = AdaptiveQuerySelectionRefiner(
+                            hidden_dim, aqs_threshold, aqs_temperature, aqs_residual_init
+                        )
+                    else:
+                        refiner = EvidenceContrastAQS(
+                            hidden_dim, aqs_evidence_classes, aqs_threshold, aqs_temperature,
+                            aqs_residual_init, aqs_evidence_dim, aqs_evidence_slots,
+                            aqs_evidence_heads, aqs_evidence_geometry, aqs_evidence_quality,
+                            aqs_evidence_contrast, aqs_evidence_adaptive_receiver,
+                        )
                     # Plain metadata, not a state_dict buffer. A legacy single
                     # AQS keeps its original exact key names for strict loading.
                     refiner.applied_decoder_layer = layer_idx + 1
+                    if isinstance(refiner, EvidenceContrastAQS):
+                        refiner.register_buffer("applied_layer", torch.tensor(layer_idx + 1))
                     if self.aqs_layer_idx is not None:
                         self.query_cls_refiner = refiner
                     else:
@@ -836,7 +865,7 @@ class TransformerDecoder(nn.Module):
             for i in range(self.eval_idx + 1)
         ])
 
-    def _apply_aqs_refiner(self, query, logits, dn_meta, *, layer_idx=None):
+    def _apply_aqs_refiner(self, query, logits, dn_meta, *, layer_idx=None, boxes=None, corners=None):
         """Never pool DN (GT-derived) queries into ordinary detection queries."""
         if not self.use_aqs_refine:
             return query
@@ -848,6 +877,9 @@ class TransformerDecoder(nn.Module):
             raise ValueError("Requested layer_idx is not enabled for AQS")
         refiner = (self.query_cls_refiner if self.query_cls_refiner is not None else
                    self.aqs_refiners[f"layer{layer_idx + 1}"])
+        evidence = isinstance(refiner, EvidenceContrastAQS)
+        if evidence and (boxes is None or corners is None):
+            raise ValueError("EvidenceContrastAQS needs this layer's boxes and corners")
         if self.training and dn_meta is not None:
             split_sizes = dn_meta.get("dn_num_split")
             if (split_sizes is None or len(split_sizes) != 2
@@ -856,10 +888,15 @@ class TransformerDecoder(nn.Module):
                 raise ValueError("dn_meta['dn_num_split'] must partition DN and detection queries")
             queries = torch.split(query, split_sizes, dim=1)
             scores = torch.split(logits, split_sizes, dim=1)
+            if evidence:
+                box_parts = torch.split(boxes, split_sizes, dim=1)
+                corner_parts = torch.split(corners, split_sizes, dim=1)
+                return torch.cat([refiner(q,s,b,c) for q,s,b,c in
+                    zip(queries,scores,box_parts,corner_parts)], dim=1)
             return torch.cat([
                 refiner(q, s) for q, s in zip(queries, scores)
             ], dim=1)
-        return refiner(query, logits)
+        return refiner(query, logits, boxes, corners) if evidence else refiner(query, logits)
 
     def forward(
         self,
@@ -933,6 +970,39 @@ class TransformerDecoder(nn.Module):
                 ref_points_initial, integral(pred_corners, project), reg_scale
             )
 
+            # L2 spatial query probe. Current L2 boxes are already
+            # computed; the updated ordinary query reaches L2 classification
+            # and L3 (so L3 localization can change). DN queries never feed it.
+            night_local = getattr(self, "night_local_adapter", None)
+            if night_local is not None and i == 1:
+                h, w = spatial_shapes[0]
+                p3 = memory[:, :h * w].transpose(1, 2).reshape(memory.shape[0], self.hidden_dim, h, w)
+                if self.training and dn_meta is not None:
+                    count = dn_meta["dn_num_split"][0]
+                    refined = night_local(cls_output[:, count:], inter_ref_bbox[:, count:], p3)
+                    cls_output = torch.cat((cls_output[:, :count], refined), 1)
+                else:
+                    cls_output = night_local(cls_output, inter_ref_bbox, p3)
+                output = cls_output
+
+            finegrain_local = getattr(self, "finegrain_local_adapter", None)
+            if finegrain_local is not None and i == 1:
+                if night_local is not None:
+                    raise ValueError("Finegrain and existing L2 local adapters cannot run together")
+                h, w = spatial_shapes[0]
+                h4, w4 = spatial_shapes[1]
+                p3 = memory[:, :h*w].transpose(1, 2).reshape(memory.shape[0], self.hidden_dim, h, w)
+                p4 = memory[:, h*w:h*w+h4*w4].transpose(1, 2).reshape(memory.shape[0], self.hidden_dim, h4, w4)
+                if self.training and dn_meta is not None:
+                    count = dn_meta["dn_num_split"][0]
+                    refined = finegrain_local(cls_output[:, count:], inter_ref_bbox[:, count:], p3, p4)
+                    cls_output = torch.cat((cls_output[:, :count], refined), 1)
+                else:
+                    cls_output = finegrain_local(cls_output, inter_ref_bbox, p3, p4)
+                output = cls_output
+
+            # In the explicit combination, local sampling precedes AQS: the
+            # gate/context use local-enriched queries and their current scores.
             # Earlier-layer AQS needs its ORIGINAL classifier + LQE gate in
             # inference too, even though that layer is not a final prediction.
             apply_aqs_here = self.use_aqs_refine and i in self.aqs_layer_indices
@@ -945,7 +1015,8 @@ class TransformerDecoder(nn.Module):
                     base_teacher_logits = scores
                 if apply_aqs_here:
                     refined_cls_output = self._apply_aqs_refiner(
-                        cls_output, scores, dn_meta, layer_idx=i
+                        cls_output, scores, dn_meta, layer_idx=i,
+                        boxes=inter_ref_bbox, corners=pred_corners,
                     )
                     if emit_prediction:
                         scores = score_head[i](refined_cls_output)
@@ -1038,6 +1109,13 @@ class DFINETransformer(nn.Module):
         rw_relation_dim=64,
         rw_relation_grid_size=3,
         rw_relation_class_ids=(1, 2),
+        use_rw_local_detail=False,
+        rw_detail_p2_channels=64,
+        rw_detail_dim=64,
+        rw_detail_grid_size=5,
+        rw_detail_num_heads=4,
+        rw_detail_residual_scale=0.1,
+        rw_detail_class_ids=(1, 2),
         use_rw_isolated_specialist=False,
         rw_specialist_dim=64,
         rw_specialist_grid_size=3,
@@ -1057,8 +1135,29 @@ class DFINETransformer(nn.Module):
         aqs_residual_init=0.05,
         aqs_apply_layer=-1,
         aqs_apply_layers=None,
+        aqs_refiner_type="legacy",
+        aqs_evidence_dim=64,
+        aqs_evidence_slots=4,
+        aqs_evidence_heads=4,
+        aqs_evidence_geometry=True,
+        aqs_evidence_quality=True,
+        aqs_evidence_contrast=True,
+        aqs_evidence_adaptive_receiver=True,
+        instance_evidence_module="none",
+        instance_evidence_dim=64,
+        instance_evidence_grid=7,
+        instance_evidence_parts=3,
+        instance_evidence_p2_channels=64,
+        instance_evidence_scale=0.1,
+        instance_evidence_chunk=32,
+        instance_evidence_checkpoint=True,
     ):
         super().__init__()
+        self.night_probe = "none"
+        self.finegrain_trial = "none"
+        if instance_evidence_module not in ("none", *INSTANCE_EVIDENCE_MODULES):
+            raise ValueError("Unknown instance_evidence_module")
+        self.instance_evidence_module = instance_evidence_module
         assert len(feat_channels) <= num_levels
         assert len(feat_strides) == len(feat_channels)
 
@@ -1087,6 +1186,7 @@ class DFINETransformer(nn.Module):
         self.use_decoder_local_query_cls = use_decoder_local_query_cls
         self.use_task_decoupled_heads = use_task_decoupled_heads
         self.use_rw_spatial_relation = use_rw_spatial_relation
+        self.use_rw_local_detail = bool(use_rw_local_detail)
         self.use_rw_isolated_specialist = use_rw_isolated_specialist
         self.rw_specialist_apply_at_eval = rw_specialist_apply_at_eval
         self.use_rw_query_calibration = bool(use_rw_query_calibration)
@@ -1102,6 +1202,7 @@ class DFINETransformer(nn.Module):
                 use_decoder_local_query_cls,
                 use_task_decoupled_heads,
                 use_rw_spatial_relation,
+                use_rw_local_detail,
                 use_rw_isolated_specialist,
                 use_rw_query_calibration,
                 use_aqs_refine,
@@ -1168,6 +1269,24 @@ class DFINETransformer(nn.Module):
                 hidden_dim, num_classes, rw_relation_dim, rw_relation_grid_size,
                 tuple(rw_relation_class_ids),
             )
+
+        if self.use_rw_local_detail:
+            if (eval_idx if eval_idx >= 0 else num_layers + eval_idx) != num_layers - 1 or layer_scale != 1:
+                raise ValueError("RW local detail requires the final decoder layer at base width")
+            class_ids = tuple(rw_detail_class_ids)
+            if (len(class_ids) != 2 or any(type(value) is not int for value in class_ids)
+                    or len(set(class_ids)) != 2
+                    or any(value < 0 or value >= num_classes for value in class_ids)):
+                raise ValueError("RW local detail requires two distinct valid integer class IDs")
+            # Enabling this ablation must not shift baseline initialization RNG.
+            with torch.random.fork_rng(devices=[]):
+                self.rw_local_detail = RWLocalDetailAdapter(
+                    hidden_dim, rw_detail_p2_channels, rw_detail_dim,
+                    rw_detail_grid_size, rw_detail_num_heads, rw_detail_residual_scale,
+                )
+            mask = torch.zeros(num_classes)
+            mask[list(class_ids)] = 1.0
+            self.register_buffer("rw_detail_class_mask", mask, persistent=False)
 
         if use_rw_isolated_specialist:
             if (eval_idx if eval_idx >= 0 else num_layers + eval_idx) != num_layers - 1 or layer_scale != 1:
@@ -1240,6 +1359,15 @@ class DFINETransformer(nn.Module):
             aqs_residual_init=aqs_residual_init,
             aqs_apply_layer=aqs_apply_layer,
             aqs_apply_layers=aqs_apply_layers,
+            aqs_refiner_type=aqs_refiner_type,
+            aqs_evidence_classes=num_classes,
+            aqs_evidence_dim=aqs_evidence_dim,
+            aqs_evidence_slots=aqs_evidence_slots,
+            aqs_evidence_heads=aqs_evidence_heads,
+            aqs_evidence_geometry=aqs_evidence_geometry,
+            aqs_evidence_quality=aqs_evidence_quality,
+            aqs_evidence_contrast=aqs_evidence_contrast,
+            aqs_evidence_adaptive_receiver=aqs_evidence_adaptive_receiver,
         )
         # denoising
         self.num_denoising = num_denoising
@@ -1330,6 +1458,103 @@ class DFINETransformer(nn.Module):
             self.anchors, self.valid_mask = self._generate_anchors()
 
         self._reset_parameters(feat_channels)
+
+        if self.instance_evidence_module != "none":
+            old_flags = (self.use_local_evidence_cls, self.use_query_validity,
+                self.use_query_objectness, self.use_p2_roi_cls, self.use_p2_query_init,
+                self.use_decoder_local_query_cls, self.use_task_decoupled_heads,
+                self.use_rw_spatial_relation, self.use_rw_local_detail,
+                self.use_rw_isolated_specialist, self.use_rw_query_calibration)
+            if any(old_flags):
+                raise ValueError("Instance evidence cannot stack other classification probes")
+            if (num_classes != 3 or num_layers != 3 or self.eval_idx != 2
+                    or layer_scale != 1 or self.feat_strides != [8, 16, 32]):
+                raise ValueError("Instance evidence requires SCB-S / standard D-FINE-S")
+            if self.use_aqs_refine and (self.decoder.aqs_layer_indices != (1,)
+                    or self.decoder.aqs_refiner_type != "legacy"):
+                raise ValueError("Instance evidence combines only with unchanged legacy AQS-L2")
+            # Construct AFTER baseline initialization and preserve its RNG stream.
+            with torch.random.fork_rng(devices=[]):
+                self.instance_evidence = build_instance_evidence(
+                    instance_evidence_module, hidden_dim=hidden_dim,
+                    p2_channels=instance_evidence_p2_channels, dim=instance_evidence_dim,
+                    grid=instance_evidence_grid, parts=instance_evidence_parts,
+                    scale=instance_evidence_scale, chunk_size=instance_evidence_chunk,
+                    use_checkpoint=instance_evidence_checkpoint,
+                )
+
+    def configure_finegrain_trial(self, mode, *, dim=64, scale=.1, grid=5, parts=4):
+        """One structural candidate, after original initialization; no new loss."""
+        if (mode not in FINEGRAIN_TRIALS or self.finegrain_trial != "none"
+                or self.night_probe != "none" or getattr(self, "literature_probe", "none") != "none"
+                or self.instance_evidence_module != "none"):
+            raise ValueError("Select one independent finegrain trial")
+        old_flags = (self.use_aqs_refine, self.use_local_evidence_cls, self.use_query_validity,
+            self.use_query_objectness, self.use_p2_roi_cls, self.use_p2_query_init,
+            self.use_decoder_local_query_cls, self.use_task_decoupled_heads, self.use_rw_spatial_relation,
+            self.use_rw_local_detail, self.use_rw_isolated_specialist, self.use_rw_query_calibration)
+        if any(old_flags):
+            raise ValueError("Finegrain trials cannot stack existing decoder modules")
+        if (self.num_classes != 3 or self.num_layers != 3 or self.eval_idx != 2
+                or self.decoder.layer_scale != 1 or self.feat_strides != [8, 16, 32]):
+            raise ValueError("Finegrain trials require SCB-S / standard D-FINE-S P3/P4/P5")
+        with torch.random.fork_rng(devices=[]):
+            if mode == "BoxScaleContrastL2":
+                self.decoder.finegrain_local_adapter = BoxScaleContrastL2(self.hidden_dim, dim, scale, grid)
+            elif mode == "PartInteractionL2":
+                self.decoder.finegrain_local_adapter = PartInteractionL2(self.hidden_dim, dim, scale, grid, parts)
+            elif mode == "PairEvidenceHead":
+                self.finegrain_pair_head = PairEvidenceHead(self.hidden_dim, dim, scale, grid)
+        self.finegrain_trial = mode
+
+    def configure_night_probe(
+        self, mode, *, allow_aqs_l2_local_combo=False, allow_aqs_l2_query_init_combo=False
+    ):
+        """Called by DFINE after baseline initialization; no baseline RNG shift."""
+        if (mode not in NIGHT_PROBES or self.night_probe != "none"
+                or self.instance_evidence_module != "none"):
+            raise ValueError("Select exactly one supported night probe")
+        if self.decoder.aqs_refiner_type != "legacy":
+            raise ValueError("EvidenceContrastAQS must first be tested without night modules")
+        if type(allow_aqs_l2_local_combo) is not bool:
+            raise ValueError("allow_aqs_l2_local_combo must be a boolean")
+        if type(allow_aqs_l2_query_init_combo) is not bool:
+            raise ValueError("allow_aqs_l2_query_init_combo must be a boolean")
+        if allow_aqs_l2_local_combo and allow_aqs_l2_query_init_combo:
+            raise ValueError("Select only one explicit AQS combination")
+        if allow_aqs_l2_local_combo and (
+            mode != "decoder_l2_local" or not self.use_aqs_refine
+            or self.decoder.aqs_layer_indices != (1,)
+        ):
+            raise ValueError("AQS/local combination requires only AQS at decoder layer 2 and decoder_l2_local")
+        if allow_aqs_l2_query_init_combo and (
+            mode != "query_local_init" or not self.use_aqs_refine
+            or self.decoder.aqs_layer_indices != (1,)
+        ):
+            raise ValueError("AQS/query-init combination requires only AQS at decoder layer 2 and query_local_init")
+        old_flags = (self.use_local_evidence_cls, self.use_query_validity, self.use_query_objectness,
+                     self.use_p2_roi_cls, self.use_p2_query_init, self.use_decoder_local_query_cls,
+                     self.use_task_decoupled_heads, self.use_rw_spatial_relation, self.use_rw_local_detail,
+                     self.use_rw_isolated_specialist, self.use_rw_query_calibration)
+        explicit_aqs_combo = allow_aqs_l2_local_combo or allow_aqs_l2_query_init_combo
+        if any(old_flags) or (self.use_aqs_refine and not explicit_aqs_combo):
+            raise ValueError("Night probes and existing query modules must be separate ablations")
+        if self.num_classes != 3 or self.num_layers != 3 or self.eval_idx != 2 or self.decoder.layer_scale != 1:
+            raise ValueError("Night probes are scoped to SCB-S, three classes, D-FINE-S three decoder layers")
+        self.night_probe = mode
+        with torch.random.fork_rng(devices=[]):
+            if mode == "query_local_init":
+                self.night_query_initializer = BoxLocalQueryAdapter(self.hidden_dim)
+            elif mode == "decoder_l2_local":
+                self.decoder.night_local_adapter = BoxLocalQueryAdapter(self.hidden_dim)
+            elif mode == "rw_adaptive_roi":
+                self.night_rw_roi = RWAdaptiveROI(self.hidden_dim)
+            elif mode == "query_content_score":
+                self.night_content_score = QueryContentScore(self.hidden_dim)
+
+    def _night_p3(self, memory, spatial_shapes):
+        h, w = spatial_shapes[0]
+        return memory[:, :h * w].transpose(1, 2).reshape(memory.shape[0], self.hidden_dim, h, w)
 
     def convert_to_deploy(self):
         needed_layers = {self.eval_idx}
@@ -1515,6 +1740,13 @@ class DFINETransformer(nn.Module):
             init_boxes = enc_topk_anchors.sigmoid()
             content = self.p2_query_init(p2_feat, init_boxes, content)
 
+        if self.night_probe == "query_local_init":
+            # Same Top300, same proposals; only initial ordinary query content
+            # gains local features. This is NOT a new proposal selection rule.
+            content = self.night_query_initializer(
+                content, enc_topk_bbox_unact.detach().sigmoid(), self._night_p3(memory, spatial_shapes)
+            )
+
         enc_topk_bbox_unact = enc_topk_bbox_unact.detach()
 
         if denoising_bbox_unact is not None:
@@ -1641,6 +1873,32 @@ class DFINETransformer(nn.Module):
                     aqs_teacher_logits, dn_meta["dn_num_split"], dim=1
                 )
 
+        instance_teacher_logits = out_logits[-1] if self.instance_evidence_module != "none" else None
+        if self.instance_evidence_module != "none":
+            # Only the FINAL ordinary logits, after LQE and DN splitting.
+            # Earlier heads, original AQS teacher, DN and ALL bbox tensors stay
+            # unchanged. No confidence gate: low-score candidates get evidence too.
+            delta = self.instance_evidence(ordinary_final_query, out_bboxes[-1],
+                p2_feat, self._night_p3(memory, spatial_shapes))
+            out_logits = torch.cat((out_logits[:-1],
+                (out_logits[-1] + delta.to(out_logits.dtype)).unsqueeze(0)), dim=0)
+
+        finegrain_teacher_logits = out_logits[-1]
+        if self.finegrain_trial == "PairEvidenceHead":
+            delta = self.finegrain_pair_head(ordinary_final_query, out_bboxes[-1],
+                self._night_p3(memory, spatial_shapes), out_logits[-1])
+            out_logits = torch.cat((out_logits[:-1], (out_logits[-1]+delta).unsqueeze(0)), 0)
+
+        night_teacher_logits = out_logits[-1]
+        if self.night_probe == "rw_adaptive_roi":
+            delta = self.night_rw_roi(ordinary_final_query, out_bboxes[-1],
+                                     self._night_p3(memory, spatial_shapes), p2_feat)
+            out_logits = torch.cat((out_logits[:-1], (out_logits[-1] + delta).unsqueeze(0)), 0)
+        elif self.night_probe == "query_content_score":
+            delta = self.night_content_score(ordinary_final_query, out_bboxes[-1],
+                                            self._night_p3(memory, spatial_shapes), out_corners[-1])
+            out_logits = torch.cat((out_logits[:-1], (out_logits[-1] + delta).unsqueeze(0)), 0)
+
         decoder_local_teacher_logits = (
             out_logits[-1] if self.use_decoder_local_query_cls else None
         )
@@ -1665,6 +1923,22 @@ class DFINETransformer(nn.Module):
             refined_logits = out_logits[-1] + self.rw_spatial_relation(
                 p3, out_bboxes[-1], ordinary_final_query
             )
+            out_logits = torch.cat((out_logits[:-1], refined_logits.unsqueeze(0)), dim=0)
+
+        rw_detail_teacher_logits = out_logits[-1] if self.use_rw_local_detail else None
+        if self.use_rw_local_detail:
+            # Final ordinary queries only, AFTER the DN split. P3 comes from
+            # the native encoder path; P2 bypasses fusion only for this branch.
+            p3_h, p3_w = spatial_shapes[0]
+            p3 = memory[:, : p3_h * p3_w].transpose(1, 2).reshape(
+                memory.shape[0], self.hidden_dim, p3_h, p3_w
+            )
+            delta_query = self.rw_local_detail(p2_feat, p3, out_bboxes[-1], ordinary_final_query)
+            # Reuse the original classifier rather than training a separate
+            # logits head. Adding W*delta_query is equivalent to classifying
+            # Q+delta_query while retaining the original class bias and LQE.
+            delta_logits = F.linear(delta_query, self.dec_score_head[self.eval_idx].weight)
+            refined_logits = out_logits[-1] + delta_logits * self.rw_detail_class_mask
             out_logits = torch.cat((out_logits[:-1], refined_logits.unsqueeze(0)), dim=0)
 
         if self.use_rw_isolated_specialist and (self.training or self.rw_specialist_apply_at_eval):
@@ -1752,14 +2026,22 @@ class DFINETransformer(nn.Module):
                 out_refs[:-1],
                 out_corners[-1],
                 (
-                    aqs_teacher_logits
+                    finegrain_teacher_logits
+                    if self.finegrain_trial == "PairEvidenceHead"
+                    else night_teacher_logits
+                    if self.night_probe in ("rw_adaptive_roi", "query_content_score")
+                    else aqs_teacher_logits
                     if self.use_aqs_refine
+                    else instance_teacher_logits
+                    if self.instance_evidence_module != "none"
                     else p2_teacher_logits
                     if self.use_p2_roi_cls
                     else decoder_local_teacher_logits
                     if self.use_decoder_local_query_cls
                     else rw_teacher_logits
                     if self.use_rw_spatial_relation
+                    else rw_detail_teacher_logits
+                    if self.use_rw_local_detail
                     else out_logits[-1]
                 ),
             )

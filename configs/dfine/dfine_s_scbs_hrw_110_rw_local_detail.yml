@@ -1,0 +1,18 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# Independent structure experiment: baseline loss, no AQS or pairwise CE.
+# P2 is routed ONLY to the final ordinary read/write classification adapter.
+HGNetv2:
+  return_idx: [0, 1, 2, 3]
+
+DFINETransformer:
+  use_rw_local_detail: true
+  rw_detail_p2_channels: 64
+  rw_detail_dim: 64
+  rw_detail_grid_size: 5
+  rw_detail_num_heads: 4
+  rw_detail_residual_scale: 0.10
+  rw_detail_class_ids: [1, 2]
+
+output_dir: ./output/dfine_s_scbs_hrw_110_rw_local_detail

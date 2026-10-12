@@ -1,0 +1,17 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# Position ablation: same local adapter, moved from L2 to query initialization.
+# AQS-L2 R1, original losses and the 110/100 baseline remain unchanged.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_AQS_l2_BoxLocalQueryAdapter_query_init_seed0_run1
+
+DFINE:
+  night_probe: query_local_init
+  allow_aqs_l2_query_init_combo: true
+
+DFINETransformer:
+  use_aqs_refine: true
+  aqs_apply_layer: 2
+  aqs_threshold: 0.50
+  aqs_temperature: 0.10
+  aqs_residual_init: 0.10

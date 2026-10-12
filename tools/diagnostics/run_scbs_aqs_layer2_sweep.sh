@@ -8,6 +8,7 @@ aqs_usage() {
     '用法：bash tools/diagnostics/run_scbs_aqs_layer2_sweep.sh [--dry-run] [组别 ...]' \
     '默认顺序：R1 R2 R3 TAU1 TAU2 T1 T2（不重复已有原L2对照）' \
     '可选CONTROL：另跑一次原L2参数对照，使用独立control目录。' \
+    '可选C1：组合threshold=0.45、residual_init=0.10、temperature=0.10，只运行显式指定的组合。' \
     '示例：bash tools/diagnostics/run_scbs_aqs_layer2_sweep.sh R1 R2 R3' \
     '示例：bash tools/diagnostics/run_scbs_aqs_layer2_sweep.sh --dry-run' \
     '环境变量：AQS_SWEEP_OUTPUT_ROOT、AQS_SWEEP_RUN_ID（默认1）、' \
@@ -58,8 +59,9 @@ for aqs_group in "${aqs_groups[@]}"; do
     TAU2) aqs_tag=tau055; aqs_tau=0.55 ;;
     T1) aqs_tag=temp005; aqs_temp=0.05 ;;
     T2) aqs_tag=temp020; aqs_temp=0.20 ;;
+    C1) aqs_tag=tau045_r010; aqs_tau=0.45; aqs_rho=0.10 ;;
     CONTROL) aqs_tag=control ;;
-    *) aqs_fail "未知组别：${aqs_group}；请使用R1/R2/R3/TAU1/TAU2/T1/T2/CONTROL" ;;
+    *) aqs_fail "未知组别：${aqs_group}；请使用R1/R2/R3/TAU1/TAU2/T1/T2/CONTROL/C1" ;;
   esac
   if [[ "$aqs_group" == CONTROL ]]; then
     aqs_config='configs/dfine/dfine_s_scbs_hrw_110_aqs_layer2.yml'

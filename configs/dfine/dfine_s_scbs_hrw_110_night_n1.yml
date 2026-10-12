@@ -1,0 +1,7 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# N1: P3 backbone-output band-pass / multiple-receptive-field detail residual.
+# Independent structural screening; original losses, data, epochs and batch size.
+DFINE:
+  night_probe: backbone_bandpass

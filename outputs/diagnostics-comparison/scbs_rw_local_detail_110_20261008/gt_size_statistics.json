@@ -1,0 +1,78 @@
+{
+  "all": {
+    "inclusive_area_range": [
+      0.0,
+      10000000000.0
+    ],
+    "GT_count": 5427,
+    "saved_COCO_AP": 0.5492154053426805,
+    "images_with_GT": 1026,
+    "class_counts": {
+      "hand-raising": 2310,
+      "read": 2433,
+      "write": 684
+    },
+    "GT_area_distribution": {
+      "min": 896.583492,
+      "median": 37045.510416388,
+      "max": 1904436.72376336
+    }
+  },
+  "small": {
+    "inclusive_area_range": [
+      0.0,
+      1024.0
+    ],
+    "GT_count": 3,
+    "saved_COCO_AP": 0.25544983037395974,
+    "images_with_GT": 2,
+    "class_counts": {
+      "hand-raising": 1,
+      "read": 1,
+      "write": 1
+    },
+    "GT_area_distribution": {
+      "min": 896.583492,
+      "median": 1003.9487556609,
+      "max": 1010.2925819999999
+    }
+  },
+  "medium": {
+    "inclusive_area_range": [
+      1024.0,
+      9216.0
+    ],
+    "GT_count": 713,
+    "saved_COCO_AP": 0.3981211075410033,
+    "images_with_GT": 209,
+    "class_counts": {
+      "hand-raising": 324,
+      "read": 332,
+      "write": 57
+    },
+    "GT_area_distribution": {
+      "min": 1071.084061,
+      "median": 5652.996342577399,
+      "max": 9213.0085719848
+    }
+  },
+  "large": {
+    "inclusive_area_range": [
+      9216.0,
+      10000000000.0
+    ],
+    "GT_count": 4711,
+    "saved_COCO_AP": 0.5691527936197939,
+    "images_with_GT": 1003,
+    "class_counts": {
+      "hand-raising": 1985,
+      "read": 2100,
+      "write": 626
+    },
+    "GT_area_distribution": {
+      "min": 9222.01106720106,
+      "median": 45484.751423999995,
+      "max": 1904436.72376336
+    }
+  }
+}

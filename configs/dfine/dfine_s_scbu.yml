@@ -1,0 +1,29 @@
+__include__:
+  - dfine_hgnetv2_s_coco.yml
+
+# SCB-U original six classes; derived copies only remap category IDs to 0..5.
+# Prepare with tools/dataset/prepare_scbu_zero_based.py; originals stay untouched.
+# Standard D-FINE-S / HGNetV2-B0; no experimental modules enabled.
+num_classes: 6
+remap_mscoco_category: False
+epochs: 132
+output_dir: /media/a5/5号机移动盘2/wq_workspace/s_scbu/dfine_s_scbu_seed0_run1
+
+train_dataloader:
+  total_batch_size: 32
+  num_workers: 4
+  dataset:
+    img_folder: /media/a5/5号机移动盘2/wq_datasets/SCB-U/images/train
+    ann_file: /media/a5/5号机移动盘2/wq_datasets/SCB-U/annotations/instances_train_0based.json
+    transforms:
+      policy:
+        epoch: 120
+  collate_fn:
+    stop_epoch: 120
+
+val_dataloader:
+  total_batch_size: 32
+  num_workers: 4
+  dataset:
+    img_folder: /media/a5/5号机移动盘2/wq_datasets/SCB-U/images/val
+    ann_file: /media/a5/5号机移动盘2/wq_datasets/SCB-U/annotations/instances_val_0based.json

@@ -1,0 +1,6 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# N3: local content initialization for the unchanged encoder Top300 queries.
+DFINE:
+  night_probe: query_local_init

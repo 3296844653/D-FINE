@@ -1,0 +1,6 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# N2: P4-guided local-contrast gate on encoder P3, after FPN/PAN.
+DFINE:
+  night_probe: encoder_cross_gate

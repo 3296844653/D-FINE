@@ -1,0 +1,13 @@
+src/zoo/dfine/dfine.py
+src/zoo/dfine/dfine_decoder.py
+src/zoo/dfine/evidence_contrast_aqs.py
+configs/dfine/dfine_s_scbs_hrw_110_EvidenceContrastAQS.yml
+tools/diagnostics/run_scbs_EvidenceContrastAQS_110.sh
+tools/diagnostics/sync_scbs_EvidenceContrastAQS.sh
+tools/diagnostics/scbs_EvidenceContrastAQS_sync_files.txt
+tools/diagnostics/export_evidence_contrast_aqs.py
+tools/diagnostics/test_evidence_contrast_aqs.py
+tools/diagnostics/test_aqs_refine.py
+tools/diagnostics/test_night_probes.py
+tools/diagnostics/SCBS_EvidenceContrastAQS_110.md
+tools/diagnostics/analyze_detection_diagnostics.py

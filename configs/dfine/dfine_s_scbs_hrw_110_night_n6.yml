@@ -1,0 +1,7 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# N6: query/local-appearance + box-bin certainty -> common score correction.
+# No extra validity labels/loss, no bbox changes, no inference-only rescoring.
+DFINE:
+  night_probe: query_content_score

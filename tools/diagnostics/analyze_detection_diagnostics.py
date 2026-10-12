@@ -77,6 +77,11 @@ def load_coco_pr(eval_file, ids, image_ids=None):
     for name, index in zip(params.areaRngLbl, range(len(params.areaRngLbl))):
         aggregate[f"AP_{name}"] = valid_mean(precision[:, :, :, index, maxdet_index])
     recall = np.asarray(saved["recall"])
+    if (precision.shape != (len(params.iouThrs), len(params.recThrs), len(ids),
+                            len(params.areaRngLbl), len(params.maxDets))
+            or recall.shape != (len(params.iouThrs), len(ids),
+                                len(params.areaRngLbl), len(params.maxDets))):
+        raise ValueError("COCO evaluation axes do not match saved params")
     aggregate["AR100"] = valid_mean(recall[:, :, area_index, maxdet_index])
     per_class = {str(c): {"AP": valid_mean(precision[:, :, k, area_index, maxdet_index]),
                          "AR100": valid_mean(recall[:, k, area_index, maxdet_index])} for k, c in enumerate(ids)}
@@ -96,9 +101,22 @@ def load_coco_pr(eval_file, ids, image_ids=None):
                 "precision": [float(x) if x >= 0 else None for x in p],
                 "score_at_recall_grid": [float(x) if p[i] >= 0 else None for i, x in enumerate(s)],
             }
+    # Use the already accumulated COCO tensors, NOT custom conf=0.5 matches.
+    # Keep undefined (-1) entries as null rather than fabricating zero AP.
+    per_class_and_size = {}
+    for k, category_id in enumerate(ids):
+        per_class_and_size[str(category_id)] = {}
+        for a, area in enumerate(params.areaRngLbl):
+            metrics = {"AP": valid_mean(precision[:, :, k, a, maxdet_index]),
+                       "AR100": valid_mean(recall[:, k, a, maxdet_index])}
+            for threshold in (.5, .75):
+                t = int(np.flatnonzero(np.isclose(params.iouThrs, threshold))[0])
+                metrics[f"AP{int(threshold*100)}"] = valid_mean(precision[t, :, k, a, maxdet_index])
+            per_class_and_size[str(category_id)][area] = metrics
     return {"definition": "Saved COCO interpolated precision at 101 recall points; all areas; maxDets=100. Not the conf=0.5 Validator matrix.",
             "curves": curves, "area_ranges": dict(zip(params.areaRngLbl, params.areaRng)),
-            "saved_COCO_metrics": aggregate, "saved_COCO_per_class": per_class}
+            "saved_COCO_metrics": aggregate, "saved_COCO_per_class": per_class,
+            "saved_COCO_per_class_and_size": per_class_and_size}
 
 
 def original_gt(annotations, image):
@@ -457,6 +475,7 @@ def analyze(input_dir, annotation_file=None, output_dir=None, eval_file=None):
                "selected_pairs": len(pred_rows), "selected_pairs_above_confidence": high_total,
                "confidence_threshold": confidence, "IoU_threshold": threshold, "class_names": names,
                "saved_COCO_metrics": pr["saved_COCO_metrics"], "saved_COCO_per_class": pr["saved_COCO_per_class"],
+               "saved_COCO_per_class_and_size": pr["saved_COCO_per_class_and_size"],
                "validator_confusion": {key: matrix[key] for key in ("matching", "correct_class_matches", "misclassifications", "unmatched_predictions", "unmatched_GT")},
                "confusion_pairs": sorted(confusion_pairs, key=lambda r: -r["count"]),
                "oracle_candidate_status_counts": dict(statuses), "GT_size_counts": sizes,
@@ -473,6 +492,12 @@ def analyze(input_dir, annotation_file=None, output_dir=None, eval_file=None):
     write_json(output / "gt_best_iou_distribution.json", coverage)
     write_json(output / "gt_size_statistics.json", sizes)
     write_json(output / "coco_pr_curves.json", pr)
+    write_json(output / "coco_per_class_and_size.json", {
+        "definition": "Saved COCO evaluation, maxDets=100, per category and original COCO area range. No conf=0.5 filtering or custom matching.",
+        "units": "0~1; null means undefined, not zero",
+        "class_names": names, "area_ranges": pr["area_ranges"],
+        "metrics": pr["saved_COCO_per_class_and_size"],
+    })
     write_json(output / "score_distributions_and_quality.json", scores_report)
     write_json(output / "best_query_cross_classification.json", cross)
     for filename, records in (("gt_records.jsonl", gt_rows), ("prediction_records.jsonl", pred_rows),
@@ -480,12 +505,20 @@ def analyze(input_dir, annotation_file=None, output_dir=None, eval_file=None):
         with (output / filename).open("w", encoding="utf-8") as f:
             for row in records:
                 f.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
-    lines = ["Run1 检测诊断（只分析，不训练、不改分数、不修改标注）",
+    lines = ["检测诊断（只分析，不训练、不改分数、不修改标注）",
+             f"权重：{metadata.get('checkpoint')}；来源：{summary['weight_source']}",
              f"图像 {len(files)}；GT {len(gt_rows)}；query {total_queries}",
              "保存的 COCO 结果（0~1）：" + json.dumps(pr["saved_COCO_metrics"], ensure_ascii=False),
              f"原 Validator 混淆矩阵：{summary['validator_confusion']}",
              "各类别保存的COCO指标（0~1）：" + json.dumps({names[int(c)]: v for c, v in pr["saved_COCO_per_class"].items()}, ensure_ascii=False),
-             "类别混淆（原 Validator，GT → 预测）："]
+             "类别×尺度COCO指标（百分数；--表示不可计算；GT为导出中的非crowd有效框数）："]
+    for category, areas in pr["saved_COCO_per_class_and_size"].items():
+        name = names[int(category)]
+        for area, metrics in areas.items():
+            values = " | ".join(f"{key}={100 * value:.2f}" if value is not None else f"{key}=--"
+                                for key, value in metrics.items())
+            lines.append(f"{name} | {area} | GT={sizes[area]['class_counts'][name]} | {values}")
+    lines += ["类别混淆（原 Validator，GT → 预测）："]
     lines += [f"{r['gt']} → {r['prediction']}: {r['count']} / {r['class_GT_count']} GT" for r in summary["confusion_pairs"]]
     lines += ["GT-best IoU 候选覆盖（不是检测 Recall）：", json.dumps(coverage["coverage_at_IoU"], ensure_ascii=False),
               "原图 annotation area 尺寸分组：", json.dumps({k: v["GT_count"] for k, v in sizes.items()}, ensure_ascii=False),

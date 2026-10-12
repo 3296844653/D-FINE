@@ -24,6 +24,7 @@ PROFILES = {
     'T1': ('temp005', .5, .05, .05),
     'T2': ('temp020', .5, .05, .2),
     'CONTROL': ('control', .5, .05, .1),
+    'C1': ('tau045_r010', .45, .1, .1),
 }
 
 # Temporary fixtures only: record arguments and create a dummy checkpoint.
@@ -101,7 +102,7 @@ class AQSSweepTests(unittest.TestCase):
     def records(self):
         return [json.loads(line) for line in self.calls.read_text().splitlines()] if self.calls.exists() else []
 
-    def test_all_profiles_are_single_variable_l2_models_and_log_actual_temperature(self):
+    def test_all_profiles_are_l2_models_with_only_requested_parameter_changes(self):
         reference = fresh_config('dfine_s_scbs_hrw_110_aqs_layer2.yml').yaml_cfg
         for group, (tag, tau, rho, temperature) in PROFILES.items():
             with self.subTest(group=group):
@@ -173,6 +174,15 @@ class AQSSweepTests(unittest.TestCase):
             'dfine_s_scbs_hrw_110_aqs_layer2_r010.yml'])
         self.assertTrue(all(x['output'].endswith('seed0_run2') for x in self.records()))
         self.assertIn('layer2_control_seed0_run2', self.records()[1]['output'])
+
+    def test_optional_c1_launches_only_the_combination_and_uses_its_own_output(self):
+        result = self.run_queue('C1')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        records = self.records()
+        self.assertEqual(len(records), 1)
+        self.assertTrue(records[0]['config'].endswith('layer2_tau045_r010.yml'))
+        self.assertTrue(records[0]['output'].endswith('layer2_tau045_r010_seed0_run1'))
+        self.assertIn('C1：threshold=0.45 residual_init=0.10 temperature=0.10', result.stdout)
 
     def test_existing_later_output_aborts_before_any_training_and_preserves_file(self):
         existing = self.output / 'dfine_s_scbs_hrw_epochs110_aqs_layer2_r025_seed0_run1'

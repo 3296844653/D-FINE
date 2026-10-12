@@ -1,0 +1,9 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# N5: query-adaptive P2/P3 sampling and opposite read/write logit corrections.
+DFINE:
+  night_probe: rw_adaptive_roi
+
+HGNetv2:
+  return_idx: [0, 1, 2, 3]

@@ -1,0 +1,5 @@
+__include__:
+  - dfine_s_scbs_hrw_110_diagnostics.yml
+
+# Run2's own best_stg2.pth, EMA, --test-only. No architecture/loss changes.
+# The included config already exports all queries and the original confusion matrix.

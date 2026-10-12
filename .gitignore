@@ -12,3 +12,4 @@ dataset/.accelerate/
 
 # macOS
 .DS_Store
+/outputs/diagnostics-comparison/scbs_rw_local_detail_110_20261008/prediction_records.jsonl
