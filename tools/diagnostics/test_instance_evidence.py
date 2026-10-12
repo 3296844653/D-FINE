@@ -226,6 +226,7 @@ class InstanceEvidenceTests(unittest.TestCase):
                 del cfg, model, clone, branch, enhanced, old, losses; gc.collect()
 
     def test_640_eval_deploy_and_settings_rejection(self):
+        from calflops import calculate_flops
         for mode in INSTANCE_EVIDENCE_MODULES:
             with self.subTest(mode=mode):
                 model = config(mode, 640).model.eval()
@@ -241,6 +242,7 @@ class InstanceEvidenceTests(unittest.TestCase):
                     actual = deployed.decoder(features, p2_feat=p2)
                     for key in original:
                         torch.testing.assert_close(actual[key], original[key], rtol=1e-5, atol=1e-5)
+                    calculate_flops(copy.deepcopy(deployed),input_shape=(1,3,640,640),print_results=False)
                 branch = model.decoder.instance_evidence
                 wrong = build_instance_evidence(mode, grid=5)
                 with self.assertRaisesRegex(RuntimeError,"settings differ"):

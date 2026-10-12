@@ -124,15 +124,9 @@ def difference(old,new):
     return None
 
 
-def compare(output, reference, label):
-    analysis = output/"diagnostics_eval/analysis"
-    old_analysis = reference/"analysis"
-    old = json.loads((old_analysis/"summary.json").read_text())
-    new = json.loads((analysis/"summary.json").read_text())
-    for key in ("weight_source","GT","images","queries","class_names","confidence_threshold","IoU_threshold"):
-        assert old[key] == new[key], f"诊断口径不同：{key}"
+def check_reference(reference, label):
+    old = json.loads((reference/"analysis/summary.json").read_text())
     assert old["weight_source"] == "ema", "要求同为最佳EMA权重"
-    assert gt_identity(old_analysis) == gt_identity(analysis), "GT图像/类别/面积/框不一致，拒绝比较"
     metadata = json.loads((reference/"evaluation/query_diagnostics/metadata.json").read_text())
     assert metadata["complete"] and metadata["checkpoint_sha256"] == old["checkpoint_sha256"]
     decoder = metadata["config"]["DFINETransformer"]
@@ -144,6 +138,16 @@ def compare(output, reference, label):
     else:
         assert not decoder.get("use_aqs_refine",False), "BaselineRun2不应包含AQS"
         assert old["checkpoint_sha256"] == "4ff8f014c4497e2d918de11f3fcc6d741bcc19315a9283c8b7786162154ee271", "不是此前核验的Baseline Run2"
+    return old
+
+
+def compare(output, reference, label):
+    analysis = output/"diagnostics_eval/analysis"
+    old = check_reference(reference,label)
+    new = json.loads((analysis/"summary.json").read_text())
+    for key in ("weight_source","GT","images","queries","class_names","confidence_threshold","IoU_threshold"):
+        assert old[key] == new[key], f"诊断口径不同：{key}"
+    assert gt_identity(reference/"analysis") == gt_identity(analysis), "GT图像/类别/面积/框不一致，拒绝比较"
     keys = ("saved_COCO_metrics","saved_COCO_per_class","saved_COCO_per_class_and_size",
             "validator_confusion","best_query_cross_classification")
     report = dict(reference=label, reference_checkpoint=old["checkpoint"],
@@ -167,11 +171,16 @@ def main():
     p = sub.add_parser("parameters"); p.add_argument("checkpoint",type=Path); p.add_argument("output",type=Path)
     p = sub.add_parser("compare"); p.add_argument("output",type=Path); p.add_argument("reference",type=Path)
     p.add_argument("label",choices=("AQS_L2_R1","BaselineRun2"))
+    p = sub.add_parser("reference"); p.add_argument("reference",type=Path)
+    p.add_argument("label",choices=("AQS_L2_R1","BaselineRun2"))
     args = parser.parse_args()
     if args.operation == "preflight": preflight(args.modes,args.dry_run)
     elif args.operation == "snapshot": snapshot(args.mode,args.output)
     elif args.operation == "parameters": parameters(args.checkpoint,args.output)
-    else: compare(args.output,args.reference,args.label)
+    elif args.operation == "compare": compare(args.output,args.reference,args.label)
+    else:
+        check_reference(args.reference,args.label)
+        print(f"参考身份通过：{args.label}",flush=True)
 
 
 if __name__ == "__main__": main()

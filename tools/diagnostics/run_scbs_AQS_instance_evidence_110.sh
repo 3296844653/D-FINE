@@ -63,6 +63,14 @@ PY
 }
 evidence_check_gpu_port
 "$evidence_conda" run --no-capture-output -n "$evidence_env" python -u "$evidence_helper" preflight "${evidence_modes[@]}"
+for evidence_label in AQS_L2_R1 BaselineRun2; do
+  evidence_reference="$evidence_aqs_reference"
+  [[ "$evidence_label" != BaselineRun2 ]] || evidence_reference="$evidence_run2_reference"
+  if [[ -f "$evidence_reference/analysis/summary.json" && -f "$evidence_reference/analysis/gt_records.jsonl" && -f "$evidence_reference/evaluation/query_diagnostics/metadata.json" ]]; then
+    "$evidence_conda" run --no-capture-output -n "$evidence_env" \
+    python -u "$evidence_helper" reference "$evidence_reference" "$evidence_label"
+  fi
+done
 printf '\n合成正确性测试（包含服务器CUDA FP16和batch32局部分支；不是效果验证）。\n'
 "$evidence_conda" run --no-capture-output -n "$evidence_env" python -u tools/diagnostics/test_instance_evidence.py
 for evidence_mode in "${evidence_modes[@]}"; do
