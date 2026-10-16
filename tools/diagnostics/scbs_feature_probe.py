@@ -1,4 +1,4 @@
-"""Frozen SCB-S baseline probes; conditional classification, NEVER detector AP.
+"""Frozen SCB-S baseline / explicit AQS probes; conditional classification.
 
 Two independently fixed GT/query pairings are retained: IoU-only Hungarian
 oracle candidates, and actual flattened query-class top-k predictions matched
@@ -97,15 +97,37 @@ def build_frozen_detector(config, device):
         for diagnostic_key, detector_key in (('image_dir', 'img_folder'), ('annotation', 'ann_file')):
             if Path(config['data'][split][diagnostic_key]).resolve() != Path(declared[detector_key]).resolve():
                 raise ValueError(f'{split}: probe data paths differ from detector baseline config')
+    variant = config.get('detector_variant', 'baseline')
+    if variant not in ('baseline', 'aqs_l2_r010'):
+        raise ValueError('detector_variant must be baseline or aqs_l2_r010')
+    if variant == 'aqs_l2_r010':
+        dec = cfg.yaml_cfg['DFINETransformer']
+        if (not dec.get('use_aqs_refine') or dec.get('aqs_apply_layer') != 2
+                or dec.get('aqs_apply_layers') is not None
+                or dec.get('aqs_refiner_type', 'legacy') != 'legacy'
+                or (dec.get('aqs_threshold'), dec.get('aqs_residual_init'),
+                    dec.get('aqs_temperature')) != (.5, .1, .1)):
+            raise ValueError('Expected the single L2 AQS R1 configuration')
     model = cfg.model
+    if getattr(model, 'serf_placement', 'none') != 'none':
+        raise ValueError('This baseline/AQS probe does not allow a SERF feature experiment')
+    if getattr(model.decoder, 'behavior_refinement_module', 'none') != 'none':
+        raise ValueError('This baseline/AQS probe does not allow a new behavior refinement module')
     for component in (model.backbone, model.encoder, model.decoder):
         # HGNetv2's LearnableAffineBlock is part of the official B0 baseline,
         # not an experimental module. Its normal `use_lab: true` must be kept.
         enabled = [name for name, value in vars(component).items()
                    if name.startswith('use_') and name != 'use_lab'
+                   and not (variant == 'aqs_l2_r010' and component is model.decoder
+                            and name == 'use_aqs_refine')
                    and isinstance(value, bool) and value]
         if enabled:
             raise ValueError(f'Baseline only: experimental flags enabled: {enabled}')
+    if variant == 'aqs_l2_r010' and (
+            model.decoder.decoder.aqs_layer_indices != (1,)
+            or model.decoder.decoder.query_cls_refiner is None
+            or model.decoder.num_queries != 300):
+        raise ValueError('AQS checkpoint must execute L2 only with 300 ordinary queries')
     checkpoint = torch.load(config['checkpoint'], map_location='cpu', weights_only=False)
     source = 'ema' if 'ema' in checkpoint else 'model'
     state = checkpoint['ema']['module'] if source == 'ema' else checkpoint['model']

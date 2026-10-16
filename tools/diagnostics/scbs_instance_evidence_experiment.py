@@ -131,6 +131,7 @@ def check_reference(reference, label):
     assert metadata["complete"] and metadata["checkpoint_sha256"] == old["checkpoint_sha256"]
     decoder = metadata["config"]["DFINETransformer"]
     assert decoder.get("instance_evidence_module","none") == "none", "参考不应带新增模块"
+    assert not decoder.get("use_discriminative_evidence_l2",False), "参考不应包含新证据模块"
     if label == "AQS_L2_R1":
         assert decoder.get("use_aqs_refine",False) and decoder.get("aqs_apply_layer") == 2
         assert decoder.get("aqs_apply_layers") is None
@@ -150,11 +151,16 @@ def compare(output, reference, label):
     assert gt_identity(reference/"analysis") == gt_identity(analysis), "GT图像/类别/面积/框不一致，拒绝比较"
     keys = ("saved_COCO_metrics","saved_COCO_per_class","saved_COCO_per_class_and_size",
             "validator_confusion","best_query_cross_classification")
+    # Older AQS exports lack the category x scale table. Keep that absence
+    # explicit; never fabricate metrics or abort after a completed long run.
+    missing = {"reference":[k for k in keys if k not in old],
+               "module":[k for k in keys if k not in new]}
     report = dict(reference=label, reference_checkpoint=old["checkpoint"],
         reference_checkpoint_sha256=old["checkpoint_sha256"], module_checkpoint=new["checkpoint"],
         module_checkpoint_sha256=new["checkpoint_sha256"], AP_delta_unit="fraction; x100 = percentage points",
-        reference_metrics={k:old[k] for k in keys}, module_metrics={k:new[k] for k in keys},
-        numeric_differences={k:difference(old[k],new[k]) for k in keys},
+        missing_metrics=missing,
+        reference_metrics={k:old.get(k) for k in keys}, module_metrics={k:new.get(k) for k in keys},
+        numeric_differences={k:difference(old[k],new[k]) if k in old and k in new else None for k in keys},
         reference_confusion_pairs=old["confusion_pairs"], module_confusion_pairs=new["confusion_pairs"],
         warning="Single-run diagnostic response, not stable gains or mechanism/novelty proof.")
     target = output/f"diagnostics_eval/compare_{label}.json"

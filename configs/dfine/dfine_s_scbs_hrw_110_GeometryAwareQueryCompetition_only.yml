@@ -1,0 +1,14 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# Original D-FINE-S + the ORIGINAL GQC. No AQS / BoxLocal / RQC.
+# Same GQC dimensions/scale/chunk as the earlier AQS+GQC experiment.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_GQC_only_seed0_run1
+DFINETransformer:
+  use_aqs_refine: false
+  allow_gqc_standalone: true
+  behavior_refinement_module: GeometryAwareQueryCompetition
+  behavior_refinement_dim: 64
+  behavior_refinement_scale: 0.10
+  behavior_refinement_chunk: 32
+  behavior_refinement_checkpoint: true

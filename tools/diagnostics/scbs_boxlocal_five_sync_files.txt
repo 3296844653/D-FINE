@@ -1,0 +1,17 @@
+src/zoo/dfine/dfine.py
+src/zoo/dfine/dfine_decoder.py
+src/zoo/dfine/hybrid_encoder.py
+src/zoo/dfine/box_local_extensions.py
+configs/dfine/dfine_s_scbs_hrw_110_night_n4.yml
+configs/dfine/dfine_s_scbs_hrw_110_BoxLocalL2_DDB.yml
+configs/dfine/dfine_s_scbs_hrw_110_BoxLocalL2_SCR.yml
+configs/dfine/dfine_s_scbs_hrw_110_BoxLocalL2_CNF.yml
+configs/dfine/dfine_s_scbs_hrw_110_BoxLocalL2_PRQI.yml
+configs/dfine/dfine_s_scbs_hrw_110_BoxLocalL2_RQC.yml
+tools/diagnostics/boxlocal_five_spec.py
+tools/diagnostics/scbs_boxlocal_five.py
+tools/diagnostics/run_scbs_boxlocal_five_110.sh
+tools/diagnostics/sync_scbs_boxlocal_five.sh
+tools/diagnostics/scbs_boxlocal_five_sync_files.txt
+tools/diagnostics/test_boxlocal_five.py
+docs/SCBS_BoxLocal_Five_110.md

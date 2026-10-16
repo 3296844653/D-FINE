@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="900" viewBox="0 0 1800 900" role="img" aria-labelledby="title desc">
+<title id="title">AQS internal structure</title><desc id="desc">Source-checked AQS-L2: class confidence, learned threshold, hard forward gate with straight-through training gradients, selected raw-query mean, LayerNorm and context concatenation, MLP, gated residual update. The number of queries is unchanged. No direct feature-map or bbox input.</desc>
+<defs>
+<marker id="arrow0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#303030"/></marker>
+<marker id="arrow1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#4274A7"/></marker>
+<marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#B85A1D"/></marker>
+</defs>
+<rect width="1800" height="900" fill="white"/>
+<g font-family="&#x27;Times New Roman&#x27;, &#x27;Noto Serif&#x27;, serif">
+<rect x="230" y="110" width="1415" height="635" rx="28" fill="#F2F3F3" stroke="#D2D6D6" stroke-width="2"/>
+<polyline id="logits_confidence" points="210,225 260,225" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="confidence_gate" points="460,225 510,225" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="threshold_gate" points="627.5,340 627.5,295" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="gate_pool" points="745,225 810,225" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="gate_residual" points="745,225 775,225 775,130 1300,130 1300,455 1367,455 1367,500" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="raw_query_pool" points="125,500 125,460 853.5,460 853.5,295" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="pool_concat" points="955,295 955,430 905,430 905,500" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="query_norm" points="210,555 260,555" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="norm_concat" points="460,555 810,555" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="concat_mlp" points="1000,555 1050,555" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="mlp_residual" points="1280,555 1325,555" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="scale_residual" points="1493,430 1493,500" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="residual_sum" points="1535,555 1590,555" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="identity" points="125,610 125,690 1615,690 1615,580" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="sum_output" points="1640,555 1675,555" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="output_l3" points="1720,610 1720,665" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<text x="900" y="45" dominant-baseline="central" text-anchor="middle" font-size="32" font-weight="700" fill="#151515">Adaptive Query Selection (AQS)</text>
+<text x="900" y="86" dominant-baseline="central" text-anchor="middle" font-size="21" font-weight="400" fill="#151515">Decoder L2  →  AQS  →  Decoder L3</text>
+<rect x="40" y="170" width="170" height="110" rx="8" fill="#FFF0C7" stroke="#505050" stroke-width="2"/>
+<text x="125" y="198" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#151515">L2 logits S2</text>
+<text x="125" y="228.75" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#151515">ClsHead2 + LQE2</text>
+<text x="125" y="255.75" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#151515">N x C</text>
+<rect x="260" y="170" width="200" height="110" rx="8" fill="#FFF0C7" stroke="#505050" stroke-width="2"/>
+<text x="360" y="211.5" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#151515">Class Confidence</text>
+<text x="360" y="242.25" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#151515">s_i = max_c σ(S2,i,c)</text>
+<rect x="510" y="155" width="235" height="140" rx="8" fill="#F7D3CE" stroke="#505050" stroke-width="2"/>
+<text x="627.5" y="186.75" dominant-baseline="central" text-anchor="middle" font-size="24" font-weight="700" fill="#151515">Hard Gate + STE</text>
+<text x="627.5" y="217.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#151515">h_i = 1[s_i ≥ τ]</text>
+<text x="627.5" y="243" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#151515">g_s = σ((s_i − τ)/T)</text>
+<text x="627.5" y="268.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#151515">forward h; backward g_s</text>
+<rect x="510" y="340" width="235" height="105" rx="8" fill="#FFF0C7" stroke="#505050" stroke-width="2"/>
+<text x="627.5" y="365.5" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#151515">Learned Threshold</text>
+<text x="627.5" y="396.25" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#151515">τ = σ(θ)</text>
+<text x="627.5" y="423.25" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#151515">T = 0.10  (fixed)</text>
+<rect x="810" y="155" width="290" height="140" rx="8" fill="#DCE9DF" stroke="#505050" stroke-width="2"/>
+<text x="955" y="199.5" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#151515">Selected-query Mean</text>
+<text x="955" y="229.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#151515">c = Σ(g_i q_i) / max(Σg_i, 1)</text>
+<text x="955" y="255" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#151515">Broadcast c to N queries</text>
+<rect x="40" y="500" width="170" height="110" rx="8" fill="#E0EAF5" stroke="#505050" stroke-width="2"/>
+<text x="125" y="540" dominant-baseline="central" text-anchor="middle" font-size="24" font-weight="700" fill="#151515">L2 query Q2</text>
+<text x="125" y="573" dominant-baseline="central" text-anchor="middle" font-size="20" font-weight="400" fill="#151515">300 x 256</text>
+<rect x="260" y="500" width="200" height="110" rx="8" fill="#E0EAF5" stroke="#505050" stroke-width="2"/>
+<text x="360" y="540" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#151515">LayerNorm</text>
+<text x="360" y="573.75" dominant-baseline="central" text-anchor="middle" font-size="20" font-weight="400" fill="#151515">LN(q_i)</text>
+<rect x="810" y="500" width="190" height="110" rx="8" fill="#E0EAF5" stroke="#505050" stroke-width="2"/>
+<text x="905" y="528" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#151515">Concat</text>
+<text x="905" y="560.25" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#151515">[LN(q_i); c]</text>
+<text x="905" y="587.25" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#151515">2D = 512</text>
+<rect x="1050" y="500" width="230" height="110" rx="8" fill="#E0EAF5" stroke="#505050" stroke-width="2"/>
+<text x="1165" y="529.5" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#151515">Fusion MLP</text>
+<text x="1165" y="561" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#151515">Linear → SiLU → Linear</text>
+<text x="1165" y="586.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#151515">512 → 256 → 256</text>
+<rect x="1415" y="340" width="180" height="90" rx="8" fill="#FFF0C7" stroke="#505050" stroke-width="2"/>
+<text x="1505" y="370" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#151515">Learned Scale</text>
+<text x="1505" y="402.25" dominant-baseline="central" text-anchor="middle" font-size="20" font-weight="400" fill="#151515">β = tanh(ρ)</text>
+<rect x="1325" y="500" width="210" height="110" rx="8" fill="#F7D3CE" stroke="#505050" stroke-width="2"/>
+<text x="1430" y="539.25" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#151515">Gated Residual</text>
+<text x="1430" y="572.25" dominant-baseline="central" text-anchor="middle" font-size="21" font-weight="400" fill="#151515">β · g_i · Δq_i</text>
+<ellipse cx="1615" cy="555" rx="25" ry="25" fill="#FFFFFF" stroke="#505050" stroke-width="2"/>
+<text x="1615" y="555" dominant-baseline="central" text-anchor="middle" font-size="32" font-weight="700" fill="#151515">+</text>
+<rect x="1675" y="500" width="90" height="110" rx="8" fill="#F7D3CE" stroke="#505050" stroke-width="2"/>
+<text x="1720" y="544.5" dominant-baseline="central" text-anchor="middle" font-size="27" font-weight="700" fill="#151515">Q2′</text>
+<text x="1720" y="575.25" dominant-baseline="central" text-anchor="middle" font-size="14" font-weight="400" fill="#151515">300 x 256</text>
+<rect x="1655" y="665" width="130" height="74" rx="8" fill="#E0EAF5" stroke="#505050" stroke-width="2"/>
+<text x="1720" y="690" dominant-baseline="central" text-anchor="middle" font-size="19" font-weight="700" fill="#151515">Decoder L3</text>
+<text x="1720" y="716.25" dominant-baseline="central" text-anchor="middle" font-size="16" font-weight="400" fill="#151515">next layer</text>
+<text x="1360" y="259.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#B85A1D">gate g</text>
+<text x="402.5" y="445" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#4274A7">raw query features</text>
+<text x="1061" y="365" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#4274A7">pooled context c</text>
+<text x="857.5" y="713.5" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#4274A7">Identity path: g_i = 0 leaves the original query unchanged</text>
+<text x="900" y="783" dominant-baseline="central" text-anchor="middle" font-size="26" font-weight="700" fill="#151515">q_i′ = q_i + tanh(ρ) · g_i · MLP([LN(q_i); c])</text>
+<text x="900" y="826.5" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#151515">N = 300, D = 256.  Initial τ = 0.50, initial ρ = 0.10; T = 0.10 is fixed.  Query count is unchanged.</text>
+<text x="900" y="863.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#151515">Training: STE gate gradients; ordinary and DN queries pool separately. The MLP output layer is zero-initialized.</text>
+</g>
+</svg>

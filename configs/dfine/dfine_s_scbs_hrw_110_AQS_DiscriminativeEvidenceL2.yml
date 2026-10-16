@@ -1,0 +1,29 @@
+__include__:
+  - dfine_s_scbs_hrw_110_aqs_layer2_r010.yml
+
+# AQS-L2 R1 remains trainable and unchanged; ONE new query evidence mechanism.
+# Order: Decoder L2 -> AQS -> DiscriminativeEvidenceL2 -> Decoder L3.
+# Predicted boxes only; original losses, 110/100 epochs, batch32, seed0.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_AQS_DiscriminativeEvidenceL2_seed0_run1
+
+HGNetv2:
+  return_idx: [0, 1, 2, 3]
+
+train_dataloader:
+  dataset:
+    img_folder: /media/a5/5号机移动盘2/wq_datasets/SCB-S/images/train
+    ann_file: /media/a5/5号机移动盘2/wq_datasets/SCB-S/annotations/instances_train.json
+
+val_dataloader:
+  dataset:
+    img_folder: /media/a5/5号机移动盘2/wq_datasets/SCB-S/images/val
+    ann_file: /media/a5/5号机移动盘2/wq_datasets/SCB-S/annotations/instances_val.json
+
+DFINETransformer:
+  use_discriminative_evidence_l2: true
+  discriminative_evidence_dim: 64
+  discriminative_evidence_grid: 7
+  discriminative_evidence_p2_channels: 64
+  discriminative_evidence_scale: 0.10
+  discriminative_evidence_chunk: 32
+  discriminative_evidence_checkpoint: true

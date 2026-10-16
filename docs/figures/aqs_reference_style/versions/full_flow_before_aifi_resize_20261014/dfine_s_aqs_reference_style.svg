@@ -1,0 +1,329 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="620" viewBox="0 0 2000 620" role="img" aria-labelledby="title desc">
+<title id="title">D-FINE-S + AQS - compact reference flow</title><desc id="desc">Compact reference-style overview. Original D-FINE Hybrid Encoder and Top300 query initialization are retained. AQS refines query content after decoder layer 2 and before layer 3. Fusion containers summarize three scale states, not the number of executable fusion operators. Classroom images and colored output links are schematic, not measured predictions.</desc>
+<defs>
+<marker id="arrow0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#303030"/></marker>
+<marker id="arrow1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#4274A7"/></marker>
+<marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#B85A1D"/></marker>
+</defs>
+<rect width="2000" height="620" fill="white"/>
+<g font-family="&#x27;Times New Roman&#x27;, &#x27;Noto Serif&#x27;, serif">
+<rect x="280" y="70" width="640" height="426.4" rx="52.8" fill="#F1F1F1" stroke="none" stroke-width="2"/>
+<rect x="658" y="123.8" width="249" height="355" rx="14" fill="#DFEBE5" stroke="#C6D7CC" stroke-width="2"/>
+<polygon points="361.4,414 628,414 584.6,461 318,461" fill="#B1D28F" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="358.4,418 625,418 581.6,465 315,465" fill="#C1DBA8" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="355.4,422 622,422 578.6,469 312,469" fill="#D2E4BE" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="377.98,396.8 599,396.8 563.02,440.8 342,440.8" fill="#B1D28F" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="374.98,400.8 596,400.8 560.02,444.8 339,444.8" fill="#C1DBA8" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="371.98,404.8 593,404.8 557.02,448.8 336,448.8" fill="#D2E4BE" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="394.84,378.8 572,378.8 543.16,418.8 366,418.8" fill="#B1D28F" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="391.84,382.8 569,382.8 540.16,422.8 363,422.8" fill="#C1DBA8" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="388.84,386.8 566,386.8 537.16,426.8 360,426.8" fill="#D2E4BE" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="429.12,137.8 577.04,137.8 552.96,181.8 405.04,181.8" fill="#B1D28F" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="426.12,141.8 574.04,141.8 549.96,185.8 402.04,185.8" fill="#C1DBA8" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="423.12,145.8 571.04,145.8 546.96,189.8 399.04,189.8" fill="#D2E4BE" stroke="#8D947E" stroke-width="1.5"/>
+<rect x="40" y="170" width="220" height="160" rx="2" fill="#F0F3F1" stroke="#BCC5C5" stroke-width="2"/>
+<rect x="1150" y="70" width="170" height="426.4" rx="8" fill="#C9D9EC" stroke="#AEBFD5" stroke-width="2"/>
+<rect x="1455" y="218" width="470" height="255" rx="2" fill="#F0F3F1" stroke="#BCC5C5" stroke-width="2"/>
+<rect x="1510" y="70" width="175" height="93" rx="5" fill="#FFE7A1" stroke="#AAB2BA" stroke-width="2"/>
+<rect x="1755" y="70" width="175" height="93" rx="5" fill="#BFD0E9" stroke="#AAB2BA" stroke-width="2"/>
+<rect x="1603" y="511" width="322" height="94" rx="3" fill="#FFFFFF" stroke="#7B8791" stroke-width="2" stroke-dasharray="7 5"/>
+<polyline id="a5_grid_u1" points="437.912,145.8 413.832,189.8" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u2" points="452.704,145.8 428.624,189.8" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u3" points="467.496,145.8 443.416,189.8" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u4" points="482.288,145.8 458.208,189.8" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u5" points="497.08,145.8 473,189.8" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u6" points="511.872,145.8 487.792,189.8" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u7" points="526.664,145.8 502.584,189.8" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u8" points="541.456,145.8 517.376,189.8" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u9" points="556.248,145.8 532.168,189.8" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_v1" points="417.1,156.8 565.02,156.8" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_v2" points="411.08,167.8 559,167.8" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_v3" points="405.06,178.8 552.98,178.8" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_feature_pos0" points="323,347.8 323,342.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input0" points="323,322.8 323,308.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output0" points="323,256.8 323,237.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos1" points="353,347.8 353,342.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input1" points="353,322.8 353,308.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output1" points="353,256.8 353,237.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos2" points="383,347.8 383,342.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input2" points="383,322.8 383,308.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output2" points="383,256.8 383,237.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos3" points="413,347.8 413,342.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input3" points="413,322.8 413,308.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output3" points="413,256.8 413,237.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos4" points="443,347.8 443,342.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input4" points="443,322.8 443,308.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output4" points="443,256.8 443,237.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos5" points="473,347.8 473,342.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input5" points="473,322.8 473,308.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output5" points="473,256.8 473,237.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos6" points="503,347.8 503,342.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input6" points="503,322.8 503,308.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output6" points="503,256.8 503,237.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos7" points="533,347.8 533,342.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input7" points="533,322.8 533,308.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output7" points="533,256.8 533,237.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos8" points="563,347.8 563,342.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input8" points="563,322.8 563,308.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output8" points="563,256.8 563,237.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos9" points="593,347.8 593,342.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input9" points="593,322.8 593,308.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output9" points="593,256.8 593,237.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos10" points="623,347.8 623,342.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input10" points="623,322.8 623,308.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output10" points="623,256.8 623,237.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="p5_tokens" points="473,386.8 473,367.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="tokens_a5" points="473,217.8 473,189.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="a5_coarse_input" points="559,167.8 645,167.8 645,260.8 688,260.8" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="p4_scale_input" points="593,404.8 645,404.8 645,314.8 688,314.8" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="p3_scale_input" points="622,422 688,422" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="top_down_mid" points="702,274.8 702,296.8" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="mid_fine_projection" points="702,332.8 702,358.4" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="top_down_fine" points="702,386.4 702,404" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="fine_resample_input" points="756,404 756,386.4" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="bottom_up_mid" points="756,358.4 756,332.8" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="coarse_resample_input" points="756,296.8 756,274.8" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="bottom_up_coarse" points="756,246.8 756,225.6" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<path d="M750 285.8 Q756 295.8 762 285.8" fill="none" stroke="#DFEBE5" stroke-width="6"/><path id="coarse_lateral_skip" d="M702 285.8 L750 285.8 Q756 295.8 762 285.8 L820 285.8 L820 218.4 L794 218.4" fill="none" stroke="#4274A7" stroke-width="2.2" marker-end="url(#arrow1)"/>
+<path d="M750 394.8 Q756 404.8 762 394.8" fill="none" stroke="#DFEBE5" stroke-width="6"/><path id="fine_lateral_skip" d="M702 394.8 L750 394.8 Q756 404.8 762 394.8 L820 394.8 L820 325.6 L794 325.6" fill="none" stroke="#4274A7" stroke-width="2.2" marker-end="url(#arrow1)"/>
+<polyline id="coarse_output_c" points="794,207.6 889,207.6 889,299.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="middle_output_c" points="794,314.8 874,314.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="fine_output_c" points="794,422 889,422 889,329.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="input_backbone" points="150,330 150,385" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="backbone_levels" points="209.5,469 209.5,469 312,469" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="concat_memory" points="904,314.8 950,314.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="memory_selection" points="971,314.8 1008,314.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="selection_queries" points="1056,314.8 1095,314.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="l1_l2" points="1248,152 1248,186" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="l2_aqs" points="1248,232 1248,266" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aqs_l3" points="1248,312 1248,346" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="l3_heads" points="1248,392 1248,438" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="queries_decoder" points="1116,314.8 1150,314.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="shared_memory" points="960.5,122.8 960.5,43 1255.4,43 1255.4,70" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="decoder_predictions" points="1320,314.8 1366,314.8" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+
+
+
+<polyline id="yellow_legend_link" points="1494,116.5 1510,116.5" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="blue_legend_link" points="1739,116.5 1755,116.5" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<ellipse cx="889" cy="314.8" rx="15" ry="15" fill="#FFFFFF" stroke="#505050" stroke-width="2"/>
+<text x="889" y="314.8" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#151515">C</text>
+<text x="600" y="96.8" dominant-baseline="central" text-anchor="middle" font-size="27.2" font-weight="700" fill="#151515">Efficient Hybrid Encoder</text>
+<text x="782.5" y="144.3" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#151515">CCFF</text>
+<text x="312" y="446" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="347.5" y="456" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#151515">P3</text>
+<text x="336" y="427.3" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="371.5" y="435.8" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#151515">P4</text>
+<text x="360" y="407.3" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="395.5" y="413.8" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#151515">P5</text>
+<text x="399.04" y="168.3" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="569.5" y="199.8" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#151515">A5</text>
+<text x="559" y="167.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="473" y="189.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="473" y="386.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="593" y="404.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="622" y="422" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="437.912" y="145.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="413.832" y="189.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="452.704" y="145.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="428.624" y="189.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="467.496" y="145.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="443.416" y="189.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="482.288" y="145.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="458.208" y="189.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="497.08" y="145.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="473" y="189.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="511.872" y="145.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="487.792" y="189.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="526.664" y="145.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="502.584" y="189.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="541.456" y="145.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="517.376" y="189.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="556.248" y="145.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="532.168" y="189.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="417.1" y="156.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="565.02" y="156.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="411.08" y="167.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="559" y="167.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="405.06" y="178.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="552.98" y="178.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<rect x="306" y="256.8" width="334" height="52" rx="8" fill="#D9E8DE" stroke="#505050" stroke-width="2"/>
+<text x="473" y="282.8" dominant-baseline="central" text-anchor="middle" font-size="28" font-weight="700" fill="#151515">AIFI</text>
+<text x="312" y="227.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<rect x="312" y="217.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="342" y="217.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="372" y="217.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="402" y="217.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="432" y="217.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="462" y="217.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="492" y="217.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="522" y="217.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="552" y="217.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="582" y="217.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="612" y="217.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<text x="312" y="332.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<rect x="312" y="322.8" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="342" y="322.8" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="372" y="322.8" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="402" y="322.8" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="432" y="322.8" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="462" y="322.8" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="492" y="322.8" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="522" y="322.8" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="552" y="322.8" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="582" y="322.8" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="612" y="322.8" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<text x="312" y="357.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<rect x="312" y="347.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="342" y="347.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="372" y="347.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="402" y="347.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="432" y="347.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="462" y="347.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="492" y="347.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="522" y="347.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="552" y="347.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="582" y="347.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="612" y="347.8" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="688" y="189.6" width="106" height="36" rx="8" fill="#FBEAD9" stroke="#505050" stroke-width="2"/>
+<text x="741" y="207.6" dominant-baseline="central" text-anchor="middle" font-size="19.2" font-weight="700" fill="#151515">Fusion</text>
+<rect x="688" y="296.8" width="106" height="36" rx="8" fill="#FBEAD9" stroke="#505050" stroke-width="2"/>
+<text x="741" y="314.8" dominant-baseline="central" text-anchor="middle" font-size="19.2" font-weight="700" fill="#151515">Fusion</text>
+<rect x="688" y="404" width="106" height="36" rx="8" fill="#FBEAD9" stroke="#505050" stroke-width="2"/>
+<text x="741" y="422" dominant-baseline="central" text-anchor="middle" font-size="19.2" font-weight="700" fill="#151515">Fusion</text>
+<rect x="688" y="246.8" width="28" height="28" rx="4" fill="#FFE7A1" stroke="#505050" stroke-width="2"/>
+<rect x="742" y="246.8" width="28" height="28" rx="4" fill="#BFD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="688" y="358.4" width="28" height="28" rx="4" fill="#FFE7A1" stroke="#505050" stroke-width="2"/>
+<rect x="742" y="358.4" width="28" height="28" rx="4" fill="#BFD0E9" stroke="#505050" stroke-width="2"/>
+<text x="702" y="285.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="702" y="394.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<rect x="53.2" y="184.4" width="105.6" height="35.2" rx="0" fill="#C4D7CC" stroke="none" stroke-width="2"/>
+<rect x="187.4" y="184.4" width="55" height="35.2" rx="0" fill="#D6EAF0" stroke="none" stroke-width="2"/>
+<rect x="212.48" y="184.4" width="4.4" height="35.2" rx="0" fill="#FFFFFF" stroke="none" stroke-width="2"/>
+<rect x="40" y="298" width="220" height="32" rx="0" fill="#E1E2DC" stroke="none" stroke-width="2"/>
+<rect x="72.56" y="253.2" width="27.28" height="36.8" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="86.2" cy="241.2" rx="10.12" ry="10.4" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="59.8" y="282" width="52.8" height="10.4" rx="0" fill="#CBBCA2" stroke="none" stroke-width="2"/>
+<rect x="67.5" y="292.4" width="3.52" height="23.2" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="101.6" y="292.4" width="3.52" height="23.2" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="67.5" y="226.8" width="5.5" height="40" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="70.14" cy="223.84" rx="3.08" ry="4.24" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="136.36" y="253.2" width="27.28" height="36.8" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="150" cy="241.2" rx="10.12" ry="10.4" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="123.6" y="282" width="52.8" height="10.4" rx="0" fill="#CBBCA2" stroke="none" stroke-width="2"/>
+<rect x="131.3" y="292.4" width="3.52" height="23.2" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="165.4" y="292.4" width="3.52" height="23.2" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="139.66" y="272.88" width="24.2" height="8" rx="0" fill="#FFFDF3" stroke="none" stroke-width="2"/>
+<rect x="150.44" y="272.88" width="1.76" height="8" rx="0" fill="#C6CECA" stroke="none" stroke-width="2"/>
+<rect x="200.16" y="253.2" width="27.28" height="36.8" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="213.8" cy="241.2" rx="10.12" ry="10.4" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="187.4" y="282" width="52.8" height="10.4" rx="0" fill="#CBBCA2" stroke="none" stroke-width="2"/>
+<rect x="195.1" y="292.4" width="3.52" height="23.2" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="229.2" y="292.4" width="3.52" height="23.2" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="203.46" y="272.88" width="24.2" height="8" rx="0" fill="#FFFDF3" stroke="none" stroke-width="2"/>
+<rect x="214.24" y="272.88" width="1.76" height="8" rx="0" fill="#C6CECA" stroke="none" stroke-width="2"/>
+<rect x="225.9" y="266" width="1.98" height="14.72" rx="0" fill="#697984" stroke="none" stroke-width="2"/>
+<text x="150" y="348" dominant-baseline="central" text-anchor="middle" font-size="20" font-weight="400" fill="#151515">Input image</text>
+<polygon points="65,385 235,385 209.5,469 90.5,469" fill="#FFE7A1" stroke="#505050" stroke-width="1.5"/>
+<text x="150" y="427" dominant-baseline="central" text-anchor="middle" font-size="26" font-weight="700" fill="#151515">Backbone</text>
+<text x="950" y="314.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<rect x="950" y="122.8" width="21" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="950" y="148.8" width="21" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="950" y="174.8" width="21" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="950" y="200.8" width="21" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="950" y="226.8" width="21" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="950" y="252.8" width="21" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="950" y="278.8" width="21" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="950" y="304.8" width="21" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="950" y="330.8" width="21" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="950" y="356.8" width="21" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="950" y="382.8" width="21" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="950" y="408.8" width="21" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="950" y="434.8" width="21" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="950" y="460.8" width="21" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="950" y="486.8" width="21" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<text x="961" y="528.8" dominant-baseline="central" text-anchor="middle" font-size="19" font-weight="400" fill="#151515">Memory</text>
+<rect x="1008" y="70" width="48" height="426.4" rx="8" fill="#FFE7A1" stroke="#505050" stroke-width="2"/><text transform="translate(1032 283.2) rotate(-90)" text-anchor="middle" dominant-baseline="central" font-size="24" font-weight="700" fill="#151515">Query selection</text>
+<text x="1095" y="314.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<rect x="1095" y="188.3" width="21" height="19" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1095" y="214.3" width="21" height="19" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1095" y="240.3" width="21" height="19" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1095" y="266.3" width="21" height="19" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1095" y="292.3" width="21" height="19" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1095" y="318.3" width="21" height="19" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1095" y="344.3" width="21" height="19" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1095" y="370.3" width="21" height="19" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1095" y="396.3" width="21" height="19" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1095" y="422.3" width="21" height="19" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<text x="1106" y="466.3" dominant-baseline="central" text-anchor="middle" font-size="20" font-weight="400" fill="#151515">Top300</text>
+<rect x="1154" y="104" width="33" height="329" rx="8" fill="#C9D9EC" stroke="none" stroke-width="2"/><text transform="translate(1170.5 268.5) rotate(-90)" text-anchor="middle" dominant-baseline="central" font-size="22" font-weight="700" fill="#151515">Decoder &amp; Head</text>
+<rect x="1194" y="106" width="108" height="46" rx="8" fill="#FFFFFF" stroke="#505050" stroke-width="2"/>
+<text x="1248" y="129" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#151515">Layer 1</text>
+<rect x="1194" y="186" width="108" height="46" rx="8" fill="#FFFFFF" stroke="#505050" stroke-width="2"/>
+<text x="1248" y="209" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#151515">Layer 2</text>
+<rect x="1194" y="266" width="108" height="46" rx="8" fill="#FFFFFF" stroke="#505050" stroke-width="2"/>
+<text x="1248" y="289" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#151515">AQS</text>
+<rect x="1194" y="346" width="108" height="46" rx="8" fill="#FFFFFF" stroke="#505050" stroke-width="2"/>
+<text x="1248" y="369" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#151515">Layer 3</text>
+<text x="1248" y="453" dominant-baseline="central" text-anchor="middle" font-size="24" font-weight="700" fill="#151515">Head</text>
+<text x="1366" y="314.8" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<rect x="1366" y="213.8" width="21" height="20" rx="0" fill="#FFF0B7" stroke="#505050" stroke-width="2"/>
+<rect x="1366" y="239.8" width="21" height="20" rx="0" fill="#E4EFCB" stroke="#505050" stroke-width="2"/>
+<rect x="1366" y="265.8" width="21" height="20" rx="0" fill="#D8E7F3" stroke="#505050" stroke-width="2"/>
+<rect x="1366" y="291.8" width="21" height="20" rx="0" fill="#FFF0B7" stroke="#505050" stroke-width="2"/>
+<rect x="1366" y="317.8" width="21" height="20" rx="0" fill="#E4EFCB" stroke="#505050" stroke-width="2"/>
+<rect x="1366" y="343.8" width="21" height="20" rx="0" fill="#D8E7F3" stroke="#505050" stroke-width="2"/>
+<rect x="1366" y="369.8" width="21" height="20" rx="0" fill="#FFF0B7" stroke="#505050" stroke-width="2"/>
+<rect x="1366" y="395.8" width="21" height="20" rx="0" fill="#E4EFCB" stroke="#505050" stroke-width="2"/>
+<rect x="1483.2" y="240.95" width="225.6" height="56.1" rx="0" fill="#C4D7CC" stroke="none" stroke-width="2"/>
+<rect x="1769.9" y="240.95" width="117.5" height="56.1" rx="0" fill="#D6EAF0" stroke="none" stroke-width="2"/>
+<rect x="1823.48" y="240.95" width="9.4" height="56.1" rx="0" fill="#FFFFFF" stroke="none" stroke-width="2"/>
+<rect x="1455" y="422" width="470" height="51" rx="0" fill="#E1E2DC" stroke="none" stroke-width="2"/>
+<rect x="1524.56" y="350.6" width="58.28" height="58.65" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="1553.7" cy="331.475" rx="21.62" ry="16.575" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="1497.3" y="396.5" width="112.8" height="16.575" rx="0" fill="#CBBCA2" stroke="none" stroke-width="2"/>
+<rect x="1513.75" y="413.075" width="7.52" height="36.975" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="1586.6" y="413.075" width="7.52" height="36.975" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="1513.75" y="308.525" width="11.75" height="63.75" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="1519.39" cy="303.808" rx="6.58" ry="6.7575" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="1494.48" y="297.05" width="118.91" height="117.3" rx="0" fill="none" stroke="#A6854F" stroke-width="2"/>
+<text x="1553.93" y="425.825" dominant-baseline="central" text-anchor="middle" font-size="14" font-weight="400" fill="#A6854F">hand</text>
+<rect x="1660.86" y="350.6" width="58.28" height="58.65" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="1690" cy="331.475" rx="21.62" ry="16.575" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="1633.6" y="396.5" width="112.8" height="16.575" rx="0" fill="#CBBCA2" stroke="none" stroke-width="2"/>
+<rect x="1650.05" y="413.075" width="7.52" height="36.975" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="1722.9" y="413.075" width="7.52" height="36.975" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="1667.91" y="381.965" width="51.7" height="12.75" rx="0" fill="#FFFDF3" stroke="none" stroke-width="2"/>
+<rect x="1690.94" y="381.965" width="3.76" height="12.75" rx="0" fill="#C6CECA" stroke="none" stroke-width="2"/>
+<rect x="1630.78" y="297.05" width="118.91" height="117.3" rx="0" fill="none" stroke="#6487A4" stroke-width="2"/>
+<text x="1690.23" y="425.825" dominant-baseline="central" text-anchor="middle" font-size="14" font-weight="400" fill="#6487A4">read</text>
+<rect x="1797.16" y="350.6" width="58.28" height="58.65" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="1826.3" cy="331.475" rx="21.62" ry="16.575" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="1769.9" y="396.5" width="112.8" height="16.575" rx="0" fill="#CBBCA2" stroke="none" stroke-width="2"/>
+<rect x="1786.35" y="413.075" width="7.52" height="36.975" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="1859.2" y="413.075" width="7.52" height="36.975" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="1804.21" y="381.965" width="51.7" height="12.75" rx="0" fill="#FFFDF3" stroke="none" stroke-width="2"/>
+<rect x="1827.24" y="381.965" width="3.76" height="12.75" rx="0" fill="#C6CECA" stroke="none" stroke-width="2"/>
+<rect x="1852.15" y="371" width="4.23" height="23.46" rx="0" fill="#697984" stroke="none" stroke-width="2"/>
+<rect x="1767.08" y="297.05" width="118.91" height="117.3" rx="0" fill="none" stroke="#789763" stroke-width="2"/>
+<text x="1826.54" y="425.825" dominant-baseline="central" text-anchor="middle" font-size="14" font-weight="400" fill="#789763">write</text>
+<text x="1690" y="492" dominant-baseline="central" text-anchor="middle" font-size="20" font-weight="400" fill="#151515">Detection output (schematic)</text>
+<rect x="1470" y="104.5" width="24" height="24" rx="4" fill="#FFE7A1" stroke="#505050" stroke-width="2"/>
+<text x="1597.5" y="85.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="700" fill="#151515">1 x 1 Conv</text>
+<text x="1597.5" y="114.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="700" fill="#151515">Norm + Act</text>
+<text x="1597.5" y="143.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="700" fill="#151515">Upsample</text>
+<rect x="1715" y="104.5" width="24" height="24" rx="4" fill="#BFD0E9" stroke="#505050" stroke-width="2"/>
+<text x="1842.5" y="85.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="700" fill="#151515">SCDown</text>
+<text x="1842.5" y="114.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="700" fill="#151515">1 x 1 Conv</text>
+<text x="1842.5" y="143.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="700" fill="#151515">DW 3 x 3, s=2</text>
+<rect x="1618" y="521" width="18" height="18" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<text x="1648" y="529.5" dominant-baseline="central" text-anchor="start" font-size="20" font-weight="700" fill="#151515">Position Embedding</text>
+<rect x="1618" y="547" width="18" height="18" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<text x="1648" y="555.5" dominant-baseline="central" text-anchor="start" font-size="20" font-weight="700" fill="#151515">Image Feature</text>
+<rect x="1618" y="573" width="18" height="18" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<text x="1648" y="581.5" dominant-baseline="central" text-anchor="start" font-size="20" font-weight="700" fill="#151515">Object Query</text>
+<text x="800" y="568.5" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#151515">D-FINE-S with Adaptive Query Selection (AQS)</text>
+<path id="prediction_link0" d="M1387 249.8 C1470 249.8 1510 268 1553.93 297.05" fill="none" stroke="#B77D3B" stroke-width="2.2"/>
+<path id="prediction_link1" d="M1387 301.8 C1510 301.8 1630 274 1690.23 297.05" fill="none" stroke="#6487A4" stroke-width="2.2"/>
+<path id="prediction_link2" d="M1387 379.8 C1490 453 1895 472 1885.99 390.89" fill="none" stroke="#789763" stroke-width="2.2"/></g>
+</svg>

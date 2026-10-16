@@ -1,0 +1,258 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2460" height="1190" viewBox="0 0 2460 1190" role="img" aria-labelledby="title desc">
+<title id="title">D-FINE-S + AQS</title><desc id="desc">Publication-style architecture of the actual SCB-S D-FINE-S AQS-L2 model. Tensor pyramids and encoder partitions follow HF-D-FINE-style presentation, and token columns/decoder heads follow DETRPose-style presentation. Reference-paper modules are not transplanted.</desc>
+<defs>
+<marker id="arrow0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#64748B"/></marker>
+<marker id="arrow1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#4274A7"/></marker>
+<marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#B85A1D"/></marker>
+</defs>
+<rect width="2460" height="1190" fill="white"/>
+<g font-family="&#x27;Times New Roman&#x27;, &#x27;Noto Serif&#x27;, serif">
+<polygon points="88.9,543 205,543 186.1,633 70,633" fill="#F3F5E9" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="83.9,549 200,549 181.1,639 65,639" fill="#E7EDDA" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="78.9,555 195,555 176.1,645 60,645" fill="#D8E3C1" stroke="#8F997B" stroke-width="1.5"/>
+<rect x="290" y="150" width="950" height="700" rx="8" fill="#F0F1F2" stroke="#AAB0B4" stroke-width="2"/>
+<polygon points="379.1,263 435,263 425.9,298 370,298" fill="#F3F5E9" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="374.1,269 430,269 420.9,304 365,304" fill="#E7EDDA" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="369.1,275 425,275 415.9,310 360,310" fill="#D8E3C1" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="371.2,468 440,468 428.8,514 360,514" fill="#F3F5E9" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="366.2,474 435,474 423.8,520 355,520" fill="#E7EDDA" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="361.2,480 430,480 418.8,526 350,526" fill="#D8E3C1" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="359,693 445,693 431,750 345,750" fill="#F3F5E9" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="354,699 440,699 426,756 340,756" fill="#E7EDDA" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="349,705 435,705 421,762 335,762" fill="#D8E3C1" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="1178.12,264 1228,264 1219.88,300 1170,300" fill="#F3F5E9" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="1173.12,270 1223,270 1214.88,306 1165,306" fill="#E7EDDA" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="1168.12,276 1218,276 1209.88,312 1160,312" fill="#D8E3C1" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="1171.24,478 1228,478 1218.76,520 1162,520" fill="#F3F5E9" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="1166.24,484 1223,484 1213.76,526 1157,526" fill="#E7EDDA" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="1161.24,490 1218,490 1208.76,532 1152,532" fill="#D8E3C1" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="1160.92,698 1228,698 1217.08,751 1150,751" fill="#F3F5E9" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="1155.92,704 1223,704 1212.08,757 1145,757" fill="#E7EDDA" stroke="#8F997B" stroke-width="1.5"/>
+<polygon points="1150.92,710 1218,710 1207.08,763 1140,763" fill="#D8E3C1" stroke="#8F997B" stroke-width="1.5"/>
+<rect x="1284" y="354" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="370" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="386" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="402" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="418" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="434" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="450" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="466" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="482" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="498" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="514" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="530" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="546" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="562" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="578" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="594" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="610" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="626" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1284" y="642" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1442" y="448" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1442" y="465" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1442" y="482" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1442" y="499" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1442" y="516" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1442" y="533" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1442" y="550" width="30" height="12" rx="0" fill="#FFF3CF" stroke="#6F6F64" stroke-width="2"/>
+<rect x="1507" y="146" width="898" height="1000" rx="8" fill="#FFFFFF" stroke="#B8BDC2" stroke-width="2" stroke-dasharray="7 5"/>
+<rect x="60" y="956" width="24" height="24" rx="8" fill="#FFE5CC" stroke="#B85A1D" stroke-width="2"/>
+<polyline id="input_backbone" points="135.5,543 135.5,510 142.5,510 142.5,385" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="bb_p5" points="230,340 257,340 257,292.5 360,292.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="bb_p4" points="230,340 257,340 257,503 350,503" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="bb_p3" points="230,340 257,340 257,733.5 335,733.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="p5_conv5" points="441,292.5 485,292.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="p4_conv4" points="446,503 485,507.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="p3_conv3" points="451,733.5 485,732.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="conv_aifi" points="595,292.5 730,300" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="conv_fpn4" points="595,507.5 730,515" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="conv_fpn3" points="595,732.5 730,730" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_up" points="805,335 805,370" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="up_fpn4" points="805,420 805,480" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="fpn4_up" points="805,550 805,585" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="up_fpn3" points="805,635 805,695" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_pan5" points="880,300 985,300" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="fpn4_pan4" points="880,515 985,515" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="fpn3_down" points="880,730 900,730 900,610 910,610" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="down_pan4" points="1000,610 1060,610 1060,550" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="pan4_down" points="1060,480 1060,435" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="down_pan5" points="1060,385 1060,335" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="pan5_out" points="1135,300 1160,294" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="pan4_out" points="1135,515 1152,511" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="fpn3_out" points="880,730 1140,736.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="f5_memory" points="1234,294 1252,294 1252,504 1284,504" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="f4_memory" points="1234,511 1252,511 1252,504 1284,504" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="f3_memory" points="1234,736.5 1252,736.5 1252,504 1284,504" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="memory_selection" points="1314,504 1350,505" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="selection_queries" points="1412,505 1442,505" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="l_fdr1" points="1730,332.5 1810,332.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="fdr_sum1" points="1960,332.5 2010,332.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="sum_pr1" points="2042,332.5 2120,332.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="l_fdr2" points="1730,522.5 1810,522.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="fdr_sum2" points="1960,522.5 2010,522.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="sum_pr2" points="2042,522.5 2120,522.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="l_fdr3" points="1730,822.5 1810,822.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="fdr_sum3" points="1960,822.5 2010,822.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="sum_pr3" points="2042,822.5 2120,822.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="queries_l1" points="1472,505 1517,503.5 1517,332.5 1560,332.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="memory_l1" points="1314,504 1328,504 1328,881 1490,881 1490,356.5 1560,356.5" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="memory_l2" points="1314,504 1328,504 1328,881 1490,881 1490,546.5 1560,546.5" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="memory_l3" points="1314,504 1328,504 1328,881 1490,881 1490,846.5 1560,846.5" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="l1_l2" points="1645,370 1645,485" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="l2_aqs" points="1645,560 1645,625" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="aqs_l3" points="1645,730 1645,785" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="l2_cls" points="1730,522.5 1743,522.5 1743,650.5 1760,650.5" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="fdr2_quality" points="1885,560 1885,598 1860,598 1860,625" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="scores_aqs" points="1860,710 1860,740 1753,740 1753,698.5 1730,698.5" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="z1_residual" points="2042,332.5 2070,332.5 2070,466 2026,466 2026,506.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="z2_residual" points="2042,522.5 2070,522.5 2070,750 2026,750 2026,806.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="l1_traditional" points="1645,295 1645,232.5 1749,232.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="traditional_b0" points="1930,232.5 1990,232.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="pr3_integral" points="2210,860 2210,900" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="b0_integral" points="2150,232.5 2353,232.5 2353,945 2300,945" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 5" marker-end="url(#arrow0)"/>
+<polyline id="l3_cls" points="1730,822.5 1765,822.5 1765,945 1810,945" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="fdr3_quality" points="1885,860 1885,880 1910,880 1910,900" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="cls_prediction" points="2010,945 2040,945 2040,1073 2075,1073" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="box_prediction" points="2210,990 2210,1008 2187.5,1008 2187.5,1023" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<text x="45" y="51" dominant-baseline="central" text-anchor="start" font-size="33" font-weight="700" fill="#252525">Overall architecture of D-FINE-S with Adaptive Query Selection (AQS)</text>
+<text x="45" y="98" dominant-baseline="central" text-anchor="start" font-size="21" font-weight="400" fill="#52647A">HGNetV2-B0  /  original Hybrid Encoder  /  AQS after Decoder Layer 2  /  original FDR heads</text>
+<polygon points="81.25,295 203.75,295 230,385 55,385" fill="#D8E7EB" stroke="#555555" stroke-width="1.5"/>
+<text x="142.5" y="325.75" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#23354B">Backbone</text>
+<text x="142.5" y="358.75" dominant-baseline="central" text-anchor="middle" font-size="19" font-weight="400" fill="#52647A">HGNetV2-B0</text>
+<text x="60" y="600" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="136.5" y="665" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#252525">Input RGB</text>
+<text x="137.5" y="691" dominant-baseline="central" text-anchor="middle" font-size="15" font-weight="400" fill="#5B6451">640 x 640</text>
+<text x="755" y="183.5" dominant-baseline="central" text-anchor="middle" font-size="27" font-weight="700" fill="#252525">Hybrid Encoder (unchanged)</text>
+<text x="480" y="226.5" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#252525">Backbone features</text>
+<text x="360" y="292.5" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="401.5" y="330" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#252525">P5</text>
+<text x="402.5" y="356" dominant-baseline="central" text-anchor="middle" font-size="15" font-weight="400" fill="#5B6451">20 x 20 x 1024</text>
+<text x="350" y="503" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="399" y="546" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#252525">P4</text>
+<text x="400" y="572" dominant-baseline="central" text-anchor="middle" font-size="15" font-weight="400" fill="#5B6451">40 x 40 x 512</text>
+<text x="335" y="733.5" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="394" y="782" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#252525">P3</text>
+<text x="395" y="808" dominant-baseline="central" text-anchor="middle" font-size="15" font-weight="400" fill="#5B6451">80 x 80 x 256</text>
+<rect x="485" y="265" width="110" height="55" rx="8" fill="#FAFAF8" stroke="#555555" stroke-width="2"/>
+<text x="540" y="280.5" dominant-baseline="central" text-anchor="middle" font-size="19" font-weight="700" fill="#23354B">1 x 1 Conv</text>
+<text x="540" y="306.75" dominant-baseline="central" text-anchor="middle" font-size="16" font-weight="400" fill="#52647A">C = 256</text>
+<rect x="485" y="480" width="110" height="55" rx="8" fill="#FAFAF8" stroke="#555555" stroke-width="2"/>
+<text x="540" y="495.5" dominant-baseline="central" text-anchor="middle" font-size="19" font-weight="700" fill="#23354B">1 x 1 Conv</text>
+<text x="540" y="521.75" dominant-baseline="central" text-anchor="middle" font-size="16" font-weight="400" fill="#52647A">C = 256</text>
+<rect x="485" y="705" width="110" height="55" rx="8" fill="#FAFAF8" stroke="#555555" stroke-width="2"/>
+<text x="540" y="720.5" dominant-baseline="central" text-anchor="middle" font-size="19" font-weight="700" fill="#23354B">1 x 1 Conv</text>
+<text x="540" y="746.75" dominant-baseline="central" text-anchor="middle" font-size="16" font-weight="400" fill="#52647A">C = 256</text>
+<rect x="730" y="265" width="150" height="70" rx="8" fill="#F8E2CB" stroke="#555555" stroke-width="2"/>
+<text x="805" y="287.25" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#23354B">AIFI</text>
+<text x="805" y="318.75" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">P5 self-attention</text>
+<rect x="730" y="480" width="150" height="70" rx="8" fill="#F2D7B8" stroke="#555555" stroke-width="2"/>
+<text x="805" y="502.25" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#23354B">FPN fusion</text>
+<text x="805" y="532.25" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Concat + CSP</text>
+<rect x="730" y="695" width="150" height="70" rx="8" fill="#F2D7B8" stroke="#555555" stroke-width="2"/>
+<text x="805" y="717.25" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#23354B">FPN fusion</text>
+<text x="805" y="747.25" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Concat + CSP</text>
+<rect x="750" y="370" width="110" height="50" rx="8" fill="#FFF9EC" stroke="#555555" stroke-width="2"/>
+<text x="805" y="395" dominant-baseline="central" text-anchor="middle" font-size="21" font-weight="700" fill="#23354B">Up 2x</text>
+<rect x="750" y="585" width="110" height="50" rx="8" fill="#FFF9EC" stroke="#555555" stroke-width="2"/>
+<text x="805" y="610" dominant-baseline="central" text-anchor="middle" font-size="21" font-weight="700" fill="#23354B">Up 2x</text>
+<rect x="985" y="265" width="150" height="70" rx="8" fill="#D3E5E7" stroke="#555555" stroke-width="2"/>
+<text x="1060" y="287.25" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#23354B">PAN fusion</text>
+<text x="1060" y="317.25" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Concat + CSP</text>
+<rect x="985" y="480" width="150" height="70" rx="8" fill="#D3E5E7" stroke="#555555" stroke-width="2"/>
+<text x="1060" y="502.25" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#23354B">PAN fusion</text>
+<text x="1060" y="532.25" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Concat + CSP</text>
+<rect x="910" y="585" width="90" height="50" rx="8" fill="#EFF6F6" stroke="#555555" stroke-width="2"/>
+<text x="955" y="610" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#23354B">Down 2x</text>
+<rect x="1015" y="385" width="90" height="50" rx="8" fill="#EFF6F6" stroke="#555555" stroke-width="2"/>
+<text x="1060" y="410" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#23354B">Down 2x</text>
+<text x="1160" y="294" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="1198" y="332" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#252525">F5</text>
+<text x="1199" y="358" dominant-baseline="central" text-anchor="middle" font-size="15" font-weight="400" fill="#5B6451">256 ch.</text>
+<text x="1152" y="511" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="1194" y="552" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#252525">F4</text>
+<text x="1195" y="578" dominant-baseline="central" text-anchor="middle" font-size="15" font-weight="400" fill="#5B6451">256 ch.</text>
+<text x="1140" y="736.5" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="1188" y="783" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#252525">F3</text>
+<text x="1189" y="809" dominant-baseline="central" text-anchor="middle" font-size="15" font-weight="400" fill="#5B6451">256 ch.</text>
+<text x="802.5" y="814" dominant-baseline="central" text-anchor="middle" font-size="19" font-weight="400" fill="#52647A">Three scales retained: strides 8, 16, 32</text>
+<text x="1284" y="504" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="1299" y="325.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="700" fill="#252525">Memory</text>
+<text x="1299" y="681.5" dominant-baseline="central" text-anchor="middle" font-size="16" font-weight="400" fill="#52647A">Flatten + concat</text>
+<rect x="1350" y="389" width="62" height="232" rx="8" fill="#F8D4B2" stroke="#555555" stroke-width="2"/><text transform="translate(1381 505) rotate(-90)" text-anchor="middle" dominant-baseline="central" font-size="22" font-weight="700" fill="#23354B">Query selection</text>
+<text x="1442" y="505" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="1457" y="419.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="700" fill="#252525">Top300</text>
+<text x="1457" y="589.5" dominant-baseline="central" text-anchor="middle" font-size="16" font-weight="400" fill="#52647A">Q0</text>
+<text x="1935" y="169.5" dominant-baseline="central" text-anchor="middle" font-size="26" font-weight="700" fill="#252525">Decoder and prediction heads</text>
+<rect x="1560" y="295" width="170" height="75" rx="8" fill="#FFF0B8" stroke="#555555" stroke-width="2"/>
+<text x="1645" y="319.75" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#23354B">Decoder Layer 1</text>
+<text x="1645" y="349.75" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">SA + MSCA + FFN</text>
+<rect x="1810" y="295" width="150" height="75" rx="8" fill="#FFF0B8" stroke="#555555" stroke-width="2"/>
+<text x="1885" y="319.75" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#23354B">FDR Head 1</text>
+<text x="1885" y="349" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Residual logits</text>
+<ellipse cx="2026" cy="332.5" rx="16" ry="16" fill="#FFFFFF" stroke="#555555" stroke-width="2"/>
+<text x="2026" y="332.5" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#23354B">+</text>
+<rect x="2120" y="295" width="180" height="75" rx="8" fill="#F9F9F7" stroke="#555555" stroke-width="2"/>
+<text x="2210" y="317.5" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#23354B">Softmax</text>
+<text x="2210" y="349" dominant-baseline="central" text-anchor="middle" font-size="20" font-weight="400" fill="#52647A">Pr1(n)</text>
+<text x="1987.5" y="306.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Δz1</text>
+<rect x="1560" y="485" width="170" height="75" rx="8" fill="#D8E6F3" stroke="#555555" stroke-width="2"/>
+<text x="1645" y="509.75" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#23354B">Decoder Layer 2</text>
+<text x="1645" y="539.75" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">SA + MSCA + FFN</text>
+<rect x="1810" y="485" width="150" height="75" rx="8" fill="#D8E6F3" stroke="#555555" stroke-width="2"/>
+<text x="1885" y="509.75" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#23354B">FDR Head 2</text>
+<text x="1885" y="539" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Residual logits</text>
+<ellipse cx="2026" cy="522.5" rx="16" ry="16" fill="#FFFFFF" stroke="#555555" stroke-width="2"/>
+<text x="2026" y="522.5" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#23354B">+</text>
+<rect x="2120" y="485" width="180" height="75" rx="8" fill="#F9F9F7" stroke="#555555" stroke-width="2"/>
+<text x="2210" y="507.5" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#23354B">Softmax</text>
+<text x="2210" y="539" dominant-baseline="central" text-anchor="middle" font-size="20" font-weight="400" fill="#52647A">Pr2(n)</text>
+<text x="1987.5" y="496.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Δz2</text>
+<rect x="1560" y="785" width="170" height="75" rx="8" fill="#E6DFF0" stroke="#555555" stroke-width="2"/>
+<text x="1645" y="809.75" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#23354B">Decoder Layer 3</text>
+<text x="1645" y="839.75" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">SA + MSCA + FFN</text>
+<rect x="1810" y="785" width="150" height="75" rx="8" fill="#E6DFF0" stroke="#555555" stroke-width="2"/>
+<text x="1885" y="809.75" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#23354B">FDR Head 3</text>
+<text x="1885" y="839" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Residual logits</text>
+<ellipse cx="2026" cy="822.5" rx="16" ry="16" fill="#FFFFFF" stroke="#555555" stroke-width="2"/>
+<text x="2026" y="822.5" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#23354B">+</text>
+<rect x="2120" y="785" width="180" height="75" rx="8" fill="#F9F9F7" stroke="#555555" stroke-width="2"/>
+<text x="2210" y="807.5" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#23354B">Softmax</text>
+<text x="2210" y="839" dominant-baseline="central" text-anchor="middle" font-size="20" font-weight="400" fill="#52647A">Pr3(n)</text>
+<text x="1987.5" y="796.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Δz3</text>
+<text x="1411" y="919.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#4274A7">Shared multi-scale memory</text>
+<rect x="1560" y="625" width="170" height="105" rx="8" fill="#FFE5CC" stroke="#B85A1D" stroke-width="2"/>
+<text x="1645" y="650.5" dominant-baseline="central" text-anchor="middle" font-size="27" font-weight="700" fill="#23354B">AQS-L2</text>
+<text x="1645" y="684.25" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">Gate + Context</text>
+<text x="1645" y="711.25" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">Query residual</text>
+<text x="1681.5" y="759" dominant-baseline="central" text-anchor="middle" font-size="19" font-weight="400" fill="#B85A1D">Q2′</text>
+<rect x="1760" y="625" width="200" height="85" rx="8" fill="#FFF8EF" stroke="#B85A1D" stroke-width="2"/>
+<text x="1860" y="654" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#23354B">ClsHead2 + LQE2</text>
+<text x="1860" y="684" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">Gate logits S2</text>
+<text x="2076" y="406" dominant-baseline="central" text-anchor="start" font-size="18" font-weight="400" fill="#52647A">z1</text>
+<text x="2076" y="640" dominant-baseline="central" text-anchor="start" font-size="18" font-weight="400" fill="#52647A">z2</text>
+<text x="2026" y="287" dominant-baseline="central" text-anchor="middle" font-size="16" font-weight="400" fill="#52647A">z0 = 0</text>
+<text x="2225" y="702.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Residual distribution refinement</text>
+<rect x="1749" y="200" width="181" height="65" rx="8" fill="#EEEAF4" stroke="#555555" stroke-width="2"/>
+<text x="1839.5" y="219.75" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#23354B">Traditional Head</text>
+<text x="1839.5" y="249" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Layer 1 bbox</text>
+<rect x="1990" y="200" width="160" height="65" rx="8" fill="#F3F3EC" stroke="#555555" stroke-width="2"/>
+<text x="2070" y="232.5" dominant-baseline="central" text-anchor="middle" font-size="21" font-weight="700" fill="#23354B">Initial box b0</text>
+<rect x="2120" y="900" width="180" height="90" rx="8" fill="#F4F1E9" stroke="#555555" stroke-width="2"/>
+<text x="2210" y="918" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#23354B">FDR integral</text>
+<text x="2210" y="948.75" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">Σ W(n)Pr3(n)</text>
+<text x="2210" y="975.75" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">+ initial box b0</text>
+<text x="2359" y="570" dominant-baseline="central" text-anchor="start" font-size="18" font-weight="400" fill="#52647A">b0</text>
+<rect x="1810" y="900" width="200" height="90" rx="8" fill="#EEEAF4" stroke="#555555" stroke-width="2"/>
+<text x="1910" y="931.5" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#23354B">ClsHead3 + LQE3</text>
+<text x="1910" y="961.5" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">Final class logits</text>
+<rect x="2075" y="1023" width="225" height="100" rx="8" fill="#E2EAD8" stroke="#555555" stroke-width="2"/>
+<text x="2187.5" y="1047.5" dominant-baseline="central" text-anchor="middle" font-size="24" font-weight="700" fill="#23354B">Predictions</text>
+<text x="2187.5" y="1078.25" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">class / score / bbox</text>
+<text x="2187.5" y="1103.75" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">hand-raising, read, write</text>
+<text x="98" y="967" dominant-baseline="central" text-anchor="start" font-size="21" font-weight="400" fill="#252525">Added AQS: query enhancement, not query pruning</text>
+<text x="60" y="1018" dominant-baseline="central" text-anchor="start" font-size="21" font-weight="400" fill="#52647A">FPN / PAN, initial boxes, FDR and original losses are retained.</text>
+<text x="60" y="1064" dominant-baseline="central" text-anchor="start" font-size="20" font-weight="400" fill="#52647A">L2 FDR is computed before AQS; updated queries then reach L3.</text>
+<text x="60" y="1109" dominant-baseline="central" text-anchor="start" font-size="18" font-weight="400" fill="#52647A">Feature maps and token columns are schematic; no performance values are illustrated.</text>
+<text x="60" y="1161" dominant-baseline="central" text-anchor="start" font-size="20" font-weight="400" fill="#252525">Inference structure of the SCB-S three-class model. DN and training-only auxiliary supervision are omitted.</text>
+</g>
+</svg>

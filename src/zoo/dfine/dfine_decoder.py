@@ -26,6 +26,8 @@ from .evidence_contrast_aqs import EvidenceContrastAQS
 from .night_probes import NIGHT_PROBES, BoxLocalQueryAdapter, RWAdaptiveROI, QueryContentScore
 from .finegrain_trials import FINEGRAIN_TRIALS, BoxScaleContrastL2, PartInteractionL2, PairEvidenceHead
 from .instance_evidence import INSTANCE_EVIDENCE_MODULES, build_instance_evidence
+from .discriminative_evidence import DiscriminativeEvidenceL2
+from .behavior_refinement import BEHAVIOR_REFINEMENTS, build_behavior_refinement
 from .utils import (
     bias_init_with_prob,
     deformable_attention_core_func_v2,
@@ -917,6 +919,10 @@ class TransformerDecoder(nn.Module):
         memory_mask=None,
         dn_meta=None,
         return_teacher_logits=False,
+        p2_feat=None,
+        behavior_refinement=None,
+        behavior_context=None,
+        evidence_state=None,
     ):
         output = target
         output_detach = pred_corners_undetach = 0
@@ -974,16 +980,24 @@ class TransformerDecoder(nn.Module):
             # computed; the updated ordinary query reaches L2 classification
             # and L3 (so L3 localization can change). DN queries never feed it.
             night_local = getattr(self, "night_local_adapter", None)
+            parallel_local_delta = None
             if night_local is not None and i == 1:
                 h, w = spatial_shapes[0]
                 p3 = memory[:, :h * w].transpose(1, 2).reshape(memory.shape[0], self.hidden_dim, h, w)
                 if self.training and dn_meta is not None:
                     count = dn_meta["dn_num_split"][0]
                     refined = night_local(cls_output[:, count:], inter_ref_bbox[:, count:], p3)
-                    cls_output = torch.cat((cls_output[:, :count], refined), 1)
+                    local_output = torch.cat((cls_output[:, :count], refined), 1)
                 else:
-                    cls_output = night_local(cls_output, inter_ref_bbox, p3)
-                output = cls_output
+                    local_output = night_local(cls_output, inter_ref_bbox, p3)
+                if getattr(self, "aqs_l2_local_fusion", "serial") == "parallel":
+                    # Both branches read the ORIGINAL L2 query. Keep the local
+                    # residual out of AQS's scores, gate and pooled context.
+                    # The DN prefix is unchanged, so its local delta is zero.
+                    parallel_local_delta = local_output - cls_output
+                else:
+                    cls_output = local_output
+                    output = cls_output
 
             finegrain_local = getattr(self, "finegrain_local_adapter", None)
             if finegrain_local is not None and i == 1:
@@ -1001,8 +1015,8 @@ class TransformerDecoder(nn.Module):
                     cls_output = finegrain_local(cls_output, inter_ref_bbox, p3, p4)
                 output = cls_output
 
-            # In the explicit combination, local sampling precedes AQS: the
-            # gate/context use local-enriched queries and their current scores.
+            # Serial fusion uses local-enriched queries/scores for AQS. Parallel
+            # fusion keeps the original L2 queries/scores until both deltas join.
             # Earlier-layer AQS needs its ORIGINAL classifier + LQE gate in
             # inference too, even though that layer is not a final prediction.
             apply_aqs_here = self.use_aqs_refine and i in self.aqs_layer_indices
@@ -1011,6 +1025,22 @@ class TransformerDecoder(nn.Module):
                 scores = score_head[i](cls_output)
                 # Lqe does not affect the performance here.
                 scores = self.lqe_layers[i](scores, pred_corners)
+                if (i == self.eval_idx and behavior_refinement is not None
+                        and behavior_refinement.name != "QueryContrastInitialization"):
+                    count = dn_meta["dn_num_split"][0] if self.training and dn_meta else 0
+                    ordinary_scores = behavior_refinement(
+                        cls_output[:, count:], inter_ref_bbox[:, count:], scores[:, count:],
+                        pred_corners[:, count:], context=behavior_context,
+                        state=evidence_state, axes=score_head[i].weight,
+                    )
+                    scores = torch.cat((scores[:, :count], ordinary_scores), 1) if count else ordinary_scores
+                score_extension = getattr(self, 'box_score_extension', None)
+                if i == self.eval_idx and score_extension is not None:
+                    # Final ordinary-query scores only; current boxes stay unchanged.
+                    count = dn_meta['dn_num_split'][0] if self.training and dn_meta else 0
+                    refined_scores = score_extension(cls_output[:, count:], inter_ref_bbox[:, count:],
+                                                     scores[:, count:], pred_corners[:, count:])
+                    scores = torch.cat((scores[:, :count], refined_scores), 1) if count else refined_scores
                 if i == self.eval_idx:
                     base_teacher_logits = scores
                 if apply_aqs_here:
@@ -1018,6 +1048,11 @@ class TransformerDecoder(nn.Module):
                         cls_output, scores, dn_meta, layer_idx=i,
                         boxes=inter_ref_bbox, corners=pred_corners,
                     )
+                    if parallel_local_delta is not None:
+                        # Q + (AQS(Q, S)-Q) + (BoxLocal(Q, B, P3)-Q).
+                        # Each branch already contains its original residual
+                        # scale; do not scale again or add the identity twice.
+                        refined_cls_output = refined_cls_output + parallel_local_delta
                     if emit_prediction:
                         scores = score_head[i](refined_cls_output)
                         scores = self.lqe_layers[i](scores, pred_corners)
@@ -1026,6 +1061,30 @@ class TransformerDecoder(nn.Module):
                         # the pre-AQS result. The next layer consumes Q_refined
                         # through BOTH the ordinary and detached residual paths.
                         output = refined_cls_output
+                    if (i == 1 and behavior_refinement is not None
+                            and behavior_refinement.name == "ClassEvidenceTransport"
+                            and behavior_refinement.enabled):
+                        count = dn_meta["dn_num_split"][0] if self.training and dn_meta else 0
+                        # A parallel class-private bank; the shared query, current
+                        # boxes and original AQS output remain untouched.
+                        evidence_state = behavior_refinement.update(
+                            refined_cls_output[:, count:], inter_ref_bbox[:, count:],
+                            behavior_context, evidence_state, score_head[i].weight, 1,
+                        )
+                discriminative = getattr(self, "discriminative_evidence_l2", None)
+                if discriminative is not None and i == 1:
+                    # AFTER the unchanged L2 AQS, using CURRENT predicted L2
+                    # boxes. Update ordinary content before L3; never sample
+                    # GT-derived DN ROIs or mix DN tokens into ordinary queries.
+                    h, w = spatial_shapes[0]
+                    p3 = memory[:, :h*w].transpose(1, 2).reshape(
+                        memory.shape[0], self.hidden_dim, h, w)
+                    count = dn_meta["dn_num_split"][0] if self.training and dn_meta else 0
+                    refined = discriminative(output[:, count:], inter_ref_bbox[:, count:],
+                        scores[:, count:], p2_feat, p3, score_head[i].weight[1:3])
+                    output = torch.cat((output[:, :count], refined), 1) if count else refined
+                    if emit_prediction:
+                        scores = self.lqe_layers[i](score_head[i](output), pred_corners)
                 if emit_prediction:
                     dec_out_logits.append(scores)
                     dec_out_bboxes.append(inter_ref_bbox)
@@ -1151,13 +1210,38 @@ class DFINETransformer(nn.Module):
         instance_evidence_scale=0.1,
         instance_evidence_chunk=32,
         instance_evidence_checkpoint=True,
+        use_discriminative_evidence_l2=False,
+        discriminative_evidence_dim=64,
+        discriminative_evidence_grid=7,
+        discriminative_evidence_p2_channels=64,
+        discriminative_evidence_scale=0.1,
+        discriminative_evidence_chunk=32,
+        discriminative_evidence_checkpoint=True,
+        behavior_refinement_module="none",
+        behavior_refinement_dim=64,
+        behavior_refinement_grid=3,
+        behavior_refinement_scale=0.1,
+        behavior_refinement_chunk=32,
+        behavior_refinement_checkpoint=True,
+        allow_gqc_standalone=False,
     ):
         super().__init__()
         self.night_probe = "none"
         self.finegrain_trial = "none"
+        if behavior_refinement_module not in ("none", *BEHAVIOR_REFINEMENTS):
+            raise ValueError("Unknown behavior_refinement_module")
+        self.behavior_refinement_module = behavior_refinement_module
+        if type(allow_gqc_standalone) is not bool:
+            raise ValueError('allow_gqc_standalone must be boolean')
+        if allow_gqc_standalone and (behavior_refinement_module != 'GeometryAwareQueryCompetition' or use_aqs_refine):
+            raise ValueError('Standalone GQC requires GeometryAwareQueryCompetition and AQS disabled')
+        self.allow_gqc_standalone = allow_gqc_standalone
         if instance_evidence_module not in ("none", *INSTANCE_EVIDENCE_MODULES):
             raise ValueError("Unknown instance_evidence_module")
         self.instance_evidence_module = instance_evidence_module
+        if type(use_discriminative_evidence_l2) is not bool:
+            raise ValueError("use_discriminative_evidence_l2 must be boolean")
+        self.use_discriminative_evidence_l2 = use_discriminative_evidence_l2
         assert len(feat_channels) <= num_levels
         assert len(feat_strides) == len(feat_channels)
 
@@ -1459,7 +1543,30 @@ class DFINETransformer(nn.Module):
 
         self._reset_parameters(feat_channels)
 
-        if self.instance_evidence_module != "none":
+        if self.behavior_refinement_module != "none":
+            other_flags = (self.use_local_evidence_cls, self.use_query_validity,
+                self.use_query_objectness, self.use_p2_roi_cls, self.use_p2_query_init,
+                self.use_decoder_local_query_cls, self.use_task_decoupled_heads,
+                self.use_rw_spatial_relation, self.use_rw_local_detail,
+                self.use_rw_isolated_specialist, self.use_rw_query_calibration,
+                self.use_discriminative_evidence_l2)
+            original_aqs_base = (self.use_aqs_refine and self.decoder.aqs_layer_indices == (1,)
+                                 and self.decoder.aqs_refiner_type == 'legacy')
+            if (any(other_flags) or self.instance_evidence_module != "none"
+                    or not (original_aqs_base or self.allow_gqc_standalone) or num_classes != 3
+                    or num_layers != 3 or self.eval_idx != 2 or layer_scale != 1
+                    or self.feat_strides != [8,16,32]):
+                raise ValueError('Behavior refinement requires plain AQS-L2, or explicitly enabled standalone GQC')
+            with torch.random.fork_rng(devices=[]):
+                self.behavior_refinement = build_behavior_refinement(
+                    self.behavior_refinement_module, hidden_dim=hidden_dim,
+                    num_classes=num_classes, dim=behavior_refinement_dim,
+                    grid=behavior_refinement_grid, scale=behavior_refinement_scale,
+                    chunk_size=behavior_refinement_chunk,
+                    use_checkpoint=behavior_refinement_checkpoint,
+                )
+
+        if self.instance_evidence_module != "none" or self.use_discriminative_evidence_l2:
             old_flags = (self.use_local_evidence_cls, self.use_query_validity,
                 self.use_query_objectness, self.use_p2_roi_cls, self.use_p2_query_init,
                 self.use_decoder_local_query_cls, self.use_task_decoupled_heads,
@@ -1467,12 +1574,23 @@ class DFINETransformer(nn.Module):
                 self.use_rw_isolated_specialist, self.use_rw_query_calibration)
             if any(old_flags):
                 raise ValueError("Instance evidence cannot stack other classification probes")
+            if self.instance_evidence_module != "none" and self.use_discriminative_evidence_l2:
+                raise ValueError("Choose only one new evidence experiment")
             if (num_classes != 3 or num_layers != 3 or self.eval_idx != 2
                     or layer_scale != 1 or self.feat_strides != [8, 16, 32]):
                 raise ValueError("Instance evidence requires SCB-S / standard D-FINE-S")
             if self.use_aqs_refine and (self.decoder.aqs_layer_indices != (1,)
                     or self.decoder.aqs_refiner_type != "legacy"):
                 raise ValueError("Instance evidence combines only with unchanged legacy AQS-L2")
+        if self.use_discriminative_evidence_l2:
+            if not self.use_aqs_refine:
+                raise ValueError("DiscriminativeEvidenceL2 requires unchanged AQS-L2")
+            with torch.random.fork_rng(devices=[]):
+                self.decoder.discriminative_evidence_l2 = DiscriminativeEvidenceL2(
+                    hidden_dim, discriminative_evidence_p2_channels, discriminative_evidence_dim,
+                    discriminative_evidence_grid, discriminative_evidence_scale,
+                    discriminative_evidence_chunk, discriminative_evidence_checkpoint)
+        if self.instance_evidence_module != "none":
             # Construct AFTER baseline initialization and preserve its RNG stream.
             with torch.random.fork_rng(devices=[]):
                 self.instance_evidence = build_instance_evidence(
@@ -1487,7 +1605,8 @@ class DFINETransformer(nn.Module):
         """One structural candidate, after original initialization; no new loss."""
         if (mode not in FINEGRAIN_TRIALS or self.finegrain_trial != "none"
                 or self.night_probe != "none" or getattr(self, "literature_probe", "none") != "none"
-                or self.instance_evidence_module != "none"):
+                or self.instance_evidence_module != "none" or self.use_discriminative_evidence_l2
+                or self.behavior_refinement_module != "none"):
             raise ValueError("Select one independent finegrain trial")
         old_flags = (self.use_aqs_refine, self.use_local_evidence_cls, self.use_query_validity,
             self.use_query_objectness, self.use_p2_roi_cls, self.use_p2_query_init,
@@ -1508,16 +1627,23 @@ class DFINETransformer(nn.Module):
         self.finegrain_trial = mode
 
     def configure_night_probe(
-        self, mode, *, allow_aqs_l2_local_combo=False, allow_aqs_l2_query_init_combo=False
+        self, mode, *, allow_aqs_l2_local_combo=False, allow_aqs_l2_query_init_combo=False,
+        box_local_options=None,
+        aqs_l2_local_fusion="serial",
     ):
         """Called by DFINE after baseline initialization; no baseline RNG shift."""
         if (mode not in NIGHT_PROBES or self.night_probe != "none"
-                or self.instance_evidence_module != "none"):
+                or self.instance_evidence_module != "none" or self.use_discriminative_evidence_l2
+                or self.behavior_refinement_module != "none"):
             raise ValueError("Select exactly one supported night probe")
         if self.decoder.aqs_refiner_type != "legacy":
             raise ValueError("EvidenceContrastAQS must first be tested without night modules")
         if type(allow_aqs_l2_local_combo) is not bool:
             raise ValueError("allow_aqs_l2_local_combo must be a boolean")
+        if aqs_l2_local_fusion not in ("serial", "parallel"):
+            raise ValueError("aqs_l2_local_fusion must be serial or parallel")
+        if aqs_l2_local_fusion == "parallel" and not allow_aqs_l2_local_combo:
+            raise ValueError("Parallel fusion requires the explicit AQS/local-L2 combination")
         if type(allow_aqs_l2_query_init_combo) is not bool:
             raise ValueError("allow_aqs_l2_query_init_combo must be a boolean")
         if allow_aqs_l2_local_combo and allow_aqs_l2_query_init_combo:
@@ -1542,11 +1668,13 @@ class DFINETransformer(nn.Module):
         if self.num_classes != 3 or self.num_layers != 3 or self.eval_idx != 2 or self.decoder.layer_scale != 1:
             raise ValueError("Night probes are scoped to SCB-S, three classes, D-FINE-S three decoder layers")
         self.night_probe = mode
+        self.decoder.aqs_l2_local_fusion = aqs_l2_local_fusion
+        box_local_options = {} if box_local_options is None else box_local_options
         with torch.random.fork_rng(devices=[]):
             if mode == "query_local_init":
-                self.night_query_initializer = BoxLocalQueryAdapter(self.hidden_dim)
+                self.night_query_initializer = BoxLocalQueryAdapter(self.hidden_dim, **box_local_options)
             elif mode == "decoder_l2_local":
-                self.decoder.night_local_adapter = BoxLocalQueryAdapter(self.hidden_dim)
+                self.decoder.night_local_adapter = BoxLocalQueryAdapter(self.hidden_dim, **box_local_options)
             elif mode == "rw_adaptive_roi":
                 self.night_rw_roi = RWAdaptiveROI(self.hidden_dim)
             elif mode == "query_content_score":
@@ -1697,6 +1825,7 @@ class DFINETransformer(nn.Module):
         denoising_logits=None,
         denoising_bbox_unact=None,
         p2_feat=None,
+        behavior_context=None,
     ):
         # prepare input for decoder
         if self.training or self.eval_spatial_size is None:
@@ -1747,6 +1876,17 @@ class DFINETransformer(nn.Module):
                 content, enc_topk_bbox_unact.detach().sigmoid(), self._night_p3(memory, spatial_shapes)
             )
 
+        initializer = getattr(self, 'box_query_initializer', None)
+        if initializer is not None:
+            # Original Top300 and proposals, before L1 and BEFORE DN concatenation.
+            content = initializer(content, enc_topk_bbox_unact.detach().sigmoid(),
+                                  self._night_p3(memory, spatial_shapes))
+
+        if self.behavior_refinement_module == "QueryContrastInitialization":
+            content = self.behavior_refinement(
+                content, enc_topk_bbox_unact.detach().sigmoid(), behavior_context,
+            )
+
         enc_topk_bbox_unact = enc_topk_bbox_unact.detach()
 
         if denoising_bbox_unact is not None:
@@ -1795,6 +1935,8 @@ class DFINETransformer(nn.Module):
     def forward(self, feats, targets=None, p2_feat=None):
         # input projection and embedding
         memory, spatial_shapes = self._get_encoder_input(feats)
+        behavior = getattr(self, "behavior_refinement", None)
+        behavior_context = behavior.prepare(memory, spatial_shapes) if behavior is not None else None
 
         # prepare denoising training
         if self.training and self.num_denoising > 0:
@@ -1819,8 +1961,17 @@ class DFINETransformer(nn.Module):
                 denoising_logits,
                 denoising_bbox_unact,
                 p2_feat,
+                behavior_context,
             )
         )
+
+        evidence_state = None
+        if (behavior is not None and behavior.name == "ClassEvidenceTransport" and behavior.enabled):
+            count = dn_meta["dn_num_split"][0] if self.training and dn_meta else 0
+            evidence_state = behavior.update(
+                init_ref_contents[:, count:], init_ref_points_unact[:, count:].sigmoid(),
+                behavior_context, None, self.enc_score_head.weight, 0,
+            )
 
         # decoder
         decoded = self.decoder(
@@ -1840,6 +1991,10 @@ class DFINETransformer(nn.Module):
             attn_mask=attn_mask,
             dn_meta=dn_meta,
             return_teacher_logits=self.use_aqs_refine,
+            p2_feat=p2_feat,
+            behavior_refinement=behavior,
+            behavior_context=behavior_context,
+            evidence_state=evidence_state,
         )
         aqs_teacher_logits = decoded[-1] if self.use_aqs_refine else None
         if self.use_aqs_refine:

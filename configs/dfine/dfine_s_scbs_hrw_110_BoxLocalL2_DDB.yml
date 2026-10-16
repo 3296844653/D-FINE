@@ -1,0 +1,7 @@
+__include__:
+  - dfine_s_scbs_hrw_110_night_n4.yml
+
+# Backbone P3 output: P4-conditioned directional detail. Original BoxLocal-L2 stays.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_BoxLocalL2_DDB_seed0_run1
+DFINE:
+  box_local_extension: DirectionalDetailBackbone

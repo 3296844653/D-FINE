@@ -1,0 +1,11 @@
+__include__:
+  - dfine_s_scbs_hrw_110_aqs_layer2_r010.yml
+
+# Appearance/geometry-conditioned overlap and neighbour relation banks, all classes.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_AQS_GeometryAwareQueryCompetition_seed0_run1
+DFINETransformer:
+  behavior_refinement_module: GeometryAwareQueryCompetition
+  behavior_refinement_dim: 64
+  behavior_refinement_scale: 0.10
+  behavior_refinement_chunk: 32
+  behavior_refinement_checkpoint: true

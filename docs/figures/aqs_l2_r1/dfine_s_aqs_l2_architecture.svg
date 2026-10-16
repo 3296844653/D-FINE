@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1960" height="1070" viewBox="0 0 1960 1070" role="img" aria-labelledby="title desc">
+<title id="title">D-FINE-S + AQS-L2</title><desc id="desc">D-FINE-S inference: AQS follows layer 2, updates query content, preserves 300 queries and feeds layer 3. Multi-scale memory and original iterative box paths are retained.</desc>
+<defs>
+<marker id="arrow0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#64748B"/></marker>
+<marker id="arrow1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#4274A7"/></marker>
+<marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#B85A1D"/></marker>
+</defs>
+<rect width="1960" height="1070" fill="white"/>
+<g font-family="Arial, &#x27;PingFang SC&#x27;, &#x27;Microsoft YaHei&#x27;, sans-serif">
+<rect x="245" y="175" width="270" height="250" rx="8" fill="#FFFFFF" stroke="#C6D1DC" stroke-width="2"/>
+<rect x="560" y="175" width="390" height="250" rx="8" fill="#FFFFFF" stroke="#C6D1DC" stroke-width="2"/>
+<rect x="60" y="870" width="22" height="22" rx="8" fill="#EDF4FA" stroke="#4274A7" stroke-width="2"/>
+<rect x="60" y="915" width="22" height="22" rx="8" fill="#FFF1E3" stroke="#B85A1D" stroke-width="2"/>
+<polyline id="image_backbone" points="205,295 245,300" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="backbone_p3" points="490,262.5 535,262.5 535,262 585,262" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="backbone_p4" points="490,320.5 535,320.5 535,262 585,262" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="backbone_p5" points="490,378.5 535,378.5 535,262 585,262" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="projection_aifi" points="715,285 715,296" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_fpnpan" points="715,342 715,353" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="p34_bypass" points="901.2,285 901.2,353" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="encoder_memory" points="925,376 973,376 973,277.5 990,277.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="memory_query_init" points="755,399 755,515 685,515 685,575" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="init_l1" points="810,652.5 905,652.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="l1_l2" points="1050,652.5 1115,652.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="l2_aqs" points="1260,652.5 1325,652.5" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="aqs_l3" points="1480,652.5 1545,652.5" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="l3_heads" points="1690,652.5 1745,652.5" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="heads_post" points="1825,730 1825,805 1800,805 1800,870" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="l2_gate_scores" points="1260,652.5 1280,652.5 1280,482.5 1305,482.5" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="scores_aqs" points="1422.5,525 1422.5,550 1402.5,550 1402.5,575" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="memory_l1" points="1485.9,340 1485.9,430 930,430 930,575" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="memory_l2" points="1485.9,340 1485.9,430 1140,430 1140,575" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="memory_l3" points="1485.9,340 1485.9,430 1570,430 1570,575" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="ref_init" points="685,730 685,810 977.5,810 977.5,730" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 5" marker-end="url(#arrow0)"/>
+<polyline id="ref_12" points="977.5,730 977.5,782 1187.5,782 1187.5,730" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 5" marker-end="url(#arrow0)"/>
+<polyline id="ref_23" points="1187.5,730 1187.5,822 1617.5,822 1617.5,730" fill="none" stroke="#64748B" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 5" marker-end="url(#arrow0)"/>
+<text x="60" y="60" dominant-baseline="central" text-anchor="start" font-size="32" font-weight="700" fill="#23354B">D-FINE-S + AQS-L2 整体架构</text>
+<text x="60" y="112.5" dominant-baseline="central" text-anchor="start" font-size="19" font-weight="400" fill="#52647A">当前配置：AQS-L2 R1 · SCB-S三类 · 640 × 640 · 推理主路径（训练DN及辅助监督省略）</text>
+<rect x="60" y="205" width="145" height="180" rx="8" fill="#F4F6F8" stroke="#64748B" stroke-width="2"/>
+<text x="132.5" y="268" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#23354B">输入图像</text>
+<text x="132.5" y="298" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">640 × 640</text>
+<text x="132.5" y="325" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">RGB</text>
+<text x="380" y="206" dominant-baseline="central" text-anchor="middle" font-size="24" font-weight="700" fill="#23354B">HGNetV2-B0</text>
+<rect x="270" y="240" width="220" height="45" rx="8" fill="#EDF4FA" stroke="#4274A7" stroke-width="2"/>
+<text x="380" y="262.5" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#23354B">P3  ·  256 × 80 × 80</text>
+<rect x="270" y="298" width="220" height="45" rx="8" fill="#EDF4FA" stroke="#4274A7" stroke-width="2"/>
+<text x="380" y="320.5" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#23354B">P4  ·  512 × 40 × 40</text>
+<rect x="270" y="356" width="220" height="45" rx="8" fill="#EDF4FA" stroke="#4274A7" stroke-width="2"/>
+<text x="380" y="378.5" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#23354B">P5  ·  1024 × 20 × 20</text>
+<text x="755" y="206" dominant-baseline="central" text-anchor="middle" font-size="24" font-weight="700" fill="#23354B">Hybrid Encoder</text>
+<rect x="585" y="239" width="340" height="46" rx="8" fill="#EDF4FA" stroke="#4274A7" stroke-width="2"/>
+<text x="755" y="262" dominant-baseline="central" text-anchor="middle" font-size="19" font-weight="700" fill="#23354B">1 × 1 投影：各尺度 → 256通道</text>
+<rect x="585" y="296" width="260" height="46" rx="8" fill="#EDF4FA" stroke="#4274A7" stroke-width="2"/>
+<text x="715" y="319" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#23354B">P5 Transformer / AIFI</text>
+<text x="873.5" y="317" dominant-baseline="central" text-anchor="middle" font-size="14" font-weight="400" fill="#4274A7">P3/P4</text>
+<rect x="585" y="353" width="340" height="46" rx="8" fill="#EDF4FA" stroke="#4274A7" stroke-width="2"/>
+<text x="755" y="376" dominant-baseline="central" text-anchor="middle" font-size="20" font-weight="700" fill="#23354B">跨尺度融合：FPN → PAN</text>
+<rect x="990" y="215" width="870" height="125" rx="8" fill="#EDF4FA" stroke="#4274A7" stroke-width="2"/>
+<text x="1425" y="250.5" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#23354B">多尺度特征 / Decoder Memory</text>
+<text x="1425" y="281.25" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">P3: 80 × 80    ·    P4: 40 × 40    ·    P5: 20 × 20</text>
+<text x="1425" y="308.25" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">各尺度256通道；提供各Decoder层的跨注意力特征</text>
+<text x="490" y="470" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">骨干与编码器保持原结构</text>
+<rect x="560" y="575" width="250" height="155" rx="8" fill="#EDF4FA" stroke="#4274A7" stroke-width="2"/>
+<text x="685" y="612" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#23354B">原有候选初始化</text>
+<text x="685" y="642" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">Encoder预测 + Top300</text>
+<text x="685" y="669" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">Q₀：300 × 256</text>
+<text x="685" y="696" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">初始参考框 b₀</text>
+<rect x="905" y="575" width="145" height="155" rx="8" fill="#EDF4FA" stroke="#4274A7" stroke-width="2"/>
+<text x="977.5" y="614.25" dominant-baseline="central" text-anchor="middle" font-size="20" font-weight="700" fill="#23354B">Decoder L1</text>
+<text x="977.5" y="642" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Self-attn</text>
+<text x="977.5" y="667.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Cross-attn</text>
+<text x="977.5" y="693" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">FFN / FDR</text>
+<rect x="1115" y="575" width="145" height="155" rx="8" fill="#EDF4FA" stroke="#4274A7" stroke-width="2"/>
+<text x="1187.5" y="614.25" dominant-baseline="central" text-anchor="middle" font-size="20" font-weight="700" fill="#23354B">Decoder L2</text>
+<text x="1187.5" y="642" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Self-attn</text>
+<text x="1187.5" y="667.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Cross-attn</text>
+<text x="1187.5" y="693" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">FFN / FDR</text>
+<rect x="1545" y="575" width="145" height="155" rx="8" fill="#EDF4FA" stroke="#4274A7" stroke-width="2"/>
+<text x="1617.5" y="614.25" dominant-baseline="central" text-anchor="middle" font-size="20" font-weight="700" fill="#23354B">Decoder L3</text>
+<text x="1617.5" y="642" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Self-attn</text>
+<text x="1617.5" y="667.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Cross-attn</text>
+<text x="1617.5" y="693" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">FFN / FDR</text>
+<rect x="1325" y="575" width="155" height="155" rx="8" fill="#FFF1E3" stroke="#B85A1D" stroke-width="2"/>
+<text x="1402.5" y="612" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#23354B">AQS-L2</text>
+<text x="1402.5" y="644.25" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">置信门控</text>
+<text x="1402.5" y="671.25" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">上下文融合</text>
+<text x="1402.5" y="698.25" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="400" fill="#52647A">query残差更新</text>
+<rect x="1745" y="575" width="160" height="155" rx="8" fill="#EDF4FA" stroke="#4274A7" stroke-width="2"/>
+<text x="1825" y="614.25" dominant-baseline="central" text-anchor="middle" font-size="21" font-weight="700" fill="#23354B">原有输出头</text>
+<text x="1825" y="642.75" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Cls + LQE</text>
+<text x="1825" y="668.25" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">FDR定位框</text>
+<text x="1825" y="693.75" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">类别分数与bbox</text>
+<rect x="1695" y="870" width="210" height="120" rx="8" fill="#EDF4FA" stroke="#4274A7" stroke-width="2"/>
+<text x="1800" y="904.5" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#23354B">原有后处理</text>
+<text x="1800" y="933.75" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">Top300 query-class</text>
+<text x="1800" y="959.25" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">hand / read / write</text>
+<rect x="1305" y="440" width="235" height="85" rx="8" fill="#FFFFFF" stroke="#B85A1D" stroke-width="2"/>
+<text x="1422.5" y="469.75" dominant-baseline="central" text-anchor="middle" font-size="20" font-weight="700" fill="#23354B">L2 ClsHead + LQE</text>
+<text x="1422.5" y="497.5" dominant-baseline="central" text-anchor="middle" font-size="17" font-weight="400" fill="#52647A">S₂：AQS门控依据</text>
+<text x="1040" y="390" dominant-baseline="central" text-anchor="start" font-size="17" font-weight="400" fill="#4274A7">共享多尺度Memory → 各Decoder层</text>
+<text x="545" y="841" dominant-baseline="central" text-anchor="start" font-size="17" font-weight="400" fill="#52647A">参考框初始化与迭代：原路径保留</text>
+<text x="1030" y="852" dominant-baseline="central" text-anchor="start" font-size="16" font-weight="400" fill="#52647A">L2当前框 / FDR迭代不直接经AQS；L3框可间接受query更新影响</text>
+<text x="1513" y="628" dominant-baseline="central" text-anchor="middle" font-size="19" font-weight="400" fill="#B85A1D">Q₂′</text>
+<text x="95" y="881" dominant-baseline="central" text-anchor="start" font-size="18" font-weight="400" fill="#52647A">原D-FINE组件 / 特征路径</text>
+<text x="95" y="926" dominant-baseline="central" text-anchor="start" font-size="18" font-weight="400" fill="#52647A">新增AQS / query更新路径</text>
+<text x="560" y="937.5" dominant-baseline="central" text-anchor="start" font-size="18" font-weight="400" fill="#52647A">AQS初值：τ₀ = 0.50，ρ₀ = 0.10；T = 0.10固定；τ与ρ继续学习。</text>
+<text x="560" y="991.5" dominant-baseline="central" text-anchor="start" font-size="18" font-weight="400" fill="#23354B">保留300个query，不新增TopK选择器，不改变原损失函数，不叠加BoxLocal或SERF。</text>
+</g>
+</svg>

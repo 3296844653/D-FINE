@@ -1,0 +1,7 @@
+__include__:
+  - dfine_s_scbs_hrw_110_night_n4.yml
+
+# Final encoder P3 reads P4 neighbourhoods; P4/P5 outputs remain original.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_BoxLocalL2_CNF_seed0_run1
+DFINE:
+  box_local_extension: CrossScaleNeighborhoodFusion

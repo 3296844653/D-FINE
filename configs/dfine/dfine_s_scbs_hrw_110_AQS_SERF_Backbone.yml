@@ -1,0 +1,16 @@
+__include__:
+  - dfine_s_scbs_hrw_110_aqs_layer2_r010.yml
+
+# Read Backbone P3/P4 stage outputs, update returned P3 before Encoder.
+# NOT a block inserted inside stages; P4/P5 backbone computation is unchanged.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_AQS_SERF_Backbone_seed0_run1
+DFINE:
+  serf_placement: SERF_Backbone
+  serf_dim: 64
+  serf_window: 8
+  serf_halo: 2
+  serf_slots: 4
+  serf_heads: 4
+  serf_scale: 0.10
+  serf_chunk: 128
+  serf_checkpoint: true

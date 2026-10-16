@@ -1,0 +1,407 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" agent="D-FINE documentation generator" version="24.7.17" type="device">
+  <diagram id="D-FINE-S-+-AQS-L2" name="D-FINE-S + AQS-L2">
+    <mxGraphModel dx="1960" dy="1070" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1960" pageHeight="1070" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="backbone_group" value="" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#C6D1DC;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="245" y="175" width="270" height="250" />
+        </mxCell>
+        <mxCell id="encoder_group" value="" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#C6D1DC;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="560" y="175" width="390" height="250" />
+        </mxCell>
+        <mxCell id="legend_blue" value="" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="60" y="870" width="22" height="22" />
+        </mxCell>
+        <mxCell id="legend_aqs" value="" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFF1E3;strokeColor=#B85A1D;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="60" y="915" width="22" height="22" />
+        </mxCell>
+        <mxCell id="title" value="&lt;div style=&quot;font-size:32px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;D-FINE-S + AQS-L2 整体架构&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="60" y="35" width="1500" height="50" />
+        </mxCell>
+        <mxCell id="subtitle" value="&lt;div style=&quot;font-size:19px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;当前配置：AQS-L2 R1 · SCB-S三类 · 640 × 640 · 推理主路径（训练DN及辅助监督省略）&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="60" y="95" width="1740" height="35" />
+        </mxCell>
+        <mxCell id="image" value="&lt;div style=&quot;font-size:22px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;输入图像&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;640 × 640&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;RGB&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#F4F6F8;strokeColor=#64748B;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="60" y="205" width="145" height="180" />
+        </mxCell>
+        <mxCell id="backbone_title" value="&lt;div style=&quot;font-size:24px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;HGNetV2-B0&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="270" y="185" width="220" height="42" />
+        </mxCell>
+        <mxCell id="p3" value="&lt;div style=&quot;font-size:18px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;P3  ·  256 × 80 × 80&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="270" y="240" width="220" height="45" />
+        </mxCell>
+        <mxCell id="p4" value="&lt;div style=&quot;font-size:18px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;P4  ·  512 × 40 × 40&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="270" y="298" width="220" height="45" />
+        </mxCell>
+        <mxCell id="p5" value="&lt;div style=&quot;font-size:18px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;P5  ·  1024 × 20 × 20&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="270" y="356" width="220" height="45" />
+        </mxCell>
+        <mxCell id="encoder_title" value="&lt;div style=&quot;font-size:24px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;Hybrid Encoder&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="580" y="185" width="350" height="42" />
+        </mxCell>
+        <mxCell id="projection" value="&lt;div style=&quot;font-size:19px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;1 × 1 投影：各尺度 → 256通道&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="585" y="239" width="340" height="46" />
+        </mxCell>
+        <mxCell id="aifi" value="&lt;div style=&quot;font-size:18px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;P5 Transformer / AIFI&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="585" y="296" width="260" height="46" />
+        </mxCell>
+        <mxCell id="p34_bypass_label" value="&lt;div style=&quot;font-size:14px;font-weight:400;color:#4274A7;line-height:1.5&quot;&gt;P3/P4&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="850" y="303" width="47" height="28" />
+        </mxCell>
+        <mxCell id="fpnpan" value="&lt;div style=&quot;font-size:20px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;跨尺度融合：FPN → PAN&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="585" y="353" width="340" height="46" />
+        </mxCell>
+        <mxCell id="memory" value="&lt;div style=&quot;font-size:23px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;多尺度特征 / Decoder Memory&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;P3: 80 × 80    ·    P4: 40 × 40    ·    P5: 20 × 20&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;各尺度256通道；提供各Decoder层的跨注意力特征&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="990" y="215" width="870" height="125" />
+        </mxCell>
+        <mxCell id="encoder_note" value="&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;骨干与编码器保持原结构&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="245" y="450" width="490" height="40" />
+        </mxCell>
+        <mxCell id="query_init" value="&lt;div style=&quot;font-size:22px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;原有候选初始化&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;Encoder预测 + Top300&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;Q₀：300 × 256&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;初始参考框 b₀&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="560" y="575" width="250" height="155" />
+        </mxCell>
+        <mxCell id="l1" value="&lt;div style=&quot;font-size:20px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;Decoder L1&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;Self-attn&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;Cross-attn&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;FFN / FDR&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="905" y="575" width="145" height="155" />
+        </mxCell>
+        <mxCell id="l2" value="&lt;div style=&quot;font-size:20px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;Decoder L2&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;Self-attn&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;Cross-attn&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;FFN / FDR&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1115" y="575" width="145" height="155" />
+        </mxCell>
+        <mxCell id="l3" value="&lt;div style=&quot;font-size:20px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;Decoder L3&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;Self-attn&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;Cross-attn&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;FFN / FDR&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1545" y="575" width="145" height="155" />
+        </mxCell>
+        <mxCell id="aqs" value="&lt;div style=&quot;font-size:25px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;AQS-L2&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;置信门控&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;上下文融合&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;query残差更新&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFF1E3;strokeColor=#B85A1D;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1325" y="575" width="155" height="155" />
+        </mxCell>
+        <mxCell id="heads" value="&lt;div style=&quot;font-size:21px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;原有输出头&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;Cls + LQE&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;FDR定位框&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;类别分数与bbox&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1745" y="575" width="160" height="155" />
+        </mxCell>
+        <mxCell id="postprocess" value="&lt;div style=&quot;font-size:22px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;原有后处理&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;Top300 query-class&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;hand / read / write&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1695" y="870" width="210" height="120" />
+        </mxCell>
+        <mxCell id="gate_scores" value="&lt;div style=&quot;font-size:20px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;L2 ClsHead + LQE&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;S₂：AQS门控依据&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#B85A1D;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1305" y="440" width="235" height="85" />
+        </mxCell>
+        <mxCell id="memory_bus_label" value="&lt;div style=&quot;font-size:17px;font-weight:400;color:#4274A7;line-height:1.5&quot;&gt;共享多尺度Memory → 各Decoder层&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1040" y="374" width="430" height="32" />
+        </mxCell>
+        <mxCell id="ref_init_label" value="&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;参考框初始化与迭代：原路径保留&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="545" y="827" width="365" height="28" />
+        </mxCell>
+        <mxCell id="ref_label" value="&lt;div style=&quot;font-size:16px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;L2当前框 / FDR迭代不直接经AQS；L3框可间接受query更新影响&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1030" y="837" width="630" height="30" />
+        </mxCell>
+        <mxCell id="q_out" value="&lt;div style=&quot;font-size:19px;font-weight:400;color:#B85A1D;line-height:1.5&quot;&gt;Q₂′&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1481" y="613" width="64" height="30" />
+        </mxCell>
+        <mxCell id="legend_blue_label" value="&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;原D-FINE组件 / 特征路径&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="95" y="861" width="390" height="40" />
+        </mxCell>
+        <mxCell id="legend_aqs_label" value="&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;新增AQS / query更新路径&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="95" y="906" width="410" height="40" />
+        </mxCell>
+        <mxCell id="protocol" value="&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;AQS初值：τ₀ = 0.50，ρ₀ = 0.10；T = 0.10固定；τ与ρ继续学习。&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="560" y="905" width="1010" height="65" />
+        </mxCell>
+        <mxCell id="key_note" value="&lt;div style=&quot;font-size:18px;font-weight:400;color:#23354B;line-height:1.5&quot;&gt;保留300个query，不新增TopK选择器，不改变原损失函数，不叠加BoxLocal或SERF。&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="560" y="969" width="1230" height="45" />
+        </mxCell>
+        <mxCell id="image_backbone" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="image" target="backbone_group">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="backbone_p3" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="p3" target="projection">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="535" y="262.5" />
+              <mxPoint x="535" y="262" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="backbone_p4" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="p4" target="projection">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="535" y="320.5" />
+              <mxPoint x="535" y="262" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="backbone_p5" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="p5" target="projection">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="535" y="378.5" />
+              <mxPoint x="535" y="262" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="projection_aifi" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.382353;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="projection" target="aifi">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="aifi_fpnpan" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.382353;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="aifi" target="fpnpan">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="p34_bypass" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#4274A7;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.93;exitY=1;exitDx=0;exitDy=0;entryX=0.93;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="projection" target="fpnpan">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="encoder_memory" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="fpnpan" target="memory">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="973" y="376" />
+              <mxPoint x="973" y="277.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="memory_query_init" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="fpnpan" target="query_init">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="755" y="515" />
+              <mxPoint x="685" y="515" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="init_l1" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="query_init" target="l1">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="l1_l2" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="l1" target="l2">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="l2_aqs" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="l2" target="aqs">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="aqs_l3" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="aqs" target="l3">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="l3_heads" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="l3" target="heads">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="heads_post" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="heads" target="postprocess">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="1825" y="805" />
+              <mxPoint x="1800" y="805" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l2_gate_scores" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="l2" target="gate_scores">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="1280" y="652.5" />
+              <mxPoint x="1280" y="482.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="scores_aqs" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="gate_scores" target="aqs">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="1422.5" y="550" />
+              <mxPoint x="1402.5" y="550" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="memory_l1" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#4274A7;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.57;exitY=1;exitDx=0;exitDy=0;entryX=0.172414;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="memory" target="l1">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="1485.9" y="430" />
+              <mxPoint x="930" y="430" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="memory_l2" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#4274A7;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.57;exitY=1;exitDx=0;exitDy=0;entryX=0.172414;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="memory" target="l2">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="1485.9" y="430" />
+              <mxPoint x="1140" y="430" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="memory_l3" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#4274A7;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.57;exitY=1;exitDx=0;exitDy=0;entryX=0.172414;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="memory" target="l3">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="1485.9" y="430" />
+              <mxPoint x="1570" y="430" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ref_init" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;dashed=1;dashPattern=7 5;" edge="1" parent="1" source="query_init" target="l1">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="685" y="810" />
+              <mxPoint x="977.5" y="810" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ref_12" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;dashed=1;dashPattern=7 5;" edge="1" parent="1" source="l1" target="l2">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="977.5" y="782" />
+              <mxPoint x="1187.5" y="782" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ref_23" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;dashed=1;dashPattern=7 5;" edge="1" parent="1" source="l2" target="l3">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="1187.5" y="822" />
+              <mxPoint x="1617.5" y="822" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="AQS-L2-internal-structure" name="AQS-L2 internal structure">
+    <mxGraphModel dx="1980" dy="1100" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1980" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="&lt;div style=&quot;font-size:31px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;AQS-L2：自适应query门控与上下文残差增强&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="60" y="35" width="1750" height="50" />
+        </mxCell>
+        <mxCell id="subtitle" value="&lt;div style=&quot;font-size:19px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;展示普通检测query的计算；与当前 AdaptiveQuerySelectionRefiner 实现一致&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="60" y="94" width="1750" height="38" />
+        </mxCell>
+        <mxCell id="scores" value="&lt;div style=&quot;font-size:21px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;L2类别logits S₂&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;ClsHead₂ + LQE₂&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;300 × 3&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="60" y="175" width="200" height="125" />
+        </mxCell>
+        <mxCell id="importance" value="&lt;div style=&quot;font-size:22px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;置信度重要性&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;sᵢ = max_c sigmoid(Sᵢc)&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="315" y="175" width="205" height="125" />
+        </mxCell>
+        <mxCell id="gate" value="&lt;div style=&quot;font-size:24px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;硬门控 + STE&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;g_h = 1[sᵢ ≥ τ]&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;g_s = sigmoid((sᵢ − τ)/T)&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;前向：硬选择；反向：软梯度&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;T = 0.10（固定）&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFF1E3;strokeColor=#B85A1D;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="570" y="165" width="255" height="195" />
+        </mxCell>
+        <mxCell id="threshold" value="&lt;div style=&quot;font-size:22px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;可学习阈值 τ&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;τ = sigmoid(θ)&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;τ₀ = 0.50&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFF1E3;strokeColor=#B85A1D;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="315" y="365" width="220" height="110" />
+        </mxCell>
+        <mxCell id="query" value="&lt;div style=&quot;font-size:23px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;L2 query Q₂&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;300 × 256&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;保留全部query&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="60" y="635" width="185" height="115" />
+        </mxCell>
+        <mxCell id="norm" value="&lt;div style=&quot;font-size:22px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;LayerNorm&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;LN(qᵢ)&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="300" y="635" width="165" height="115" />
+        </mxCell>
+        <mxCell id="pool" value="&lt;div style=&quot;font-size:23px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;选中query的上下文池化&lt;/div&gt;&lt;div style=&quot;font-size:20px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;c = Σᵢ gᵢqᵢ / max(Σᵢ gᵢ, 1)&lt;/div&gt;&lt;div style=&quot;font-size:20px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;将c广播至所有query位置&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFF1E3;strokeColor=#B85A1D;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="855" y="390" width="430" height="155" />
+        </mxCell>
+        <mxCell id="concat" value="&lt;div style=&quot;font-size:23px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;拼接&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;[ LN(qᵢ) ; c ]&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;256 + 256 → 512&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="855" y="635" width="205" height="115" />
+        </mxCell>
+        <mxCell id="mlp" value="&lt;div style=&quot;font-size:23px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;融合MLP&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;Linear → SiLU → Linear&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;512 → 256 → 256&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1115" y="635" width="230" height="115" />
+        </mxCell>
+        <mxCell id="scale" value="&lt;div style=&quot;font-size:22px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;可学习残差缩放&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;β = tanh(ρ)&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;ρ₀ = 0.10&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFF1E3;strokeColor=#B85A1D;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1410" y="420" width="210" height="115" />
+        </mxCell>
+        <mxCell id="multiply" value="&lt;div style=&quot;font-size:24px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;门控残差&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;β · gᵢ · Δqᵢ&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;Δqᵢ = MLP([LN(qᵢ); c])&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFF1E3;strokeColor=#B85A1D;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1410" y="625" width="210" height="135" />
+        </mxCell>
+        <mxCell id="add" value="&lt;div style=&quot;font-size:35px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;+&lt;/div&gt;" style="ellipse;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#B85A1D;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1680" y="660" width="65" height="65" />
+        </mxCell>
+        <mxCell id="out" value="&lt;div style=&quot;font-size:21px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;增强query Q₂′&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;300 × 256&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFF1E3;strokeColor=#B85A1D;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1790" y="635" width="160" height="115" />
+        </mxCell>
+        <mxCell id="l3" value="&lt;div style=&quot;font-size:21px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;Decoder L3&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;继续分类与定位&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EDF4FA;strokeColor=#4274A7;strokeWidth=2;fontFamily=Arial;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1790" y="895" width="160" height="100" />
+        </mxCell>
+        <mxCell id="gate_label" value="&lt;div style=&quot;font-size:18px;font-weight:400;color:#B85A1D;line-height:1.5&quot;&gt;门控g：选择池化query，同时控制残差写入&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="900" y="220" width="620" height="30" />
+        </mxCell>
+        <mxCell id="ln_label" value="&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;每个query的归一化特征&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="490" y="650" width="320" height="32" />
+        </mxCell>
+        <mxCell id="skip_label" value="&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;恒等路径：gᵢ = 0时，原query保持不变；不是删除query&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="610" y="835" width="820" height="30" />
+        </mxCell>
+        <mxCell id="equation" value="&lt;div style=&quot;font-size:25px;font-weight:700;color:#23354B;line-height:1.5&quot;&gt;qᵢ′ = qᵢ + tanh(ρ) · gᵢ · MLP([LN(qᵢ); c])&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="60" y="906" width="1580" height="45" />
+        </mxCell>
+        <mxCell id="ste_note" value="&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;STE：g = stopgrad(g_h − g_s) + g_s；MLP最后一层零初始化，使初始残差为0。&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="60" y="962" width="1580" height="34" />
+        </mxCell>
+        <mxCell id="dn_note" value="&lt;div style=&quot;font-size:18px;font-weight:400;color:#52647A;line-height:1.5&quot;&gt;训练时DN与普通query分别计算，不相互池化；AQS不直接输入或修改bbox，L3可受query更新间接影响。&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Arial;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="60" y="1009" width="1830" height="34" />
+        </mxCell>
+        <mxCell id="score_importance" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="scores" target="importance">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="importance_gate" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.372;entryDx=0;entryDy=0;" edge="1" parent="1" source="importance" target="gate">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="threshold_gate" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.815;entryDx=0;entryDy=0;" edge="1" parent="1" source="threshold" target="gate">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="551" y="420" />
+              <mxPoint x="551" y="324" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="query_norm" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="query" target="norm">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="query_pool" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="query" target="pool">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="273" y="692.5" />
+              <mxPoint x="273" y="570" />
+              <mxPoint x="795" y="570" />
+              <mxPoint x="795" y="467.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="gate_pool" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="gate" target="pool">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="697.5" y="378" />
+              <mxPoint x="1070" y="378" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="gate_multiply" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.69;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="gate" target="multiply">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="1660" y="262.5" />
+              <mxPoint x="1660" y="585" />
+              <mxPoint x="1554.9" y="585" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="pool_concat" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pool" target="concat">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="1070" y="595" />
+              <mxPoint x="957.5" y="595" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="norm_concat" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="norm" target="concat">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="concat_mlp" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="concat" target="mlp">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="mlp_multiply" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="mlp" target="multiply">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="scale_multiply" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.28;exitY=1;exitDx=0;exitDy=0;entryX=0.28;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="scale" target="multiply">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="multiply_add" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="multiply" target="add">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="add_out" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="add" target="out">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="query_skip" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#64748B;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="query" target="add">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="152.5" y="827" />
+              <mxPoint x="1712.5" y="827" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="out_l3" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="out" target="l3">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

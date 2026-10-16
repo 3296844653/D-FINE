@@ -47,7 +47,8 @@ class AQSBoxLocalL2Tests(unittest.TestCase):
         expected, actual = copy.deepcopy(base.yaml_cfg), copy.deepcopy(cfg.yaml_cfg)
         for obj in (expected, actual):
             obj.pop('__include__', None); obj.pop('output_dir', None)
-        expected['DFINE'].update(night_probe='decoder_l2_local', allow_aqs_l2_local_combo=True)
+        expected['DFINE'].update(night_probe='decoder_l2_local', allow_aqs_l2_local_combo=True,
+            box_local_dim=64, box_local_grid_size=3, box_local_offset_scale=.15, box_local_residual_scale=.1)
         expected['DFINETransformer'].update(use_aqs_refine=True, aqs_apply_layer=2,
             aqs_threshold=.5, aqs_temperature=.1, aqs_residual_init=.1)
         self.assertEqual(expected, actual)
@@ -55,6 +56,12 @@ class AQSBoxLocalL2Tests(unittest.TestCase):
         local = fresh_config('dfine_s_scbs_hrw_110_night_n4.yml').model
         aqs = fresh_config('dfine_s_scbs_hrw_110_aqs_layer2_r010.yml').model
         self.assertTrue(combo.allow_aqs_l2_local_combo)
+        adapter, refiner = branches(combo)
+        self.assertEqual((adapter.dim, adapter.sampler.grid_size,
+                          adapter.sampler.offset_scale, adapter.residual_scale), (64, 3, .15, .1))
+        self.assertAlmostEqual(refiner.threshold_logit.sigmoid().item(), .5)
+        self.assertEqual(refiner.temperature, .1)
+        self.assertAlmostEqual(refiner.residual_scale.item(), .1)
         self.assertEqual(combo.decoder.decoder.aqs_layer_indices, (1,))
         self.assertEqual(sum(p.numel() for p in combo.parameters()),
                          sum(p.numel() for p in local.parameters()) + sum(p.numel() for p in aqs.parameters())
@@ -228,6 +235,26 @@ class AQSBoxLocalL2Tests(unittest.TestCase):
             result = subprocess.run(['bash',str(SCRIPT),str(output)], text=True, capture_output=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(sentinel.read_text(), 'old results')
+
+    def test_launcher_local_dry_run_modes_and_old_path_argument(self):
+        with tempfile.TemporaryDirectory(prefix='aqs-local-launcher-') as folder:
+            env = dict(os.environ, SCBS_COMBO_ROOT=folder, SCBS_COMBO_CONDA='/not-installed/conda')
+            for args in (['run2','--dry-run'], ['--dry-run','run2','--wait-gpu','--diagnostics'],
+                         ['--dry-run',str(Path(folder)/'legacy_new_output')]):
+                result = subprocess.run(['bash',str(SCRIPT),*args],env=env,text=True,capture_output=True)
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertIn('--seed=0',result.stdout)
+                self.assertIn('--master_port=7781',result.stdout)
+                self.assertNotIn(' --resume ',result.stdout)
+            self.assertEqual(list(Path(folder).iterdir()),[])
+            for args in (['run0','--dry-run'], ['run1','run2','--dry-run'], ['--unknown']):
+                self.assertNotEqual(subprocess.run(['bash',str(SCRIPT),*args],env=env,
+                    text=True,capture_output=True).returncode,0)
+            old = Path(folder)/'dfine_s_scbs_hrw_epochs110_AQS_BoxLocalQueryAdapter_l2_seed0_run2'
+            old.mkdir();(old/'keep').write_text('old result')
+            result = subprocess.run(['bash',str(SCRIPT),'run2','--dry-run'],env=env,text=True,capture_output=True)
+            self.assertNotEqual(result.returncode,0)
+            self.assertEqual((old/'keep').read_text(),'old result')
 
     @unittest.skipUnless(torch.cuda.is_available(), 'CUDA unavailable; verify real FP16 on server')
     def test_cuda_fp16_joint_training(self):

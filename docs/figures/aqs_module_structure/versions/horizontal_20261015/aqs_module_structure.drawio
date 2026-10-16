@@ -1,0 +1,154 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" type="device">
+  <diagram id="AQS-internal-structure" name="AQS internal structure">
+    <mxGraphModel dx="1800" dy="900" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="aqs_frame" value="" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#F2F3F3;strokeColor=#D2D6D6;strokeWidth=2;fontFamily=Times New Roman;spacing=8;absoluteArcSize=1;arcSize=56;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="230" y="110" width="1415" height="635" />
+        </mxCell>
+        <mxCell id="title" value="&lt;div style=&quot;font-size:32px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;Adaptive Query Selection (AQS)&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Times New Roman;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="20" width="1720" height="50" />
+        </mxCell>
+        <mxCell id="placement" value="&lt;div style=&quot;font-size:21px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;Decoder L2  →  AQS  →  Decoder L3&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Times New Roman;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="70" width="1720" height="32" />
+        </mxCell>
+        <mxCell id="logits" value="&lt;div style=&quot;font-size:23px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;L2 logits S2&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;ClsHead2 + LQE2&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;N x C&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFF0C7;strokeColor=#505050;strokeWidth=2;fontFamily=Times New Roman;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="170" width="170" height="110" />
+        </mxCell>
+        <mxCell id="confidence" value="&lt;div style=&quot;font-size:23px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;Class Confidence&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;s_i = max_c σ(S2,i,c)&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFF0C7;strokeColor=#505050;strokeWidth=2;fontFamily=Times New Roman;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="260" y="170" width="200" height="110" />
+        </mxCell>
+        <mxCell id="gate" value="&lt;div style=&quot;font-size:24px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;Hard Gate + STE&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;h_i = 1[s_i ≥ τ]&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;g_s = σ((s_i − τ)/T)&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;forward h; backward g_s&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#F7D3CE;strokeColor=#505050;strokeWidth=2;fontFamily=Times New Roman;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="510" y="155" width="235" height="140" />
+        </mxCell>
+        <mxCell id="threshold" value="&lt;div style=&quot;font-size:23px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;Learned Threshold&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;τ = σ(θ)&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;T = 0.10  (fixed)&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFF0C7;strokeColor=#505050;strokeWidth=2;fontFamily=Times New Roman;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="510" y="340" width="235" height="105" />
+        </mxCell>
+        <mxCell id="pool" value="&lt;div style=&quot;font-size:23px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;Selected-query Mean&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;c = Σ(g_i q_i) / max(Σg_i, 1)&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;Broadcast c to N queries&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#DCE9DF;strokeColor=#505050;strokeWidth=2;fontFamily=Times New Roman;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="810" y="155" width="290" height="140" />
+        </mxCell>
+        <mxCell id="query" value="&lt;div style=&quot;font-size:24px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;L2 query Q2&lt;/div&gt;&lt;div style=&quot;font-size:20px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;300 x 256&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#E0EAF5;strokeColor=#505050;strokeWidth=2;fontFamily=Times New Roman;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="500" width="170" height="110" />
+        </mxCell>
+        <mxCell id="norm" value="&lt;div style=&quot;font-size:25px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;LayerNorm&lt;/div&gt;&lt;div style=&quot;font-size:20px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;LN(q_i)&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#E0EAF5;strokeColor=#505050;strokeWidth=2;fontFamily=Times New Roman;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="260" y="500" width="200" height="110" />
+        </mxCell>
+        <mxCell id="concat" value="&lt;div style=&quot;font-size:25px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;Concat&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;[LN(q_i); c]&lt;/div&gt;&lt;div style=&quot;font-size:18px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;2D = 512&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#E0EAF5;strokeColor=#505050;strokeWidth=2;fontFamily=Times New Roman;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="810" y="500" width="190" height="110" />
+        </mxCell>
+        <mxCell id="mlp" value="&lt;div style=&quot;font-size:25px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;Fusion MLP&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;Linear → SiLU → Linear&lt;/div&gt;&lt;div style=&quot;font-size:17px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;512 → 256 → 256&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#E0EAF5;strokeColor=#505050;strokeWidth=2;fontFamily=Times New Roman;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1050" y="500" width="230" height="110" />
+        </mxCell>
+        <mxCell id="scale" value="&lt;div style=&quot;font-size:23px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;Learned Scale&lt;/div&gt;&lt;div style=&quot;font-size:20px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;β = tanh(ρ)&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFF0C7;strokeColor=#505050;strokeWidth=2;fontFamily=Times New Roman;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1415" y="340" width="180" height="90" />
+        </mxCell>
+        <mxCell id="residual" value="&lt;div style=&quot;font-size:23px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;Gated Residual&lt;/div&gt;&lt;div style=&quot;font-size:21px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;β · g_i · Δq_i&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#F7D3CE;strokeColor=#505050;strokeWidth=2;fontFamily=Times New Roman;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1325" y="500" width="210" height="110" />
+        </mxCell>
+        <mxCell id="sum" value="&lt;div style=&quot;font-size:32px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;+&lt;/div&gt;" style="ellipse;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#505050;strokeWidth=2;fontFamily=Times New Roman;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1590" y="530" width="50" height="50" />
+        </mxCell>
+        <mxCell id="output" value="&lt;div style=&quot;font-size:27px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;Q2′&lt;/div&gt;&lt;div style=&quot;font-size:14px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;300 x 256&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#F7D3CE;strokeColor=#505050;strokeWidth=2;fontFamily=Times New Roman;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1675" y="500" width="90" height="110" />
+        </mxCell>
+        <mxCell id="l3" value="&lt;div style=&quot;font-size:19px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;Decoder L3&lt;/div&gt;&lt;div style=&quot;font-size:16px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;next layer&lt;/div&gt;" style="rounded=1;arcSize=8;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#E0EAF5;strokeColor=#505050;strokeWidth=2;fontFamily=Times New Roman;spacing=8;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1655" y="665" width="130" height="74" />
+        </mxCell>
+        <mxCell id="gate_branch_label" value="&lt;div style=&quot;font-size:17px;font-weight:400;color:#B85A1D;line-height:1.5&quot;&gt;gate g&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Times New Roman;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1310" y="245" width="100" height="29" />
+        </mxCell>
+        <mxCell id="raw_query_label" value="&lt;div style=&quot;font-size:17px;font-weight:400;color:#4274A7;line-height:1.5&quot;&gt;raw query features&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Times New Roman;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="285" y="432" width="235" height="26" />
+        </mxCell>
+        <mxCell id="context_label" value="&lt;div style=&quot;font-size:17px;font-weight:400;color:#4274A7;line-height:1.5&quot;&gt;pooled context c&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Times New Roman;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="966" y="351" width="190" height="28" />
+        </mxCell>
+        <mxCell id="identity_label" value="&lt;div style=&quot;font-size:18px;font-weight:400;color:#4274A7;line-height:1.5&quot;&gt;Identity path: g_i = 0 leaves the original query unchanged&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Times New Roman;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="470" y="700" width="775" height="27" />
+        </mxCell>
+        <mxCell id="equation" value="&lt;div style=&quot;font-size:26px;font-weight:700;color:#151515;line-height:1.5&quot;&gt;q_i′ = q_i + tanh(ρ) · g_i · MLP([LN(q_i); c])&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Times New Roman;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="300" y="763" width="1200" height="40" />
+        </mxCell>
+        <mxCell id="settings" value="&lt;div style=&quot;font-size:18px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;N = 300, D = 256.  Initial τ = 0.50, initial ρ = 0.10; T = 0.10 is fixed.  Query count is unchanged.&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Times New Roman;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="813" width="1720" height="27" />
+        </mxCell>
+        <mxCell id="training_note" value="&lt;div style=&quot;font-size:17px;font-weight:400;color:#151515;line-height:1.5&quot;&gt;Training: STE gate gradients; ordinary and DN queries pool separately. The MLP output layer is zero-initialized.&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontFamily=Times New Roman;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="850" width="1720" height="27" />
+        </mxCell>
+        <mxCell id="logits_confidence" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#303030;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="logits" target="confidence">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="confidence_gate" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#303030;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="confidence" target="gate">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="threshold_gate" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="threshold" target="gate">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="gate_pool" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="gate" target="pool">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="gate_residual" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.2;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="gate" target="residual">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="775" y="225" />
+              <mxPoint x="775" y="130" />
+              <mxPoint x="1300" y="130" />
+              <mxPoint x="1300" y="455" />
+              <mxPoint x="1367" y="455" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="raw_query_pool" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#4274A7;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.15;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="query" target="pool">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="125" y="460" />
+              <mxPoint x="853.5" y="460" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="pool_concat" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#4274A7;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="pool" target="concat">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="955" y="430" />
+              <mxPoint x="905" y="430" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="query_norm" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#4274A7;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="query" target="norm">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="norm_concat" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#4274A7;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="norm" target="concat">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="concat_mlp" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#303030;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="concat" target="mlp">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="mlp_residual" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#303030;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="mlp" target="residual">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="scale_residual" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.433333;exitY=1;exitDx=0;exitDy=0;entryX=0.8;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="scale" target="residual">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="residual_sum" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="residual" target="sum">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="identity" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#4274A7;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="query" target="sum">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="125" y="690" />
+              <mxPoint x="1615" y="690" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="sum_output" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#B85A1D;strokeWidth=2.2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="sum" target="output">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="output_l3" value="" style="edgeStyle=none;html=1;rounded=0;strokeColor=#303030;strokeWidth=2.2;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="output" target="l3">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

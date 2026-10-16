@@ -1,0 +1,9 @@
+__include__:
+  - dfine_s_scbs_hrw_110.yml
+
+# BoxLocal-L2 only; one factor changed from dim64/grid3/offset0.15/residual0.10.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_BoxLocalQueryAdapter_l2_r005_seed0_run1
+DFINE:
+  night_probe: decoder_l2_local
+  box_local_record_settings: true
+  box_local_residual_scale: 0.05

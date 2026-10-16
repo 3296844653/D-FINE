@@ -17,6 +17,7 @@ from ...core import register
 from .medium_finegrained import MediumScaleFineGrainedEnhancement
 from .scale_aligned_detail_fusion import ScaleAlignedDetailFusion
 from .semantic_differential_relation_fusion import SemanticDifferentialRelationFusion
+from .subpixel_context_fusion import SubpixelContextFusion
 from .utils import get_activation
 
 __all__ = ["HybridEncoder"]
@@ -549,6 +550,14 @@ class HybridEncoder(nn.Module):
         sdrf_checkpoint=True,
         sdrf_semantic_condition=True,
         sdrf_differential=True,
+        use_subpixel_context_fusion=False,
+        scf_p2_channels=64,
+        scf_dim=32,
+        scf_dilation=2,
+        scf_residual_init=0.1,
+        scf_checkpoint=True,
+        scf_phase_selection=True,
+        scf_context_relations=True,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -577,6 +586,9 @@ class HybridEncoder(nn.Module):
         if type(use_sdrf) is not bool:
             raise ValueError("use_sdrf must be boolean")
         self.use_sdrf = use_sdrf
+        if type(use_subpixel_context_fusion) is not bool:
+            raise ValueError("use_subpixel_context_fusion must be boolean")
+        self.use_subpixel_context_fusion = use_subpixel_context_fusion
         if not isinstance(mffe_p3_only, bool):
             raise ValueError("mffe_p3_only must be a boolean")
         self.mffe_p3_only = mffe_p3_only
@@ -591,16 +603,19 @@ class HybridEncoder(nn.Module):
                 self.use_mffe,
                 self.use_sadf,
                 self.use_sdrf,
+                self.use_subpixel_context_fusion,
             )
         ) > 1:
             raise ValueError(
                 "P2 detail fusion, encoder high-resolution/joint residual, RFA-P3, P3-RFAConv, SFIF, and MFFE "
-                "and SADF/SDRF must be ablated separately"
+                "and SADF/SDRF/SCF must be ablated separately"
             )
         if self.use_sadf and (len(in_channels) != 3 or list(feat_strides) != [8, 16, 32]):
             raise ValueError("SADF requires the standard three-level P3/P4/P5 encoder")
         if self.use_sdrf and (len(in_channels) != 3 or list(feat_strides) != [8, 16, 32]):
             raise ValueError("SDRF requires the standard P3/P4/P5 encoder")
+        if self.use_subpixel_context_fusion and (len(in_channels) != 3 or list(feat_strides) != [8, 16, 32]):
+            raise ValueError("SCF requires the standard P3/P4/P5 encoder")
         if self.use_mffe and (len(in_channels) != 3 or list(feat_strides) != [8, 16, 32]):
             raise ValueError("MFFE requires the standard P3/P4/P5 encoder at strides 8/16/32")
         if self.use_p2_detail_fusion:
@@ -737,6 +752,16 @@ class HybridEncoder(nn.Module):
 
         self._reset_parameters()
 
+        if self.use_subpixel_context_fusion:
+            # Preserve baseline and AQS RNG/initialization; only extra P2
+            # output routing changes, not HGNet's P3/P4/P5 computation.
+            with torch.random.fork_rng(devices=[]):
+                self.subpixel_context_fusion = SubpixelContextFusion(
+                    hidden_dim, scf_p2_channels, scf_dim, scf_dilation,
+                    scf_residual_init, scf_checkpoint,
+                    scf_phase_selection, scf_context_relations,
+                )
+
         if self.use_sdrf:
             # Preserve every original parameter and the decoder RNG stream.
             with torch.random.fork_rng(devices=[]):
@@ -803,7 +828,7 @@ class HybridEncoder(nn.Module):
         return torch.concat([out_w.sin(), out_w.cos(), out_h.sin(), out_h.cos()], dim=1)[None, :, :]
 
     def forward(self, feats):
-        if self.use_p2_detail_fusion:
+        if self.use_p2_detail_fusion or self.use_subpixel_context_fusion:
             if len(feats) != len(self.in_channels) + 1:
                 raise ValueError(
                     "P2 detail fusion requires backbone features [P2, P3, P4, P5]"
@@ -857,6 +882,11 @@ class HybridEncoder(nn.Module):
                     memory.permute(0, 2, 1).reshape(-1, self.hidden_dim, h, w).contiguous()
                 )
 
+        semantic_extension = getattr(self, 'box_semantic_extension', None)
+        if semantic_extension is not None:
+            # P5 semantic calibration AFTER AIFI and BEFORE FPN/PAN; no L2 hook.
+            proj_feats[-1] = semantic_extension(proj_feats[-1])
+
         # broadcasting and fusion
         inner_outs = [proj_feats[-1]]
         for idx in range(len(self.in_channels) - 1, 0, -1):
@@ -873,6 +903,8 @@ class HybridEncoder(nn.Module):
                 # local relations. Apply BEFORE PAN, unlike SADF/CrossGate.
                 # PAN can propagate the revised P3 into P4/P5 as usual.
                 inner_out = self.sdrf(proj_feats[0], inner_out, feat_heigh)
+            if self.use_subpixel_context_fusion and idx == 1:
+                inner_out = self.subpixel_context_fusion(p2_feat, inner_out, feat_heigh)
             inner_outs.insert(0, inner_out)
 
         if self.use_mffe:

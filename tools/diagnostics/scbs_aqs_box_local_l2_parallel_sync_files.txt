@@ -1,0 +1,10 @@
+src/zoo/dfine/dfine.py
+src/zoo/dfine/dfine_decoder.py
+configs/dfine/dfine_s_scbs_hrw_110_AQS_BoxLocalQueryAdapter_l2.yml
+configs/dfine/dfine_s_scbs_hrw_110_AQS_BoxLocalQueryAdapter_l2_parallel.yml
+tools/diagnostics/run_scbs_aqs_box_local_l2_110.sh
+tools/diagnostics/run_scbs_aqs_box_local_l2_parallel_110.sh
+tools/diagnostics/test_aqs_box_local_l2_parallel.py
+tools/diagnostics/sync_scbs_aqs_box_local_l2_parallel.sh
+tools/diagnostics/scbs_aqs_box_local_l2_parallel_sync_files.txt
+docs/SCBS_AQS_BoxLocalL2_Parallel_110.md

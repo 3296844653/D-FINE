@@ -72,19 +72,27 @@ class EncoderCrossGate(nn.Module):
 
 
 class AdaptiveROITokens(nn.Module):
-    """Query-conditioned nine locations, bounded inside each predicted box.
+    """Query-conditioned locations, bounded inside each predicted box.
 
-    Uses at most 18 projected tokens/query, not a per-query high-channel map or
-    Q-by-Q attention. Locations are not supervised/identified as hands or books.
+    Uses grid_size**2 projected tokens/query per feature level, not a per-query
+    high-channel map or Q-by-Q attention. Locations are not supervised/identified
+    as hands or books. The historical default is nine locations per level.
     """
 
-    def __init__(self, hidden_dim=256, dim=64, p2_channels=None):
+    def __init__(self, hidden_dim=256, dim=64, p2_channels=None, *, grid_size=3, offset_scale=.15):
         super().__init__()
+        if (any(type(v) is not int or v < 1 for v in (hidden_dim, dim))
+                or dim % 8 or type(grid_size) is not int or not 2 <= grid_size <= 7
+                or isinstance(offset_scale, bool) or not isinstance(offset_scale, (int, float))
+                or not math.isfinite(offset_scale) or not 0 <= offset_scale <= .5):
+            raise ValueError("Invalid BoxLocal dimensions, grid or offset scale")
         self.hidden_dim, self.dim = hidden_dim, dim
+        self.grid_size, self.num_points = grid_size, grid_size ** 2
+        self.offset_scale = float(offset_scale)
         self.p3_projection = project(hidden_dim, dim)
         self.p2_projection = project(p2_channels, dim) if p2_channels is not None else None
         self.query_norm = nn.LayerNorm(hidden_dim)
-        self.offset = nn.Linear(hidden_dim, 18)
+        self.offset = nn.Linear(hidden_dim, 2 * self.num_points)
         zero_output(self.offset)
         self.query_projection = nn.Linear(hidden_dim, dim)
         self.position = nn.Linear(2, dim, bias=False)
@@ -92,14 +100,14 @@ class AdaptiveROITokens(nn.Module):
         self.token_norm = nn.LayerNorm(dim)
         self.key = nn.Linear(dim, dim)
         self.value = nn.Linear(dim, dim)
-        axis = (torch.arange(3, dtype=torch.float32) + .5) / 3 - .5
+        axis = (torch.arange(grid_size, dtype=torch.float32) + .5) / grid_size - .5
         yy, xx = torch.meshgrid(axis, axis, indexing="ij")
         self.register_buffer("relative_grid", torch.stack((xx, yy), -1).flatten(0, 1),
                              persistent=False)
 
     def relative_locations(self, query):
-        offsets = .15 * self.offset(self.query_norm(query)).float().tanh()
-        return (self.relative_grid + offsets.reshape(*query.shape[:2], 9, 2)).clamp(-.49, .49)
+        offsets = self.offset_scale * self.offset(self.query_norm(query)).float().tanh()
+        return (self.relative_grid + offsets.reshape(*query.shape[:2], self.num_points, 2)).clamp(-.49, .49)
 
     def _sample(self, feature, boxes, relative):
         # FP32 coordinate arithmetic and sampling even under CUDA FP16 autocast.
@@ -137,16 +145,40 @@ class AdaptiveROITokens(nn.Module):
 class BoxLocalQueryAdapter(nn.Module):
     """A residual query update used independently at initialization OR layer 2."""
 
-    def __init__(self, hidden_dim=256, dim=64):
+    def __init__(self, hidden_dim=256, dim=64, *, grid_size=3, offset_scale=.15,
+                 residual_scale=.1, record_settings=False):
         super().__init__()
-        self.sampler = AdaptiveROITokens(hidden_dim, dim)
+        if (isinstance(residual_scale, bool) or not isinstance(residual_scale, (int, float))
+                or not math.isfinite(residual_scale) or not 0 <= residual_scale <= 1
+                or type(record_settings) is not bool):
+            raise ValueError("Invalid BoxLocal residual scale or settings flag")
+        self.hidden_dim, self.dim = hidden_dim, dim
+        self.residual_scale, self.enabled = float(residual_scale), True
+        self.sampler = AdaptiveROITokens(hidden_dim, dim, grid_size=grid_size, offset_scale=offset_scale)
         self.fuse = nn.Sequential(nn.LayerNorm(2 * dim), nn.Linear(2 * dim, dim),
                                   nn.SiLU(), nn.Linear(dim, hidden_dim))
         zero_output(self.fuse[-1])
+        # Opt-in only: old configs/checkpoints retain exactly the old tensor
+        # schema. New sweeps persist non-learned settings for strict loading.
+        if record_settings:
+            self.register_buffer("_box_local_settings", torch.tensor([1, hidden_dim, dim,
+                grid_size, round(offset_scale * 1e9), round(residual_scale * 1e9)], dtype=torch.int64))
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
+                              missing_keys, unexpected_keys, error_msgs):
+        saved = state_dict.get(prefix + "_box_local_settings")
+        current = getattr(self, "_box_local_settings", None)
+        if saved is not None and current is not None and (
+                saved.shape != current.shape or not torch.equal(saved.cpu(), current.cpu())):
+            error_msgs.append(prefix + "BoxLocal settings differ; use the checkpoint configuration")
+        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
+                                      missing_keys, unexpected_keys, error_msgs)
 
     def forward(self, query, boxes, p3):
+        if not self.enabled:
+            return query
         content, local = self.sampler(query, boxes, p3)
-        return query + .1 * self.fuse(torch.cat((content, local), -1))
+        return query + self.residual_scale * self.fuse(torch.cat((content, local), -1))
 
 
 class RWAdaptiveROI(nn.Module):

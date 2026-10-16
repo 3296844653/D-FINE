@@ -1,0 +1,28 @@
+__include__:
+  - dfine_s_scbs_hrw_110_aqs_layer2_r010.yml
+
+# SCA = Scale-Consistent Augmentation, NOT SubpixelContextFusion (SCF).
+# Only ZoomOut side_range/p and IoUCrop p change; retain AQS-L2 R1 recipe.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_AQS_SCA_seed0_run1
+
+train_dataloader:
+  dataset:
+    img_folder: /media/a5/5号机移动盘2/wq_datasets/SCB-S/images/train
+    ann_file: /media/a5/5号机移动盘2/wq_datasets/SCB-S/annotations/instances_train.json
+    transforms:
+      # YAML replaces lists, so retain ALL original operators and their order.
+      ops:
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: RandomZoomOut, fill: 0, side_range: [1.0, 2.0], p: 0.3}
+        - {type: RandomIoUCrop, p: 0.5}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: RandomHorizontalFlip}
+        - {type: Resize, size: [640, 640]}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
+
+val_dataloader:
+  dataset:
+    img_folder: /media/a5/5号机移动盘2/wq_datasets/SCB-S/images/val
+    ann_file: /media/a5/5号机移动盘2/wq_datasets/SCB-S/annotations/instances_val.json

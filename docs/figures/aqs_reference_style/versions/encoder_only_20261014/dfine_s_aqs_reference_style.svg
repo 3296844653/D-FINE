@@ -1,0 +1,302 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2200" height="650" viewBox="0 0 2200 650" role="img" aria-labelledby="title desc">
+<title id="title">D-FINE-S + AQS - compact architecture</title><desc id="desc">Reference-style left-to-right architecture with pale blocks, no dark innovation highlights. The original three-scale D-FINE-S encoder is retained, with AQS between decoder layers 2 and 3. Classroom drawings are schematic and are not model prediction evidence.</desc>
+<defs>
+<marker id="arrow0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#303030"/></marker>
+<marker id="arrow1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#4274A7"/></marker>
+<marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#B85A1D"/></marker>
+</defs>
+<rect width="2200" height="650" fill="white"/>
+<g font-family="&#x27;Times New Roman&#x27;, &#x27;Noto Serif&#x27;, serif">
+<rect x="265" y="189" width="205" height="174" rx="2" fill="#F0F3F1" stroke="#BCC5C5" stroke-width="2"/>
+<rect x="480" y="91.2" width="640" height="426.4" rx="52.8" fill="#F1F1F1" stroke="none" stroke-width="2"/>
+<rect x="1446" y="135" width="206" height="406" rx="9" fill="#DFEEF3" stroke="#CCDCE3" stroke-width="2"/>
+<rect x="1754" y="270" width="224" height="185" rx="2" fill="#F0F3F1" stroke="#BCC5C5" stroke-width="2"/>
+<rect x="858" y="145" width="249" height="355" rx="14" fill="#DFEBE5" stroke="#C6D7CC" stroke-width="2"/>
+<polygon points="561.4,435.2 828,435.2 784.6,482.2 518,482.2" fill="#B1D28F" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="558.4,439.2 825,439.2 781.6,486.2 515,486.2" fill="#C1DBA8" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="555.4,443.2 822,443.2 778.6,490.2 512,490.2" fill="#D2E4BE" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="577.98,418 799,418 763.02,462 542,462" fill="#B1D28F" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="574.98,422 796,422 760.02,466 539,466" fill="#C1DBA8" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="571.98,426 793,426 757.02,470 536,470" fill="#D2E4BE" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="594.84,400 772,400 743.16,440 566,440" fill="#B1D28F" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="591.84,404 769,404 740.16,444 563,444" fill="#C1DBA8" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="588.84,408 766,408 737.16,448 560,448" fill="#D2E4BE" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="629.12,159 777.04,159 752.96,203 605.04,203" fill="#B1D28F" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="626.12,163 774.04,163 749.96,207 602.04,207" fill="#C1DBA8" stroke="#8D947E" stroke-width="1.5"/>
+<polygon points="623.12,167 771.04,167 746.96,211 599.04,211" fill="#D2E4BE" stroke="#8D947E" stroke-width="1.5"/>
+<polyline id="input_backbone" points="367.5,363 367.5,408.2" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="concat_memory" points="1104,336 1212,336" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="memory_selection" points="1236,336 1280,336" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="selection_queries" points="1338,336 1373,336" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="l1_l2" points="1561.5,217 1561.5,237" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="l2_aqs" points="1561.5,296 1561.5,317" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aqs_l3" points="1561.5,376 1561.5,409" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="l3_heads" points="1561.5,457 1561.5,483" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="queries_decoder" points="1397,336 1446,336" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="shared_memory" points="1224,164 1224,99 1573.72,99 1573.72,135" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="decoder_predictions" points="1652,336 1675,336" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="predictions_output" points="1699,336 1754,336" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="a5_grid_u1" points="637.912,167 613.832,211" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u2" points="652.704,167 628.624,211" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u3" points="667.496,167 643.416,211" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u4" points="682.288,167 658.208,211" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u5" points="697.08,167 673,211" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u6" points="711.872,167 687.792,211" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u7" points="726.664,167 702.584,211" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u8" points="741.456,167 717.376,211" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_u9" points="756.248,167 732.168,211" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_v1" points="617.1,178 765.02,178" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_v2" points="611.08,189 759,189" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="a5_grid_v3" points="605.06,200 752.98,200" fill="none" stroke="#8FA47B" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_feature_pos0" points="523,369 523,364" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input0" points="523,344 523,330" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output0" points="523,278 523,259" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos1" points="553,369 553,364" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input1" points="553,344 553,330" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output1" points="553,278 553,259" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos2" points="583,369 583,364" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input2" points="583,344 583,330" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output2" points="583,278 583,259" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos3" points="613,369 613,364" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input3" points="613,344 613,330" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output3" points="613,278 613,259" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos4" points="643,369 643,364" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input4" points="643,344 643,330" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output4" points="643,278 643,259" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos5" points="673,369 673,364" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input5" points="673,344 673,330" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output5" points="673,278 673,259" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos6" points="703,369 703,364" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input6" points="703,344 703,330" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output6" points="703,278 703,259" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos7" points="733,369 733,364" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input7" points="733,344 733,330" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output7" points="733,278 733,259" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos8" points="763,369 763,364" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input8" points="763,344 763,330" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output8" points="763,278 763,259" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos9" points="793,369 793,364" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input9" points="793,344 793,330" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output9" points="793,278 793,259" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_feature_pos10" points="823,369 823,364" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round"/>
+<polyline id="aifi_pos_input10" points="823,344 823,330" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="aifi_output10" points="823,278 823,259" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="p5_tokens" points="673,408 673,389" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="tokens_a5" points="673,239 673,211" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="a5_coarse_input" points="759,189 845,189 845,282 888,282" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="p4_scale_input" points="793,426 845,426 845,336 888,336" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="p3_scale_input" points="822,443.2 888,443.2" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="top_down_mid" points="902,296 902,318" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="mid_fine_projection" points="902,354 902,379.6" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="top_down_fine" points="902,407.6 902,425.2" fill="none" stroke="#B85A1D" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow2)"/>
+<polyline id="fine_resample_input" points="956,425.2 956,407.6" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="bottom_up_mid" points="956,379.6 956,354" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="coarse_resample_input" points="956,318 956,296" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<polyline id="bottom_up_coarse" points="956,268 956,246.8" fill="none" stroke="#4274A7" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow1)"/>
+<path d="M950 307 Q956 317 962 307" fill="none" stroke="#DFEBE5" stroke-width="6"/><path id="coarse_lateral_skip" d="M902 307 L950 307 Q956 317 962 307 L1020 307 L1020 239.6 L994 239.6" fill="none" stroke="#4274A7" stroke-width="2.2" marker-end="url(#arrow1)"/>
+<path d="M950 416 Q956 426 962 416" fill="none" stroke="#DFEBE5" stroke-width="6"/><path id="fine_lateral_skip" d="M902 416 L950 416 Q956 426 962 416 L1020 416 L1020 346.8 L994 346.8" fill="none" stroke="#4274A7" stroke-width="2.2" marker-end="url(#arrow1)"/>
+<polyline id="backbone_levels" points="459,490.2 512,490.2" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="coarse_output_c" points="994,228.8 1089,228.8 1089,321" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="middle_output_c" points="994,336 1074,336" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="fine_output_c" points="994,443.2 1089,443.2 1089,351" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<rect x="277.3" y="204.66" width="98.4" height="38.28" rx="0" fill="#C4D7CC" stroke="none" stroke-width="2"/>
+<rect x="402.35" y="204.66" width="51.25" height="38.28" rx="0" fill="#D6EAF0" stroke="none" stroke-width="2"/>
+<rect x="425.72" y="204.66" width="4.1" height="38.28" rx="0" fill="#FFFFFF" stroke="none" stroke-width="2"/>
+<rect x="265" y="328.2" width="205" height="34.8" rx="0" fill="#E1E2DC" stroke="none" stroke-width="2"/>
+<rect x="295.34" y="279.48" width="25.42" height="40.02" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="308.05" cy="266.43" rx="9.43" ry="11.31" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="283.45" y="310.8" width="49.2" height="11.31" rx="0" fill="#CBBCA2" stroke="none" stroke-width="2"/>
+<rect x="290.625" y="322.11" width="3.28" height="25.23" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="322.4" y="322.11" width="3.28" height="25.23" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="290.625" y="250.77" width="5.125" height="43.5" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="293.085" cy="247.551" rx="2.87" ry="4.611" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="354.79" y="279.48" width="25.42" height="40.02" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="367.5" cy="266.43" rx="9.43" ry="11.31" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="342.9" y="310.8" width="49.2" height="11.31" rx="0" fill="#CBBCA2" stroke="none" stroke-width="2"/>
+<rect x="350.075" y="322.11" width="3.28" height="25.23" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="381.85" y="322.11" width="3.28" height="25.23" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="357.865" y="300.882" width="22.55" height="8.7" rx="0" fill="#FFFDF3" stroke="none" stroke-width="2"/>
+<rect x="367.91" y="300.882" width="1.64" height="8.7" rx="0" fill="#C6CECA" stroke="none" stroke-width="2"/>
+<rect x="414.24" y="279.48" width="25.42" height="40.02" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="426.95" cy="266.43" rx="9.43" ry="11.31" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="402.35" y="310.8" width="49.2" height="11.31" rx="0" fill="#CBBCA2" stroke="none" stroke-width="2"/>
+<rect x="409.525" y="322.11" width="3.28" height="25.23" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="441.3" y="322.11" width="3.28" height="25.23" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="417.315" y="300.882" width="22.55" height="8.7" rx="0" fill="#FFFDF3" stroke="none" stroke-width="2"/>
+<rect x="427.36" y="300.882" width="1.64" height="8.7" rx="0" fill="#C6CECA" stroke="none" stroke-width="2"/>
+<rect x="438.225" y="293.4" width="1.845" height="16.008" rx="0" fill="#697984" stroke="none" stroke-width="2"/>
+<text x="367.5" y="163.5" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="400" fill="#151515">Input image</text>
+<polygon points="303.45,408.2 431.55,408.2 459,490.2 276,490.2" fill="#DEEBEF" stroke="#505050" stroke-width="1.5"/>
+<text x="367.5" y="449.2" dominant-baseline="central" text-anchor="middle" font-size="24" font-weight="700" fill="#151515">BACKBONE</text>
+<ellipse cx="1089" cy="336" rx="15" ry="15" fill="#FFFFFF" stroke="#505050" stroke-width="2"/>
+<text x="1089" y="336" dominant-baseline="central" text-anchor="middle" font-size="22" font-weight="700" fill="#151515">C</text>
+<text x="1212" y="336" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<rect x="1212" y="164" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1212" y="191" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1212" y="218" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1212" y="245" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1212" y="272" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1212" y="299" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1212" y="326" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1212" y="353" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1212" y="380" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1212" y="407" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1212" y="434" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1212" y="461" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1212" y="488" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<text x="1225.5" y="543.5" dominant-baseline="central" text-anchor="middle" font-size="20" font-weight="400" fill="#151515">Memory</text>
+<rect x="1280" y="208" width="58" height="256" rx="8" fill="#FCE0C6" stroke="#505050" stroke-width="2"/><text transform="translate(1309 336) rotate(-90)" text-anchor="middle" dominant-baseline="central" font-size="27" font-weight="700" fill="#151515">Query selection</text>
+<text x="1373" y="336" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<rect x="1373" y="224.5" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1373" y="253.5" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1373" y="282.5" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1373" y="311.5" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1373" y="340.5" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1373" y="369.5" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1373" y="398.5" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<rect x="1373" y="427.5" width="24" height="20" rx="0" fill="#FFF6DB" stroke="#505050" stroke-width="2"/>
+<text x="1386" y="488" dominant-baseline="central" text-anchor="middle" font-size="21" font-weight="400" fill="#151515">Top300</text>
+<rect x="1450" y="167" width="39" height="335" rx="8" fill="#DFEEF3" stroke="none" stroke-width="2"/><text transform="translate(1469.5 334.5) rotate(-90)" text-anchor="middle" dominant-baseline="central" font-size="24" font-weight="700" fill="#151515">D-FINE Decoder &amp; Head</text>
+<rect x="1495" y="169" width="133" height="48" rx="8" fill="#FFFFFF" stroke="#505050" stroke-width="2"/>
+<text x="1561.5" y="193" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#151515">Layer 1</text>
+<rect x="1495" y="237" width="133" height="59" rx="8" fill="#FFFFFF" stroke="#505050" stroke-width="2"/>
+<text x="1561.5" y="266.5" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#151515">Layer 2</text>
+<rect x="1495" y="317" width="133" height="59" rx="8" fill="#FFFFFF" stroke="#505050" stroke-width="2"/>
+<text x="1561.5" y="346.5" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#151515">AQS</text>
+<rect x="1495" y="409" width="133" height="48" rx="8" fill="#FFFFFF" stroke="#505050" stroke-width="2"/>
+<text x="1561.5" y="433" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#151515">Layer 3</text>
+<text x="1561.5" y="497.5" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#151515">Head</text>
+<text x="1675" y="336" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<rect x="1675" y="224.5" width="24" height="20" rx="0" fill="#FFF0B7" stroke="#505050" stroke-width="2"/>
+<rect x="1675" y="253.5" width="24" height="20" rx="0" fill="#E4EFCB" stroke="#505050" stroke-width="2"/>
+<rect x="1675" y="282.5" width="24" height="20" rx="0" fill="#D8E7F3" stroke="#505050" stroke-width="2"/>
+<rect x="1675" y="311.5" width="24" height="20" rx="0" fill="#FFF0B7" stroke="#505050" stroke-width="2"/>
+<rect x="1675" y="340.5" width="24" height="20" rx="0" fill="#E4EFCB" stroke="#505050" stroke-width="2"/>
+<rect x="1675" y="369.5" width="24" height="20" rx="0" fill="#D8E7F3" stroke="#505050" stroke-width="2"/>
+<rect x="1675" y="398.5" width="24" height="20" rx="0" fill="#FFF0B7" stroke="#505050" stroke-width="2"/>
+<rect x="1675" y="427.5" width="24" height="20" rx="0" fill="#E4EFCB" stroke="#505050" stroke-width="2"/>
+<rect x="1767.44" y="286.65" width="107.52" height="40.7" rx="0" fill="#C4D7CC" stroke="none" stroke-width="2"/>
+<rect x="1904.08" y="286.65" width="56" height="40.7" rx="0" fill="#D6EAF0" stroke="none" stroke-width="2"/>
+<rect x="1929.62" y="286.65" width="4.48" height="40.7" rx="0" fill="#FFFFFF" stroke="none" stroke-width="2"/>
+<rect x="1754" y="418" width="224" height="37" rx="0" fill="#E1E2DC" stroke="none" stroke-width="2"/>
+<rect x="1787.15" y="366.2" width="27.776" height="42.55" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="1801.04" cy="352.325" rx="10.304" ry="12.025" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="1774.16" y="399.5" width="53.76" height="12.025" rx="0" fill="#CBBCA2" stroke="none" stroke-width="2"/>
+<rect x="1782" y="411.525" width="3.584" height="26.825" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="1816.72" y="411.525" width="3.584" height="26.825" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="1782" y="335.675" width="5.6" height="46.25" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="1784.69" cy="332.252" rx="3.136" ry="4.9025" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="1772.82" y="327.35" width="56.672" height="85.1" rx="0" fill="none" stroke="#A6854F" stroke-width="2"/>
+<text x="1801.15" y="420.775" dominant-baseline="central" text-anchor="middle" font-size="14" font-weight="400" fill="#A6854F">hand</text>
+<rect x="1852.11" y="366.2" width="27.776" height="42.55" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="1866" cy="352.325" rx="10.304" ry="12.025" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="1839.12" y="399.5" width="53.76" height="12.025" rx="0" fill="#CBBCA2" stroke="none" stroke-width="2"/>
+<rect x="1846.96" y="411.525" width="3.584" height="26.825" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="1881.68" y="411.525" width="3.584" height="26.825" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="1855.47" y="388.955" width="24.64" height="9.25" rx="0" fill="#FFFDF3" stroke="none" stroke-width="2"/>
+<rect x="1866.45" y="388.955" width="1.792" height="9.25" rx="0" fill="#C6CECA" stroke="none" stroke-width="2"/>
+<rect x="1837.78" y="327.35" width="56.672" height="85.1" rx="0" fill="none" stroke="#6487A4" stroke-width="2"/>
+<text x="1866.11" y="420.775" dominant-baseline="central" text-anchor="middle" font-size="14" font-weight="400" fill="#6487A4">read</text>
+<rect x="1917.07" y="366.2" width="27.776" height="42.55" rx="0" fill="#A3B4CA" stroke="none" stroke-width="2"/>
+<ellipse cx="1930.96" cy="352.325" rx="10.304" ry="12.025" fill="#E1C3A6" stroke="none" stroke-width="2"/>
+<rect x="1904.08" y="399.5" width="53.76" height="12.025" rx="0" fill="#CBBCA2" stroke="none" stroke-width="2"/>
+<rect x="1911.92" y="411.525" width="3.584" height="26.825" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="1946.64" y="411.525" width="3.584" height="26.825" rx="0" fill="#B3A58F" stroke="none" stroke-width="2"/>
+<rect x="1920.43" y="388.955" width="24.64" height="9.25" rx="0" fill="#FFFDF3" stroke="none" stroke-width="2"/>
+<rect x="1931.41" y="388.955" width="1.792" height="9.25" rx="0" fill="#C6CECA" stroke="none" stroke-width="2"/>
+<rect x="1943.28" y="381" width="2.016" height="17.02" rx="0" fill="#697984" stroke="none" stroke-width="2"/>
+<rect x="1902.74" y="327.35" width="56.672" height="85.1" rx="0" fill="none" stroke="#789763" stroke-width="2"/>
+<text x="1931.07" y="420.775" dominant-baseline="central" text-anchor="middle" font-size="14" font-weight="400" fill="#789763">write</text>
+<text x="1866" y="482.5" dominant-baseline="central" text-anchor="middle" font-size="21" font-weight="400" fill="#151515">Detection output (schematic)</text>
+<text x="1105" y="622" dominant-baseline="central" text-anchor="middle" font-size="29" font-weight="700" fill="#151515">D-FINE-S with Adaptive Query Selection (AQS)</text>
+<text x="800" y="118" dominant-baseline="central" text-anchor="middle" font-size="27.2" font-weight="700" fill="#151515">Hybrid Encoder</text>
+<text x="982.5" y="165.5" dominant-baseline="central" text-anchor="middle" font-size="23" font-weight="700" fill="#151515">CCFF</text>
+<text x="512" y="467.2" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="547.5" y="477.2" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#151515">P3</text>
+<text x="536" y="448.5" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="571.5" y="457" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#151515">P4</text>
+<text x="560" y="428.5" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="595.5" y="435" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#151515">P5</text>
+<text x="599.04" y="189.5" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="769.5" y="221" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#151515">A5</text>
+<text x="759" y="189" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="673" y="211" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="673" y="408" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="793" y="426" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="822" y="443.2" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="637.912" y="167" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="613.832" y="211" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="652.704" y="167" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="628.624" y="211" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="667.496" y="167" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="643.416" y="211" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="682.288" y="167" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="658.208" y="211" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="697.08" y="167" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="673" y="211" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="711.872" y="167" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="687.792" y="211" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="726.664" y="167" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="702.584" y="211" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="741.456" y="167" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="717.376" y="211" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="756.248" y="167" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="732.168" y="211" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="617.1" y="178" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="765.02" y="178" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="611.08" y="189" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="759" y="189" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="605.06" y="200" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="752.98" y="200" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<rect x="506" y="278" width="334" height="52" rx="8" fill="#D9E8DE" stroke="#505050" stroke-width="2"/>
+<text x="673" y="304" dominant-baseline="central" text-anchor="middle" font-size="28" font-weight="700" fill="#151515">AIFI</text>
+<text x="512" y="249" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<rect x="512" y="239" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="542" y="239" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="572" y="239" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="602" y="239" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="632" y="239" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="662" y="239" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="692" y="239" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="722" y="239" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="752" y="239" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="782" y="239" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="812" y="239" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<text x="512" y="354" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<rect x="512" y="344" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="542" y="344" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="572" y="344" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="602" y="344" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="632" y="344" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="662" y="344" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="692" y="344" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="722" y="344" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="752" y="344" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="782" y="344" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="812" y="344" width="22" height="20" rx="0" fill="#BCD0E9" stroke="#505050" stroke-width="2"/>
+<text x="512" y="379" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<rect x="512" y="369" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="542" y="369" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="572" y="369" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="602" y="369" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="632" y="369" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="662" y="369" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="692" y="369" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="722" y="369" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="752" y="369" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="782" y="369" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="812" y="369" width="22" height="20" rx="0" fill="#BDD99E" stroke="#505050" stroke-width="2"/>
+<rect x="888" y="210.8" width="106" height="36" rx="8" fill="#FBEAD9" stroke="#505050" stroke-width="2"/>
+<text x="941" y="228.8" dominant-baseline="central" text-anchor="middle" font-size="19.2" font-weight="700" fill="#151515">Fusion</text>
+<rect x="888" y="318" width="106" height="36" rx="8" fill="#FBEAD9" stroke="#505050" stroke-width="2"/>
+<text x="941" y="336" dominant-baseline="central" text-anchor="middle" font-size="19.2" font-weight="700" fill="#151515">Fusion</text>
+<rect x="888" y="425.2" width="106" height="36" rx="8" fill="#FBEAD9" stroke="#505050" stroke-width="2"/>
+<text x="941" y="443.2" dominant-baseline="central" text-anchor="middle" font-size="19.2" font-weight="700" fill="#151515">Fusion</text>
+<rect x="888" y="268" width="28" height="28" rx="4" fill="#FFE7A1" stroke="#505050" stroke-width="2"/>
+<rect x="942" y="268" width="28" height="28" rx="4" fill="#BFD0E9" stroke="#505050" stroke-width="2"/>
+<rect x="888" y="379.6" width="28" height="28" rx="4" fill="#FFE7A1" stroke="#505050" stroke-width="2"/>
+<rect x="942" y="379.6" width="28" height="28" rx="4" fill="#BFD0E9" stroke="#505050" stroke-width="2"/>
+<text x="902" y="307" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+<text x="902" y="416" dominant-baseline="central" text-anchor="start" font-size="1" font-weight="400" fill="#52647A"></text>
+</g>
+</svg>

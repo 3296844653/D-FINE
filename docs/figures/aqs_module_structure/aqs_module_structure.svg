@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="1035" viewBox="0 0 680 1035" role="img" aria-labelledby="title desc">
+<title id="title">AQS internal structure</title><desc id="desc">Portrait AQS-L2 diagram: confidence-based hard gates with STE, raw-query mean pooling, LayerNorm/context fusion MLP, and gated residual update. All 300 queries are retained. Eight displayed queries and confidences are schematic, not experimental data. No quantizer or regularization loss.</desc>
+<defs>
+<marker id="arrow0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#303030"/></marker>
+<marker id="arrow1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#4274A7"/></marker>
+<marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#B85A1D"/></marker>
+</defs>
+<rect width="680" height="1035" fill="white"/>
+<g font-family="&#x27;Times New Roman&#x27;, &#x27;Noto Serif&#x27;, serif">
+<rect x="12" y="12" width="656" height="1011" rx="0" fill="#FDEEF2" stroke="none" stroke-width="2"/>
+<rect x="65" y="90" width="550" height="110" rx="0" fill="none" stroke="#888888" stroke-width="2" stroke-dasharray="7 5"/>
+<rect x="350" y="350" width="250" height="44" rx="8" fill="#FDEEF2" stroke="none" stroke-width="2"/>
+<rect x="80" y="420" width="210" height="98" rx="8" fill="#FDEEF2" stroke="none" stroke-width="2"/>
+<rect x="65" y="852" width="550" height="106" rx="0" fill="none" stroke="#888888" stroke-width="2" stroke-dasharray="7 5"/>
+<polyline id="confidence_gate" points="475,200 475,245" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="threshold_gate" points="290,279 350,279" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="gate_binary" points="475,313 475,350" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="gate_pool" points="475,394 475,435" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="gate_residual" points="600,372 632,372 632,709 600,709" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="query_pool" points="290,469 350,469" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="pool_fusion" points="475,503 475,555" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="query_fusion" points="185,518 185,589 350,589" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="fusion_residual" points="475,623 475,675" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="residual_sum" points="475,743 475,780" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="identity" points="80,469 42,469 42,803 452,803" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="sum_output" points="475,826 475,852" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<polyline id="output_l3" points="340,958 340,978" fill="none" stroke="#303030" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arrow0)"/>
+<text font-style="italic" x="340" y="41.5" dominant-baseline="central" text-anchor="middle" font-size="28" font-weight="700" fill="#151515">Adaptive Query Selection (AQS)</text>
+<text x="340" y="114.5" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="400" fill="#151515">Class Confidence</text>
+<rect x="100.5" y="145" width="45" height="36" rx="0" fill="#DCE6F0" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="162.5" y="145" width="45" height="36" rx="0" fill="#EB9DAE" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="224.5" y="145" width="45" height="36" rx="0" fill="#EB9DAE" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="286.5" y="145" width="45" height="36" rx="0" fill="#DCE6F0" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="348.5" y="145" width="45" height="36" rx="0" fill="#EB9DAE" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="410.5" y="145" width="45" height="36" rx="0" fill="#EB9DAE" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="472.5" y="145" width="45" height="36" rx="0" fill="#DCE6F0" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="534.5" y="145" width="45" height="36" rx="0" fill="#EB9DAE" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="350" y="245" width="250" height="68" rx="8" fill="#EB718B" stroke="#505050" stroke-width="2"/>
+<text x="475" y="279" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#151515">Adaptive Gating</text>
+<rect x="80" y="245" width="210" height="68" rx="8" fill="#F8CCA9" stroke="#505050" stroke-width="2"/>
+<text x="185" y="279" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#151515">Threshold</text>
+<rect x="358" y="357" width="24" height="30" rx="0" fill="#F2CCD5" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="388" y="357" width="24" height="30" rx="0" fill="#31B6AC" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="418" y="357" width="24" height="30" rx="0" fill="#31B6AC" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="448" y="357" width="24" height="30" rx="0" fill="#F2CCD5" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="478" y="357" width="24" height="30" rx="0" fill="#31B6AC" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="508" y="357" width="24" height="30" rx="0" fill="#31B6AC" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="538" y="357" width="24" height="30" rx="0" fill="#F2CCD5" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="568" y="357" width="24" height="30" rx="0" fill="#31B6AC" stroke="#FFFFFF" stroke-width="2"/>
+<text x="185" y="439.5" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="400" fill="#151515">Query Features</text>
+<rect x="85" y="466" width="18" height="32" rx="3" fill="#F5D9DF" stroke="#75818D" stroke-width="2"/>
+<rect x="111" y="466" width="18" height="32" rx="3" fill="#31B6AC" stroke="#75818D" stroke-width="2"/>
+<rect x="137" y="466" width="18" height="32" rx="3" fill="#31B6AC" stroke="#75818D" stroke-width="2"/>
+<rect x="163" y="466" width="18" height="32" rx="3" fill="#C0D1E6" stroke="#75818D" stroke-width="2"/>
+<rect x="189" y="466" width="18" height="32" rx="3" fill="#BA7122" stroke="#75818D" stroke-width="2"/>
+<rect x="215" y="466" width="18" height="32" rx="3" fill="#BA7122" stroke="#75818D" stroke-width="2"/>
+<rect x="241" y="466" width="18" height="32" rx="3" fill="#C0D1E6" stroke="#75818D" stroke-width="2"/>
+<rect x="267" y="466" width="18" height="32" rx="3" fill="#416EA1" stroke="#75818D" stroke-width="2"/>
+<rect x="350" y="435" width="250" height="68" rx="8" fill="#E6E6E6" stroke="#505050" stroke-width="2"/>
+<text x="475" y="469" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#151515">Query Pooling</text>
+<rect x="350" y="555" width="250" height="68" rx="8" fill="#E6E6E6" stroke="#505050" stroke-width="2"/>
+<text x="475" y="589" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#151515">Context Fusion</text>
+<rect x="350" y="675" width="250" height="68" rx="8" fill="#F1BBC8" stroke="#505050" stroke-width="2"/>
+<text x="475" y="709" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="700" fill="#151515">Gated Residual</text>
+<ellipse cx="475" cy="803" rx="23" ry="23" fill="#FFFFFF" stroke="#505050" stroke-width="2"/>
+<text x="475" y="803" dominant-baseline="central" text-anchor="middle" font-size="29" font-weight="700" fill="#151515">+</text>
+<text x="340" y="875.5" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="400" fill="#151515">Refined Queries</text>
+<rect x="115" y="907" width="30" height="34" rx="3" fill="#F5D9DF" stroke="#75818D" stroke-width="2"/>
+<rect x="175" y="907" width="30" height="34" rx="3" fill="#31B6AC" stroke="#75818D" stroke-width="2"/>
+<rect x="178" y="910" width="24" height="4" rx="0" fill="#FFFFFF" stroke="none" stroke-width="2"/>
+<rect x="235" y="907" width="30" height="34" rx="3" fill="#31B6AC" stroke="#75818D" stroke-width="2"/>
+<rect x="238" y="910" width="24" height="4" rx="0" fill="#FFFFFF" stroke="none" stroke-width="2"/>
+<rect x="295" y="907" width="30" height="34" rx="3" fill="#C0D1E6" stroke="#75818D" stroke-width="2"/>
+<rect x="355" y="907" width="30" height="34" rx="3" fill="#BA7122" stroke="#75818D" stroke-width="2"/>
+<rect x="358" y="910" width="24" height="4" rx="0" fill="#FFFFFF" stroke="none" stroke-width="2"/>
+<rect x="415" y="907" width="30" height="34" rx="3" fill="#BA7122" stroke="#75818D" stroke-width="2"/>
+<rect x="418" y="910" width="24" height="4" rx="0" fill="#FFFFFF" stroke="none" stroke-width="2"/>
+<rect x="475" y="907" width="30" height="34" rx="3" fill="#C0D1E6" stroke="#75818D" stroke-width="2"/>
+<rect x="535" y="907" width="30" height="34" rx="3" fill="#416EA1" stroke="#75818D" stroke-width="2"/>
+<rect x="538" y="910" width="24" height="4" rx="0" fill="#FFFFFF" stroke="none" stroke-width="2"/>
+<text x="340" y="997.5" dominant-baseline="central" text-anchor="middle" font-size="25" font-weight="400" fill="#151515">Decoder L3</text>
+</g>
+</svg>

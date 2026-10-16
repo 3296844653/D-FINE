@@ -1,0 +1,11 @@
+__include__:
+  - dfine_s_scbs_hrw_110_AQS_BoxLocalQueryAdapter_l2.yml
+
+# Only the connection changes: both branches consume the same original L2 Q.
+# Q_out = Q + (AQS(Q, S)-Q) + (BoxLocal(Q, B, P3)-Q).
+# S is the original L2 classifier + LQE score, BEFORE either branch update.
+# Inherit dim64/grid3/offset0.15/local residual0.10 and AQS-L2 R0.10.
+output_dir: ./output/dfine_s_scbs_hrw_epochs110_AQS_BoxLocalQueryAdapter_l2_parallel_seed0_run1
+
+DFINE:
+  aqs_l2_local_fusion: parallel

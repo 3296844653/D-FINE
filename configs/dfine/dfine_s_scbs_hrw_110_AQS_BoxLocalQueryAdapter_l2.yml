@@ -2,12 +2,18 @@ __include__:
   - dfine_s_scbs_hrw_110.yml
 
 # AQS + BoxLocalQueryAdapter_l2: one detector, one joint training run.
-# Keep the tested AQS-R1 settings and the tested local adapter unchanged.
+# Pin the best standalone BoxLocal-L2 defaults + AQS-L2 R1 explicitly.
+# Order: L2 predicted boxes -> BoxLocal query update -> AQS -> L3.
+# Fresh joint training with the original HGNet pretraining, not -r/-t.
 output_dir: ./output/dfine_s_scbs_hrw_epochs110_AQS_BoxLocalQueryAdapter_l2_seed0_run1
 
 DFINE:
   night_probe: decoder_l2_local
   allow_aqs_l2_local_combo: true
+  box_local_dim: 64
+  box_local_grid_size: 3
+  box_local_offset_scale: 0.15
+  box_local_residual_scale: 0.10
 
 DFINETransformer:
   use_aqs_refine: true

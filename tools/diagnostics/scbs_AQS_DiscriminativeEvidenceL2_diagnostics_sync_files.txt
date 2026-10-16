@@ -1,0 +1,7 @@
+tools/diagnostics/export_scbs_AQS_DiscriminativeEvidenceL2.sh
+tools/diagnostics/eval_discriminative_evidence.py
+tools/diagnostics/scbs_discriminative_evidence_export.py
+tools/diagnostics/test_discriminative_evidence_export.py
+tools/diagnostics/sync_scbs_AQS_DiscriminativeEvidenceL2_diagnostics.sh
+tools/diagnostics/scbs_AQS_DiscriminativeEvidenceL2_diagnostics_sync_files.txt
+docs/SCBS_AQS_DiscriminativeEvidenceL2_DIAGNOSTICS.md
